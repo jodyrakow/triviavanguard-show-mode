@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
-const webhookUrl = "/.netlify/functions/fetchShows"; // Replace with your Make webhook URL
+const webhookUrl = "/.netlify/functions/fetchShows";
 
 function App() {
   const [data, setData] = useState({ Shows: [], Rounds: [] });
@@ -13,6 +13,7 @@ function App() {
         const res = await axios.get(webhookUrl);
         console.log("Fetched raw response:", res);
         console.log("Fetched data:", res.data); // 👀 Log parsed JSON
+        console.log("res.data.Shows:", res.data?.Shows);
         setData(res.data);
       } catch (error) {
         console.error("Error fetching data:", error);
