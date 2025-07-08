@@ -41,10 +41,8 @@ function App() {
 
           <h2>Rounds</h2>
           <ul>
-            {data.Rounds.map((round, index) => (
-              <li key={index}>
-                {round.Round} ({round["Round ID"]})
-              </li>
+            {data.Rounds.map((roundObj, index) => (
+              <li key={index}>{roundObj.Round?.Name} ({roundObj["Round ID"]})</li>
             ))}
           </ul>
         </>
