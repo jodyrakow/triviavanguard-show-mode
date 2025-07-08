@@ -34,10 +34,8 @@ function App() {
         <>
           <h2>Shows</h2>
           <ul>
-            {data.Shows.map((show, index) => (
-              <li key={index}>
-                {show.Name} ({show["Show ID"]})
-              </li>
+            {data.Shows.map((showObj, index) => (
+              <li key={index}>{showObj.Show?.Name} ({showObj["Show ID"]})</li>
             ))}
           </ul>
 
