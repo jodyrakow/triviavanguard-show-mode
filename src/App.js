@@ -1,23 +1,55 @@
-import logo from './logo.svg';
-import './App.css';
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+
+const webhookUrl = "/.netlify/functions/fetchShows"; // Replace with your Make webhook URL
 
 function App() {
+  const [data, setData] = useState({ Shows: [], Rounds: [] });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const res = await axios.get(webhookUrl);
+        console.log("Fetched raw response:", res);
+        console.log("Fetched data:", res.data); // 👀 Log parsed JSON
+        setData(res.data);
+      } catch (error) {
+        console.error("Error fetching data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+    <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
+      <h1>Trivia Show Mode</h1>
+      {loading ? (
+        <p>Loading...</p>
+      ) : (
+        <>
+          <h2>Shows</h2>
+          <ul>
+            {data.Shows.map((show, index) => (
+              <li key={index}>
+                {show.Name} ({show["Show ID"]})
+              </li>
+            ))}
+          </ul>
+
+          <h2>Rounds</h2>
+          <ul>
+            {data.Rounds.map((round, index) => (
+              <li key={index}>
+                {round.Round} ({round["Round ID"]})
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }
