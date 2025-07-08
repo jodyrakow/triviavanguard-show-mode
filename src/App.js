@@ -4,7 +4,7 @@ import axios from 'axios';
 const webhookUrl = "/.netlify/functions/fetchShows";
 
 function App() {
-  const [data, setData] = useState({ Shows: [], Rounds: [] });
+  const [data, setData] = useState({ Shows: [] });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
