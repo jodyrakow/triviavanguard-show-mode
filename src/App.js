@@ -13,6 +13,7 @@ const App = () => {
     const fetchData = async () => {
       try {
         const res = await axios.get(webhookUrl);
+        console.log("Fetched data:", res.data);
         setData(res.data);
       } catch (error) {
         console.error("Error fetching data:", error);
@@ -24,8 +25,9 @@ const App = () => {
     fetchData();
   }, []);
 
-  const selectedShowRounds = data.Rounds.filter(
-    (round) => round["Show ID"] === selectedShowId
+  const selectedShowRounds = data.Rounds
+    .map((item) => item.Round)
+    .filter((round) => round["Show ID"] === selectedShowId
   );
 
   return (
@@ -45,9 +47,9 @@ const App = () => {
             }}
           >
             <option value="">-- Select a Show --</option>
-            {data.Shows.map((show) => (
-              <option key={show["Show ID"]} value={show["Show ID"]}>
-                {show["Name"]}
+            {data.Shows.map((item) => (
+              <option key={item.Show["Show ID"]} value={item.Show["Show ID"]}>
+                {item.Show["Name"]}
               </option>
             ))}
           </select>
