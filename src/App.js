@@ -1,52 +1,51 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import "./App.css";
 
-const App = () => {
-  const [data, setData] = useState({ Shows: [], Rounds: [] });
-  const [questions, setQuestions] = useState([]);
-  const [loading, setLoading] = useState(true);
+export default function App() {
+  const [shows, setShows] = useState([]);
+  const [rounds, setRounds] = useState([]);
   const [selectedShowId, setSelectedShowId] = useState("");
   const [selectedRoundId, setSelectedRoundId] = useState("");
-  const [answersVisible, setAnswersVisible] = useState(false);
-  const [questionToggles, setQuestionToggles] = useState({});
-
-  const webhookUrl = "/.netlify/functions/fetchShows";
+  const [questions, setQuestions] = useState([]);
+  const [showDetails, setshowDetails] = useState(true);
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchShows = async () => {
       try {
-        const res = await axios.get(webhookUrl);
+        const res = await axios.get("/.netlify/functions/fetchShows");
+        setShows(res.data.Shows || []);
+        setRounds(res.data.Rounds || []);
         console.log("Fetched shows/rounds:", res.data);
-        setData(res.data);
       } catch (error) {
-        console.error("Error fetching data:", error);
-      } finally {
-        setLoading(false);
+        console.error("Error fetching shows/rounds:", error);
       }
     };
 
-    fetchData();
+    fetchShows();
   }, []);
 
-  const selectedShowRounds = data.Rounds
-    .map((r) => r.Round)
-    .filter((round) => round["Show ID"] === selectedShowId);
-
   useEffect(() => {
-    if (selectedShowRounds.length === 1) {
-      setSelectedRoundId(selectedShowRounds[0]["Round ID"]);
+    if (!selectedShowId) return;
+
+    const showRounds = rounds.filter(
+      (r) => r.Round?.["Show ID"] === selectedShowId
+    );
+
+    if (showRounds.length === 1) {
+      setSelectedRoundId(showRounds[0].Round["Round ID"]);
     }
-  }, [selectedShowId, data]);
+  }, [selectedShowId, rounds]);
 
   useEffect(() => {
     const fetchQuestions = async () => {
       if (!selectedShowId || !selectedRoundId) return;
 
       try {
-        const res = await axios.post(`/.netlify/functions/fetchQuestions`, {
-  showId: selectedShowId,
-  roundId: selectedRoundId,
-});
+        const res = await axios.post("/.netlify/functions/fetchQuestions", {
+          showId: selectedShowId,
+          roundId: selectedRoundId,
+        });
         console.log("Fetched questions:", res.data);
         setQuestions(res.data.Questions || []);
       } catch (error) {
@@ -67,138 +66,113 @@ const App = () => {
     return acc;
   }, {});
 
-  const toggleQuestionAnswer = (order) => {
-    setQuestionToggles((prev) => ({ ...prev, [order]: !prev[order] }));
-  };
+  const selectedShowRounds = rounds.filter(
+    (r) => r.Round?.["Show ID"] === selectedShowId
+  );
+    console.log("Grouped questions", groupedQuestions);
+
+
 
   return (
-    <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
-      <h1>Trivia Show Mode</h1>
+    <div style={{ fontFamily: "Antonio, sans-serif", padding: "2rem", backgroundColor: "#eef1f4" }}>
+      <h1 style={{ fontSize: "3rem", color: "#2B394A", marginTop: "2rem", marginBottom: "0" }}>TriviaVanguard</h1>
+      <h2 style={{ fontSize: "1.75rem", color: "#2B394A", textIndent: "0.75rem", marginTop: "-.25rem"}}>Show mode</h2>
+      <div style={{ display: "flex", flexDirection: "column", marginBottom: "2rem" }}>
+  <div>
+    <label style={{ fontSize: "1.25rem", color: "#2B394A", marginRight: "1rem" }}>
+      Select Show:
+  <select
+    value={selectedShowId}
+    onChange={(e) => {
+      setSelectedShowId(e.target.value);
+      setSelectedRoundId("");
+      setQuestions([]);
+    }}
+    style={{ fontSize: "1.25rem", fontFamily: "Questrial, sans-serif", marginLeft: "0.5rem", verticalAlign: "middle" }}
+  >
+    <option style={{ fontFamily: "Questrial, sans-serif"}}
+    value="">-- Select a Show --</option>
+    {shows.map((s) => (
+      <option key={s.Show["Show ID"]} value={s.Show["Show ID"]}
+      style={{fontFamiliy:"Questrial, sans-serif"}}>
+        {s.Show["Name"]}
+      </option>
+    ))}
+  </select>
+</label>
+  </div>
 
-      {loading ? (
-        <p>Loading data...</p>
-      ) : (
-        <>
-          <h2>Select a Show</h2>
-          <select
-            value={selectedShowId}
-            onChange={(e) => {
-              setSelectedShowId(e.target.value);
-              setSelectedRoundId("");
-              setQuestions([]);
-              setAnswersVisible(false);
-              setQuestionToggles({});
-            }}
-          >
-            <option value="">-- Select a Show --</option>
-            {data.Shows.map((s) => (
-              <option key={s.Show["Show ID"]} value={s.Show["Show ID"]}>
-                {s.Show["Name"]}
-              </option>
-            ))}
-          </select>
+  {selectedShowRounds.length > 1 && (
+    <div>
+      <label style= {{fontSize: "1.25rem", color: "#2B394A", marginRight: "1rem"}}>
+        Select Round:
+      <select
+        value={selectedRoundId}
+        onChange={(e) => setSelectedRoundId(e.target.value)}
+        style={{fontSize: "1.25rem", fontFamily: "Questrial, sans-serif", marginLeft: "0.5rem", verticalAlign: "middle"}}
+        >
+        <option style={{fontFamily: "Questrial, sans-serif"}}
+        value="">-- Select a Round --</option>
+        {selectedShowRounds.map((r) => (
+          <option key={r.Round["Round ID"]} value={r.Round["Round ID"]}
+            style={{fontFamily: "Questrial, sans-serif"}}
+        >
+            {r.Round["Name"]}
+          </option>
+        ))}
+      </select>
+      </label>
+    </div>
+  )}
+</div>
+    {questions.length > 0 && (
+  <button
+    onClick={() => setshowDetails(!showDetails)}
+    className="fixed-answer-toggle"
+  >
+    {showDetails ? "Hide all answers" : "Show all answers"}
+  </button>
+)}
+      {Object.entries(groupedQuestions).map(([groupKey, questions], index) => {
+  const [categoryName, categoryDescription] = groupKey.split("|||");
 
-          {selectedShowRounds.length > 1 && (
-            <>
-              <h2>Select a Round</h2>
-              <select
-                value={selectedRoundId}
-                onChange={(e) => {
-                  setSelectedRoundId(e.target.value);
-                  setQuestions([]);
-                  setAnswersVisible(false);
-                  setQuestionToggles({});
-                }}
-              >
-                <option value="">-- Select a Round --</option>
-                {selectedShowRounds.map((r) => (
-                  <option key={r["Round ID"]} value={r["Round ID"]}>
-                    {r["Name"]}
-                  </option>
-                ))}
-              </select>
-            </>
-          )}
+  return (
+    <div key={groupKey} style={{ marginTop: index === 0 ? "1rem" : "4rem"}}>
+      <div style={{ backgroundColor: "#2B394A", padding: "0" }}>
+  <hr style={{ border: "none", borderTop: "2px solid #DC6A24", margin: "0 0 0.3rem 0" }} />
+  <h2 style={{ color: "#DC6A24", fontFamily: "Antonio", fontSize: "1.85rem", margin: 0, textAlign: "left", letterSpacing: "0.015em", textIndent: "0.5rem" }}>
+    {categoryName}
+  </h2>
+  <p style={{ color: "#ffffff", fontStyle: "italic", fontFamily: "Sanchez", margin: "0 0 0.5rem 0", textAlign: "left", textIndent: "1rem" }}>
+    {categoryDescription}
+  </p>
+  <hr style={{ border: "none", borderTop: "2px solid #DC6A24", margin: "0.3rem 0 0 0" }} />
+</div>
+      {questions.map((item) => {
+        const q = item.Question;
+        return (
+          <div key={q["Question ID"] || q["Question order"]}>
+            <p style={{ fontFamily: "Questrial, sans-serif", fontSize: "1.125rem", marginTop: "1.75rem", marginBottom: "0.25rem" }}>
+  <strong>Question {q["Question order"]}:</strong> {q["Question text"]}
+</p>
 
-          {selectedRoundId && questions.length > 0 && (
-            <>
-              <button
-                onClick={() => setAnswersVisible((prev) => !prev)}
-                style={{
-                  margin: "1rem 0",
-                  padding: "0.5rem",
-                  background: "#DC6A24",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "4px",
-                }}
-              >
-                {answersVisible ? "Hide All Answers" : "Show All Answers"}
-              </button>
+{q["Flavor text"] && showDetails && (
+  <p style={{ fontFamily: "Lora, serif", fontSize: "1rem", fontStyle: "italic", marginTop: "0", marginBottom: "0.25rem" }}>
+    <span role="img" aria-label="flavor">💭</span> {q["Flavor text"]}
+  </p>
+)}
 
-              {Object.entries(groupedQuestions).map(([key, questions]) => {
-                const [catName, catDesc] = key.split("|||");
-                return (
-                  <div key={key} style={{ marginBottom: "2rem" }}>
-                    <h3 style={{ color: "#2B394A" }}>{catName}</h3>
-                    <p style={{ fontStyle: "italic", marginTop: "-0.5rem" }}>
-                      {catDesc}
-                    </p>
-                    {questions
-                      .sort(
-                        (a, b) =>
-                          parseInt(a["Question order"]) -
-                          parseInt(b["Question order"])
-                      )
-                      .map((q) => (
-                        <div
-                          key={q["Question order"]}
-                          style={{ marginTop: "1rem" }}
-                        >
-                          <strong>
-                            {q["Question order"]}. {q["Question text"]}
-                          </strong>
-                          <div style={{ marginLeft: "1rem" }}>
-                            <div style={{ color: "green" }}>
-                              🟢 Answer:{" "}
-                              {answersVisible ||
-                              questionToggles[q["Question order"]]
-                                ? q["Answer"]
-                                : "•••"}
-                            </div>
-                            {q["Flavor text"] && (
-                              <div
-                                style={{ fontStyle: "italic", color: "#555" }}
-                              >
-                                💬 {q["Flavor text"]}
-                              </div>
-                            )}
-                            <button
-                              onClick={() =>
-                                toggleQuestionAnswer(q["Question order"])
-                              }
-                              style={{
-                                marginTop: "0.5rem",
-                                fontSize: "0.8rem",
-                              }}
-                            >
-                              {questionToggles[q["Question order"]]
-                                ? "Hide"
-                                : "Show"}{" "}
-                              answer
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                );
-              })}
-            </>
-          )}
-        </>
-      )}
+{showDetails && (
+  <p style={{ fontFamily: "Questrial, sans-serif", fontSize: "1.125rem", marginTop: "0", marginBottom: "1rem", marginLeft:"1.5rem" }}>
+    <span role="img" aria-label="answer">🟢</span> <strong>Answer:</strong> {q["Answer"]}
+  </p>
+)}
+          </div>
+        );
+      })}
     </div>
   );
-};
-
-export default App;
+})}
+    </div>
+  );
+}

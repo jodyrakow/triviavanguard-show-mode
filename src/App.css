@@ -36,3 +36,28 @@
     transform: rotate(360deg);
   }
 }
+
+.fixed-answer-toggle {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  background-color: #DC6A24;  /* your orange */
+  color: white;
+  border: 2px solid #2b394a;
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  font-family: 'Questrial', sans-serif;
+  font-weight: bold;
+  cursor: pointer;
+  z-index: 1000;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  letter-spacing: 0.5px;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.fixed-answer-toggle:hover {
+  background-color: #b94f16;  /* slightly darker orange on hover */
+  transform: scale(1.05);     /* subtle grow effect */
+}
+
