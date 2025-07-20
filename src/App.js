@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import "./App.css";
+import {marked} from "marked";
 
 export default function App() {
   const [shows, setShows] = useState([]);
@@ -137,36 +138,106 @@ export default function App() {
   const [categoryName, categoryDescription] = groupKey.split("|||");
 
   return (
-    <div key={groupKey} style={{ marginTop: index === 0 ? "1rem" : "4rem"}}>
+    <div key={groupKey} style={{ marginTop: index === 0 ? "1rem" : "4rem" }}>
       <div style={{ backgroundColor: "#2B394A", padding: "0" }}>
-  <hr style={{ border: "none", borderTop: "2px solid #DC6A24", margin: "0 0 0.3rem 0" }} />
-  <h2 style={{ color: "#DC6A24", fontFamily: "Antonio", fontSize: "1.85rem", margin: 0, textAlign: "left", letterSpacing: "0.015em", textIndent: "0.5rem" }}>
-    {categoryName}
-  </h2>
-  <p style={{ color: "#ffffff", fontStyle: "italic", fontFamily: "Sanchez", margin: "0 0 0.5rem 0", textAlign: "left", textIndent: "1rem" }}>
-    {categoryDescription}
-  </p>
-  <hr style={{ border: "none", borderTop: "2px solid #DC6A24", margin: "0.3rem 0 0 0" }} />
-</div>
+        <hr style={{ border: "none", borderTop: "2px solid #DC6A24", margin: "0 0 0.3rem 0" }} />
+        
+        {/* CATEGORY NAME (Markdown-enabled) */}
+        <h2
+          style={{
+            color: "#DC6A24",
+            fontFamily: "Antonio",
+            fontSize: "1.85rem",
+            margin: 0,
+            textAlign: "left",
+            letterSpacing: "0.015em",
+            textIndent: "0.5rem",
+          }}
+          dangerouslySetInnerHTML={{
+            __html: marked.parseInline(categoryName || "Uncategorized"),
+          }}
+        />
+
+        {/* CATEGORY DESCRIPTION (Markdown-enabled) */}
+        <p
+          style={{
+            color: "#ffffff",
+            fontStyle: "italic",
+            fontFamily: "Sanchez",
+            margin: "0 0 0.5rem 0",
+            textAlign: "left",
+            textIndent: "1rem",
+          }}
+          dangerouslySetInnerHTML={{
+            __html: marked.parseInline(categoryDescription || ""),
+          }}
+        />
+
+        <hr style={{ border: "none", borderTop: "2px solid #DC6A24", margin: "0.3rem 0 0 0" }} />
+      </div>
+
+      {/* QUESTIONS */}
       {questions.map((item) => {
         const q = item.Question;
+
         return (
           <div key={q["Question ID"] || q["Question order"]}>
-            <p style={{ fontFamily: "Questrial, sans-serif", fontSize: "1.125rem", marginTop: "1.75rem", marginBottom: "0.25rem" }}>
-  <strong>Question {q["Question order"]}:</strong> {q["Question text"]}
-</p>
 
-{q["Flavor text"] && showDetails && (
-  <p style={{ fontFamily: "Lora, serif", fontSize: "1rem", fontStyle: "italic", marginTop: "0", marginBottom: "0.25rem" }}>
-    <span role="img" aria-label="flavor">💭</span> {q["Flavor text"]}
+            {/* QUESTION TEXT (Markdown-enabled) */}
+            <p
+              style={{
+                fontFamily: "Questrial, sans-serif",
+                fontSize: "1.125rem",
+                marginTop: "1.75rem",
+                marginBottom: "0.25rem",
+              }}
+            >
+              <strong>Question {q["Question order"]}:</strong>{" "}
+              <span
+                dangerouslySetInnerHTML={{
+                  __html: marked.parseInline(q["Question text"] || ""),
+                }}
+              />
+            </p>
+
+            {/* FLAVOR TEXT (Markdown-enabled) */}
+            {q["Flavor text"]?.trim() && showDetails && (
+  <p
+    style={{
+      fontFamily: "Lora, serif",
+      fontSize: "1rem",
+      fontStyle: "italic",
+      marginTop: "0",
+      marginBottom: "0.25rem",
+    }}
+  >
+    <span role="img" aria-label="flavor">💭</span>{" "}
+    <span
+      dangerouslySetInnerHTML={{
+        __html: marked.parseInline(q["Flavor text"]),
+      }}
+    />
   </p>
 )}
 
-{showDetails && (
-  <p style={{ fontFamily: "Questrial, sans-serif", fontSize: "1.125rem", marginTop: "0", marginBottom: "1rem", marginLeft:"1.5rem" }}>
-    <span role="img" aria-label="answer">🟢</span> <strong>Answer:</strong> {q["Answer"]}
-  </p>
-)}
+            {/* ANSWER (Markdown-enabled) */}
+            {showDetails && (
+              <p
+                style={{
+                  fontFamily: "Questrial, sans-serif",
+                  fontSize: "1.125rem",
+                  marginTop: "0",
+                  marginBottom: "1rem",
+                  marginLeft: "1.5rem",
+                }}
+              >
+                <span
+                  dangerouslySetInnerHTML={{
+                    __html: marked.parseInline(`🟢 **Answer:** ${q["Answer"]}`),
+                  }}
+                />
+              </p>
+            )}
           </div>
         );
       })}
