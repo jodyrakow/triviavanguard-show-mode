@@ -67,13 +67,49 @@ export default function App() {
   );
 
   return (
-    <div style={{ fontFamily: "Antonio, sans-serif", padding: "2rem", backgroundColor: "#eef1f4" }}>
-      <h1 style={{ fontSize: "3rem", color: "#2B394A", marginTop: "2rem", marginBottom: "0" }}>TriviaVanguard</h1>
-      <h2 style={{ fontSize: "1.75rem", color: "#2B394A", textIndent: "0.75rem", marginTop: "-.25rem" }}>Show mode</h2>
+    <div
+      style={{
+        fontFamily: "Antonio, sans-serif",
+        padding: "2rem",
+        backgroundColor: "#eef1f4",
+      }}
+    >
+      <h1
+        style={{
+          fontSize: "3rem",
+          color: "#2B394A",
+          marginTop: "2rem",
+          marginBottom: "0",
+        }}
+      >
+        TriviaVanguard
+      </h1>
+      <h2
+        style={{
+          fontSize: "1.75rem",
+          color: "#2B394A",
+          textIndent: "0.75rem",
+          marginTop: "-.25rem",
+        }}
+      >
+        Show mode
+      </h2>
 
-      <div style={{ display: "flex", flexDirection: "column", marginBottom: "2rem" }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          marginBottom: "2rem",
+        }}
+      >
         <div>
-          <label style={{ fontSize: "1.25rem", color: "#2B394A", marginRight: "1rem" }}>
+          <label
+            style={{
+              fontSize: "1.25rem",
+              color: "#2B394A",
+              marginRight: "1rem",
+            }}
+          >
             Select Show:
             <select
               value={selectedShowId}
@@ -82,11 +118,20 @@ export default function App() {
                 setSelectedRoundId("");
                 setQuestions([]);
               }}
-              style={{ fontSize: "1.25rem", fontFamily: "Questrial, sans-serif", marginLeft: "0.5rem", verticalAlign: "middle" }}
+              style={{
+                fontSize: "1.25rem",
+                fontFamily: "Questrial, sans-serif",
+                marginLeft: "0.5rem",
+                verticalAlign: "middle",
+              }}
             >
               <option value="">-- Select a Show --</option>
               {shows.map((s) => (
-                <option key={s.Show["Show ID"]} value={s.Show["Show ID"]} style={{ fontFamily: "Questrial, sans-serif" }}>
+                <option
+                  key={s.Show["Show ID"]}
+                  value={s.Show["Show ID"]}
+                  style={{ fontFamily: "Questrial, sans-serif" }}
+                >
                   {s.Show["Name"]}
                 </option>
               ))}
@@ -96,16 +141,31 @@ export default function App() {
 
         {selectedShowRounds.length > 1 && (
           <div>
-            <label style={{ fontSize: "1.25rem", color: "#2B394A", marginRight: "1rem" }}>
+            <label
+              style={{
+                fontSize: "1.25rem",
+                color: "#2B394A",
+                marginRight: "1rem",
+              }}
+            >
               Select Round:
               <select
                 value={selectedRoundId}
                 onChange={(e) => setSelectedRoundId(e.target.value)}
-                style={{ fontSize: "1.25rem", fontFamily: "Questrial, sans-serif", marginLeft: "0.5rem", verticalAlign: "middle" }}
+                style={{
+                  fontSize: "1.25rem",
+                  fontFamily: "Questrial, sans-serif",
+                  marginLeft: "0.5rem",
+                  verticalAlign: "middle",
+                }}
               >
                 <option value="">-- Select a Round --</option>
                 {selectedShowRounds.map((r) => (
-                  <option key={r.Round["Round ID"]} value={r.Round["Round ID"]} style={{ fontFamily: "Questrial, sans-serif" }}>
+                  <option
+                    key={r.Round["Round ID"]}
+                    value={r.Round["Round ID"]}
+                    style={{ fontFamily: "Questrial, sans-serif" }}
+                  >
                     {r.Round["Name"]}
                   </option>
                 ))}
@@ -116,7 +176,10 @@ export default function App() {
       </div>
 
       {questions.length > 0 && (
-        <button onClick={() => setshowDetails(!showDetails)} className="fixed-answer-toggle">
+        <button
+          onClick={() => setshowDetails(!showDetails)}
+          className="fixed-answer-toggle"
+        >
           {showDetails ? "Hide all answers" : "Show all answers"}
         </button>
       )}
@@ -125,9 +188,18 @@ export default function App() {
         const [categoryName, categoryDescription] = groupKey.split("|||");
 
         return (
-          <div key={groupKey} style={{ marginTop: index === 0 ? "1rem" : "4rem" }}>
+          <div
+            key={groupKey}
+            style={{ marginTop: index === 0 ? "1rem" : "4rem" }}
+          >
             <div style={{ backgroundColor: "#2B394A", padding: "0" }}>
-              <hr style={{ border: "none", borderTop: "2px solid #DC6A24", margin: "0 0 0.3rem 0" }} />
+              <hr
+                style={{
+                  border: "none",
+                  borderTop: "2px solid #DC6A24",
+                  margin: "0 0 0.3rem 0",
+                }}
+              />
 
               <h2
                 style={{
@@ -139,7 +211,9 @@ export default function App() {
                   letterSpacing: "0.015em",
                   textIndent: "0.5rem",
                 }}
-                dangerouslySetInnerHTML={{ __html: marked.parseInline(categoryName) }}
+                dangerouslySetInnerHTML={{
+                  __html: marked.parseInline(categoryName),
+                }}
               />
 
               <p
@@ -151,147 +225,163 @@ export default function App() {
                   textAlign: "left",
                   textIndent: "1rem",
                 }}
-                dangerouslySetInnerHTML={{ __html: marked.parseInline(categoryDescription) }}
+                dangerouslySetInnerHTML={{
+                  __html: marked.parseInline(categoryDescription),
+                }}
               />
 
-              <hr style={{ border: "none", borderTop: "2px solid #DC6A24", margin: "0.3rem 0 0 0" }} />
-            </div>
-
-            {groupItems.map((item) => {
-  const q = item.Question;
-
-  return (
-    <div key={q["Question ID"] || q["Question order"]}>
-      {/* QUESTION TEXT */}
-      <p
-        style={{
-          fontFamily: "Questrial, sans-serif",
-          fontSize: "1.125rem",
-          marginTop: "1.75rem",
-          marginBottom: "0.25rem",
-        }}
-      >
-        <strong>Question {q["Question order"]}:</strong>{" "}
-        <span
-          dangerouslySetInnerHTML={{
-            __html: marked.parseInline(q["Question text"] || ""),
-          }}
-        />
-      </p>
-
-      {/* FLAVOR TEXT */}
-      {q["Flavor text"]?.trim() && showDetails && (
-        <p
-          style={{
-            fontFamily: "Lora, serif",
-            fontSize: "1rem",
-            fontStyle: "italic",
-            marginTop: "0.5rem",
-            marginBottom: "0.25rem",
-          }}
-        >
-          <span role="img" aria-label="flavor">💭</span>{" "}
-          <span
-            dangerouslySetInnerHTML={{
-              __html: marked.parseInline(q["Flavor text"]),
-            }}
-          />
-        </p>
-      )}
-
-      {/* IMAGE POPUP TOGGLE */}
-      {q.Image?.URL && showDetails && (
-        <div style={{ marginTop: "0.25rem" }}>
-          <button
-            onClick={() =>
-              setVisibleImages((prev) => ({
-                ...prev,
-                [q["Question ID"]]: true,
-              }))
-            }
-            style={{
-              fontSize: "1rem",
-              fontFamily: "Questrial, sans-serif",
-              marginBottom: "0.25rem",
-              marginLeft: "1.5rem"
-            }}
-          >
-            Show image
-          </button>
-
-          {/* FULLSCREEN MODAL IMAGE OVERLAY */}
-          {visibleImages[q["Question ID"]] && (
-            <div
-              onClick={() =>
-                setVisibleImages((prev) => ({
-                  ...prev,
-                  [q["Question ID"]]: false,
-                }))
-              }
-              style={{
-                position: "fixed",
-                top: 0,
-                left: 0,
-                width: "100vw",
-                height: "100vh",
-                backgroundColor: "rgba(43, 57, 74, 0.7)",
-                backdropFiler: "blur(10px)",
-                WebkitBackdropFilter: "blur(8px)",
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-                zIndex: 9999,
-                cursor: "pointer",
-              }}
-            >
-              
-              <img
-                src={q.Image.URL}
-                alt={q.Image.Name || "Attached image"}
+              <hr
                 style={{
-                  minWidth: "600px",
-                  minHeight: "600px",
-                  maxWidth: "90%",
-                  maxHeight: "90%",
-                  border: "4px solid white",
-                  boxShadow: "0 0 20px rgba(0,0,0,0.5)",
+                  border: "none",
+                  borderTop: "2px solid #DC6A24",
+                  margin: "0.3rem 0 0 0",
                 }}
               />
             </div>
-          )}
-        </div>
-      )}
-        {/* AUDIO FILE – Always visible if present */}
-      {q["Audio file"]?.URL && (
-        <div style={{ marginTop: "0.25rem", marginLeft: "1.5rem", marginRight: "1.5rem" }}>
-          <audio controls style={{ width: "100%" }}>
-            <source src={q["Audio file"].URL} type="audio/mpeg" />
-            Your browser does not support the audio element.
-          </audio>
-        </div>
-      )}
-      {/* ANSWER */}
-      {showDetails && (
-        <p
-          style={{
-            fontFamily: "Questrial, sans-serif",
-            fontSize: "1.125rem",
-            marginTop: "0.5rem",
-            marginBottom: "1rem",
-            marginLeft: "1.5rem",
-            marginRight: "1.5rem"
-          }}
-        >
-          <span
-            dangerouslySetInnerHTML={{
-              __html: marked.parseInline(`🟢 **Answer:** ${q["Answer"]}`),
-            }}
-          />
-        </p>
-      )}
-    </div>
-  );
-})}
+
+            {groupItems.map((item) => {
+              const q = item.Question;
+
+              return (
+                <div key={q["Question ID"] || q["Question order"]}>
+                  {/* QUESTION TEXT */}
+                  <p
+                    style={{
+                      fontFamily: "Questrial, sans-serif",
+                      fontSize: "1.125rem",
+                      marginTop: "1.75rem",
+                      marginBottom: "0.1rem",
+                    }}
+                  >
+                    <strong>Question {q["Question order"]}:</strong>{" "}
+                    <span
+                      dangerouslySetInnerHTML={{
+                        __html: marked.parseInline(q["Question text"] || ""),
+                      }}
+                    />
+                  </p>
+
+                  {/* FLAVOR TEXT */}
+                  {q["Flavor text"]?.trim() && showDetails && (
+                    <p
+                      style={{
+                        fontFamily: "Lora, serif",
+                        fontSize: "1rem",
+                        fontStyle: "italic",
+                        marginTop: "0.01rem",
+                        marginBottom: "0.01rem",
+                      }}
+                    >
+                      <span
+                        dangerouslySetInnerHTML={{
+                          __html: marked.parseInline(
+                            `<span style="font-size:1em; position: relative; top: 1px; margin-right: -1px;">💭</span> ${q["Flavor text"]}`
+                          ),
+                        }}
+                      />
+                    </p>
+                  )}
+
+                  {/* IMAGE POPUP TOGGLE */}
+                  {q.Image?.URL && showDetails && (
+                    <div style={{ marginTop: "0.25rem" }}>
+                      <button
+                        onClick={() =>
+                          setVisibleImages((prev) => ({
+                            ...prev,
+                            [q["Question ID"]]: true,
+                          }))
+                        }
+                        style={{
+                          fontSize: "1rem",
+                          fontFamily: "Questrial, sans-serif",
+                          marginBottom: "0.25rem",
+                          marginLeft: "1.5rem",
+                        }}
+                      >
+                        Show image
+                      </button>
+
+                      {/* FULLSCREEN MODAL IMAGE OVERLAY */}
+                      {visibleImages[q["Question ID"]] && (
+                        <div
+                          onClick={() =>
+                            setVisibleImages((prev) => ({
+                              ...prev,
+                              [q["Question ID"]]: false,
+                            }))
+                          }
+                          style={{
+                            position: "fixed",
+                            top: 0,
+                            left: 0,
+                            width: "100vw",
+                            height: "100vh",
+                            backgroundColor: "rgba(43, 57, 74, 0.7)",
+                            backdropFiler: "blur(10px)",
+                            WebkitBackdropFilter: "blur(8px)",
+                            display: "flex",
+                            justifyContent: "center",
+                            alignItems: "center",
+                            zIndex: 9999,
+                            cursor: "pointer",
+                          }}
+                        >
+                          <img
+                            src={q.Image.URL}
+                            alt={q.Image.Name || "Attached image"}
+                            style={{
+                              minWidth: "600px",
+                              minHeight: "600px",
+                              maxWidth: "90%",
+                              maxHeight: "90%",
+                              border: "4px solid white",
+                              boxShadow: "0 0 20px rgba(0,0,0,0.5)",
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {/* AUDIO FILE – Always visible if present */}
+                  {q["Audio file"]?.URL && (
+                    <div
+                      style={{
+                        marginTop: "0.25rem",
+                        marginLeft: "1.5rem",
+                        marginRight: "1.5rem",
+                      }}
+                    >
+                      <audio controls style={{ width: "50%" }}>
+                        <source src={q["Audio file"].URL} type="audio/mpeg" />
+                        Your browser does not support the audio element.
+                      </audio>
+                    </div>
+                  )}
+                  {/* ANSWER */}
+                  {showDetails && (
+                    <p
+                      style={{
+                        fontFamily: "Questrial, sans-serif",
+                        fontSize: "1.125rem",
+                        marginTop: "0.1rem",
+                        marginBottom: "1rem",
+                        marginLeft: "1.5rem",
+                        marginRight: "1.5rem",
+                      }}
+                    >
+                      <span
+                        dangerouslySetInnerHTML={{
+                          __html: marked.parseInline(
+                            `<span style="font-size:0.7em; position: relative; top: -1px;">🟢</span> **Answer:** ${q["Answer"]}`
+                          ),
+                        }}
+                      />
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         );
       })}
