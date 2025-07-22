@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import "./App.css";
 import { marked } from "marked";
+import AudioPlayer from "react-h5-audio-player";
+import "react-h5-audio-player/lib/styles.css";
 
 export default function App() {
   const [shows, setShows] = useState([]);
@@ -239,147 +241,155 @@ export default function App() {
               />
             </div>
 
-            {groupItems.map((item) => {
+            {groupItems.map((item, qIndex) => {
               const q = item.Question;
 
               return (
-                <div key={q["Question ID"] || q["Question order"]}>
-                  {/* QUESTION TEXT */}
-                  <p
-                    style={{
-                      fontFamily: "Questrial, sans-serif",
-                      fontSize: "1.125rem",
-                      marginTop: "1.75rem",
-                      marginBottom: "0.1rem",
-                    }}
-                  >
-                    <strong>Question {q["Question order"]}:</strong>{" "}
-                    <span
-                      dangerouslySetInnerHTML={{
-                        __html: marked.parseInline(q["Question text"] || ""),
-                      }}
-                    />
-                  </p>
-
-                  {/* FLAVOR TEXT */}
-                  {q["Flavor text"]?.trim() && showDetails && (
-                    <p
-                      style={{
-                        fontFamily: "Lora, serif",
-                        fontSize: "1rem",
-                        fontStyle: "italic",
-                        marginTop: "0.01rem",
-                        marginBottom: "0.01rem",
-                      }}
-                    >
-                      <span
-                        dangerouslySetInnerHTML={{
-                          __html: marked.parseInline(
-                            `<span style="font-size:1em; position: relative; top: 1px; margin-right: -1px;">💭</span> ${q["Flavor text"]}`
-                          ),
-                        }}
-                      />
-                    </p>
-                  )}
-
-                  {/* IMAGE POPUP TOGGLE */}
-                  {q.Image?.URL && showDetails && (
-                    <div style={{ marginTop: "0.25rem" }}>
-                      <button
-                        onClick={() =>
-                          setVisibleImages((prev) => ({
-                            ...prev,
-                            [q["Question ID"]]: true,
-                          }))
-                        }
-                        style={{
-                          fontSize: "1rem",
-                          fontFamily: "Questrial, sans-serif",
-                          marginBottom: "0.25rem",
-                          marginLeft: "1.5rem",
-                        }}
-                      >
-                        Show image
-                      </button>
-
-                      {/* FULLSCREEN MODAL IMAGE OVERLAY */}
-                      {visibleImages[q["Question ID"]] && (
-                        <div
-                          onClick={() =>
-                            setVisibleImages((prev) => ({
-                              ...prev,
-                              [q["Question ID"]]: false,
-                            }))
-                          }
-                          style={{
-                            position: "fixed",
-                            top: 0,
-                            left: 0,
-                            width: "100vw",
-                            height: "100vh",
-                            backgroundColor: "rgba(43, 57, 74, 0.7)",
-                            backdropFiler: "blur(10px)",
-                            WebkitBackdropFilter: "blur(8px)",
-                            display: "flex",
-                            justifyContent: "center",
-                            alignItems: "center",
-                            zIndex: 9999,
-                            cursor: "pointer",
-                          }}
-                        >
-                          <img
-                            src={q.Image.URL}
-                            alt={q.Image.Name || "Attached image"}
-                            style={{
-                              minWidth: "600px",
-                              minHeight: "600px",
-                              maxWidth: "90%",
-                              maxHeight: "90%",
-                              border: "4px solid white",
-                              boxShadow: "0 0 20px rgba(0,0,0,0.5)",
-                            }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {/* AUDIO FILE – Always visible if present */}
-                  {q["Audio file"]?.URL && (
-                    <div
-                      style={{
-                        marginTop: "0.25rem",
-                        marginLeft: "1.5rem",
-                        marginRight: "1.5rem",
-                      }}
-                    >
-                      <audio controls style={{ width: "50%" }}>
-                        <source src={q["Audio file"].URL} type="audio/mpeg" />
-                        Your browser does not support the audio element.
-                      </audio>
-                    </div>
-                  )}
-                  {/* ANSWER */}
-                  {showDetails && (
+                <React.Fragment key={q["Question ID"] || q["Question order"]}>
+                  <div>
+                    {/* QUESTION TEXT */}
                     <p
                       style={{
                         fontFamily: "Questrial, sans-serif",
                         fontSize: "1.125rem",
-                        marginTop: "0.1rem",
-                        marginBottom: "1rem",
-                        marginLeft: "1.5rem",
-                        marginRight: "1.5rem",
+                        marginTop: "1.75rem",
+                        marginBottom: "0.1rem",
                       }}
                     >
+                      <strong>Question {q["Question order"]}:</strong>{" "}
                       <span
                         dangerouslySetInnerHTML={{
-                          __html: marked.parseInline(
-                            `<span style="font-size:0.7em; position: relative; top: -1px;">🟢</span> **Answer:** ${q["Answer"]}`
-                          ),
+                          __html: marked.parseInline(q["Question text"] || ""),
                         }}
                       />
                     </p>
+
+                    {/* FLAVOR TEXT */}
+                    {q["Flavor text"]?.trim() && showDetails && (
+                      <p
+                        style={{
+                          fontFamily: "Lora, serif",
+                          fontSize: "1rem",
+                          fontStyle: "italic",
+                          marginTop: "0.01rem",
+                          marginBottom: "0.01rem",
+                        }}
+                      >
+                        <span
+                          dangerouslySetInnerHTML={{
+                            __html: marked.parseInline(
+                              `<span style="font-size:1em; position: relative; top: 1px; margin-right: -1px;">💭</span> ${q["Flavor text"]}`
+                            ),
+                          }}
+                        />
+                      </p>
+                    )}
+
+                    {/* IMAGE POPUP TOGGLE */}
+                    {q.Image?.URL && showDetails && (
+                      <div style={{ marginTop: "0.25rem" }}>
+                        <button
+                          onClick={() =>
+                            setVisibleImages((prev) => ({
+                              ...prev,
+                              [q["Question ID"]]: true,
+                            }))
+                          }
+                          style={{
+                            fontSize: "1rem",
+                            fontFamily: "Questrial, sans-serif",
+                            marginBottom: "0.25rem",
+                            marginLeft: "1.5rem",
+                          }}
+                        >
+                          Show image
+                        </button>
+
+                        {/* FULLSCREEN MODAL IMAGE OVERLAY */}
+                        {visibleImages[q["Question ID"]] && (
+                          <div
+                            onClick={() =>
+                              setVisibleImages((prev) => ({
+                                ...prev,
+                                [q["Question ID"]]: false,
+                              }))
+                            }
+                            style={{
+                              position: "fixed",
+                              top: 0,
+                              left: 0,
+                              width: "100vw",
+                              height: "100vh",
+                              backgroundColor: "rgba(43, 57, 74, 0.7)",
+                              backdropFiler: "blur(10px)",
+                              WebkitBackdropFilter: "blur(8px)",
+                              display: "flex",
+                              justifyContent: "center",
+                              alignItems: "center",
+                              zIndex: 9999,
+                              cursor: "pointer",
+                            }}
+                          >
+                            <img
+                              src={q.Image.URL}
+                              alt={q.Image.Name || "Attached image"}
+                              style={{
+                                minWidth: "600px",
+                                minHeight: "600px",
+                                maxWidth: "90%",
+                                maxHeight: "90%",
+                                border: "4px solid white",
+                                boxShadow: "0 0 20px rgba(0,0,0,0.5)",
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {/* AUDIO FILE – Always visible if present */}
+                    {q["Audio file"]?.URL && (
+                      <div
+                        style={{
+                          marginTop: "0.5rem",
+                          marginLeft: "1.5rem",
+                          marginRight: "1.5rem",
+                        }}
+                      >
+                        <div class="audio-player-wrapper">
+                          <AudioPlayer
+                            src={q["Audio file"].URL}
+                            showJumpControls={false}
+                            layout="horizontal"
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {/* ANSWER */}
+                    {showDetails && (
+                      <p
+                        style={{
+                          fontFamily: "Questrial, sans-serif",
+                          fontSize: "1.125rem",
+                          marginTop: "0.1rem",
+                          marginBottom: "1rem",
+                          marginLeft: "1.5rem",
+                          marginRight: "1.5rem",
+                        }}
+                      >
+                        <span
+                          dangerouslySetInnerHTML={{
+                            __html: marked.parseInline(
+                              `<span style="font-size:0.7em; position: relative; top: -1px;">🟢</span> **Answer:** ${q["Answer"]}`
+                            ),
+                          }}
+                        />
+                      </p>
+                    )}
+                  </div>
+                  {qIndex < groupItems.length - 1 && (
+                    <hr className="question-divider" />
                   )}
-                </div>
+                </React.Fragment>
               );
             })}
           </div>
