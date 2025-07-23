@@ -424,7 +424,13 @@ export default function App() {
                             : q["Question order"]}
                           :
                         </strong>{" "}
+                        <br />
                         <span
+                          style={{
+                            display: "block",
+                            paddingLeft: "1.5rem",
+                            paddingTop: "0.25rem",
+                          }}
                           dangerouslySetInnerHTML={{
                             __html: marked.parseInline(
                               q["Question text"] || ""
@@ -440,6 +446,9 @@ export default function App() {
                             fontFamily: "Lora, serif",
                             fontSize: "1rem",
                             fontStyle: "italic",
+                            display: "block",
+                            paddingLeft: "1.5rem",
+                            paddingTop: "0.25rem",
                             marginTop: "0rem",
                             marginBottom: "0.01rem",
                           }}
