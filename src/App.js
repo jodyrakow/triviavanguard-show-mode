@@ -32,6 +32,7 @@ export default function App() {
   const [showDetails, setshowDetails] = useState(true);
   const [visibleImages, setVisibleImages] = useState({});
   const questionRefs = useRef({});
+  const [visibleCategoryImages, setVisibleCategoryImages] = useState({});
 
   function numberToLetter(n) {
     return String.fromCharCode(64 + n); // 1 → A, 2 → B, etc.
@@ -59,10 +60,11 @@ export default function App() {
   useEffect(() => {
     const fetchShows = async () => {
       try {
+        console.log("Fetching shows..."); // ← ADD THIS
         const res = await axios.get("/.netlify/functions/fetchShows");
+        console.log("Fetched shows/rounds:", res.data);
         setShows(res.data.Shows || []);
         setRounds(res.data.Rounds || []);
-        console.log("Fetched shows/rounds:", res.data);
       } catch (error) {
         console.error("Error fetching shows/rounds:", error);
       }
@@ -117,25 +119,26 @@ export default function App() {
     return convert(aQOrderRaw) - convert(bQOrderRaw);
   });
 
-  const groupedQuestions = sortedQuestions.reduce((acc, q) => {
-    const categoryName = q["Category name"] || "Uncategorized";
-    const categoryDescription = q["Category description"] || "";
+  const groupedQuestions = sortedQuestions.reduce((acc, item) => {
+    const q = item.Question;
+    const categoryName = (item["Category name"] || "Uncategorized").trim();
+    const categoryDescription = (item["Category description"] || "").trim();
     const groupKey = `${categoryName}|||${categoryDescription}`;
-
-    // Determine if the category is visual (based on first question's type)
-    const isVisual =
-      q["Question type"]?.name === "Visual" || // for single-select
-      (Array.isArray(q["Question type"]) &&
-        q["Question type"].some((type) => type.name === "Visual")); // for multi-select
 
     if (!acc[groupKey]) {
       acc[groupKey] = {
-        isVisualCategory: isVisual,
+        description: categoryDescription,
+        image: q["Category image"] || null, // ✅ Explicitly pulling from inside Question
         questions: [],
+        isVisual: /^[A-J]$/.test(q["Question order"]),
       };
     }
 
-    acc[groupKey].questions.push(q);
+    acc[groupKey].questions.push({
+      ...q,
+      QuestionOrder: q["Question order"],
+    });
+
     return acc;
   }, {});
 
@@ -274,228 +277,292 @@ export default function App() {
         </button>
       )}
 
-      {Object.entries(groupedQuestions).map(([groupKey, groupData], index) => {
-        const [categoryName, categoryDescription] = groupKey.split("|||");
-        const isVisualCategory = groupData.isVisualCategory;
-        const groupItems = groupData.questions;
+      {Object.entries(groupedQuestions)
+        .sort(([aName, aData], [bName, bData]) => {
+          if (aData.isVisual && !bData.isVisual) return -1;
+          if (!aData.isVisual && bData.isVisual) return 1;
+          return 0;
+        })
+        .map(([groupKey, catData], index) => {
+          const [categoryName, categoryDescription] = groupKey.split("|||");
+          const isVisualCategory = catData.isVisualCategory;
+          const groupItems = catData.questions;
 
-        return (
-          <div
-            key={groupKey}
-            style={{ marginTop: index === 0 ? "1rem" : "4rem" }}
-          >
-            <div style={{ backgroundColor: "#2B394A", padding: "0" }}>
-              <hr
-                style={{
-                  border: "none",
-                  borderTop: "2px solid #DC6A24",
-                  margin: "0 0 0.3rem 0",
-                }}
-              />
+          return (
+            <div
+              key={groupKey}
+              style={{ marginTop: index === 0 ? "1rem" : "4rem" }}
+            >
+              <div style={{ backgroundColor: "#2B394A", padding: "0" }}>
+                <hr
+                  style={{
+                    border: "none",
+                    borderTop: "2px solid #DC6A24",
+                    margin: "0 0 0.3rem 0",
+                  }}
+                />
 
-              <h2
-                style={{
-                  color: "#DC6A24",
-                  fontFamily: "Antonio",
-                  fontSize: "1.85rem",
-                  margin: 0,
-                  textAlign: "left",
-                  letterSpacing: "0.015em",
-                  textIndent: "0.5rem",
-                }}
-                dangerouslySetInnerHTML={{
-                  __html: marked.parseInline(categoryName),
-                }}
-              />
+                <h2
+                  style={{
+                    color: "#DC6A24",
+                    fontFamily: "Antonio",
+                    fontSize: "1.85rem",
+                    margin: 0,
+                    textAlign: "left",
+                    letterSpacing: "0.015em",
+                    textIndent: "0.5rem",
+                  }}
+                  dangerouslySetInnerHTML={{
+                    __html: marked.parseInline(categoryName || ""),
+                  }}
+                />
 
-              <p
-                style={{
-                  color: "#ffffff",
-                  fontStyle: "italic",
-                  fontFamily: "Sanchez",
-                  margin: "0 0 0.5rem 0",
-                  textAlign: "left",
-                  textIndent: "1rem",
-                }}
-                dangerouslySetInnerHTML={{
-                  __html: marked.parseInline(categoryDescription),
-                }}
-              />
+                <p
+                  style={{
+                    color: "#ffffff",
+                    fontStyle: "italic",
+                    fontFamily: "Sanchez",
+                    margin: "0 0 0.5rem 0",
+                    textAlign: "left",
+                    textIndent: "1rem",
+                  }}
+                  dangerouslySetInnerHTML={{
+                    __html: marked.parseInline(categoryDescription || ""),
+                  }}
+                />
 
-              <hr
-                style={{
-                  border: "none",
-                  borderTop: "2px solid #DC6A24",
-                  margin: "0.3rem 0 0 0",
-                }}
-              />
-            </div>
-
-            {groupItems.map((item, qIndex) => {
-              const q = item.Question;
-
-              const questionKey =
-                q["Question ID"] || `${categoryName}-${q["Question order"]}`;
-              if (!questionRefs.current[questionKey]) {
-                questionRefs.current[questionKey] = React.createRef();
-              }
-
-              return (
-                <React.Fragment key={q["Question ID"] || q["Question order"]}>
-                  <div ref={questionRefs.current[questionKey]}>
-                    {/* QUESTION TEXT */}
-                    <p
+                {catData.image?.URL && (
+                  <div style={{ marginTop: "0.25rem", marginLeft: "1rem" }}>
+                    <button
+                      onClick={() =>
+                        setVisibleCategoryImages((prev) => ({
+                          ...prev,
+                          [groupKey]: true,
+                        }))
+                      }
                       style={{
+                        fontSize: "1rem",
                         fontFamily: "Questrial, sans-serif",
-                        fontSize: "1.125rem",
-                        marginTop: "1.75rem",
-                        marginBottom: "0rem",
+                        marginBottom: "0.25rem",
                       }}
                     >
-                      <strong>
-                        Question{" "}
-                        {isVisualCategory
-                          ? numberToLetter(q["Question order"])
-                          : q["Question order"]}
-                        :
-                      </strong>{" "}
-                      <span
-                        dangerouslySetInnerHTML={{
-                          __html: marked.parseInline(q["Question text"] || ""),
-                        }}
-                      />
-                    </p>
+                      Show category image
+                    </button>
 
-                    {/* FLAVOR TEXT */}
-                    {q["Flavor text"]?.trim() && showDetails && (
-                      <p
+                    {visibleCategoryImages[groupKey] && (
+                      <div
+                        onClick={() =>
+                          setVisibleCategoryImages((prev) => ({
+                            ...prev,
+                            [groupKey]: false,
+                          }))
+                        }
                         style={{
-                          fontFamily: "Lora, serif",
-                          fontSize: "1rem",
-                          fontStyle: "italic",
-                          marginTop: "0rem",
-                          marginBottom: "0.01rem",
+                          position: "fixed",
+                          top: 0,
+                          left: 0,
+                          width: "100vw",
+                          height: "100vh",
+                          backgroundColor: "rgba(43, 57, 74, 0.7)",
+                          backdropFilter: "blur(10px)",
+                          WebkitBackdropFilter: "blur(8px)",
+                          display: "flex",
+                          justifyContent: "center",
+                          alignItems: "center",
+                          zIndex: 9999,
+                          cursor: "pointer",
                         }}
                       >
-                        <span
-                          dangerouslySetInnerHTML={{
-                            __html: marked.parseInline(
-                              `<span style="font-size:1em; position: relative; top: 1px; margin-right: -1px;">💭</span> ${q["Flavor text"]}`
-                            ),
+                        <img
+                          src={catData.image.URL}
+                          alt={catData.image.Name || "Category image"}
+                          style={{
+                            maxWidth: "90vw", // or 90% — depends on your layout
+                            maxHeight: "90vh", // limits how tall it can be
+                            objectFit: "contain",
+                            border: "4px solid white",
+                            boxShadow: "0 0 20px rgba(0,0,0,0.5)",
                           }}
                         />
-                      </p>
-                    )}
-
-                    {/* IMAGE POPUP TOGGLE */}
-                    {q.Image?.URL && (
-                      <div style={{ marginTop: "0.25rem" }}>
-                        <button
-                          onClick={() =>
-                            setVisibleImages((prev) => ({
-                              ...prev,
-                              [q["Question ID"]]: true,
-                            }))
-                          }
-                          style={{
-                            fontSize: "1rem",
-                            fontFamily: "Questrial, sans-serif",
-                            marginBottom: "0.25rem",
-                            marginLeft: "1.5rem",
-                          }}
-                        >
-                          Show image
-                        </button>
-
-                        {visibleImages[q["Question ID"]] && (
-                          <div
-                            onClick={() =>
-                              setVisibleImages((prev) => ({
-                                ...prev,
-                                [q["Question ID"]]: false,
-                              }))
-                            }
-                            style={{
-                              position: "fixed",
-                              top: 0,
-                              left: 0,
-                              width: "100vw",
-                              height: "100vh",
-                              backgroundColor: "rgba(43, 57, 74, 0.7)",
-                              backdropFilter: "blur(10px)",
-                              WebkitBackdropFilter: "blur(8px)",
-                              display: "flex",
-                              justifyContent: "center",
-                              alignItems: "center",
-                              zIndex: 9999,
-                              cursor: "pointer",
-                            }}
-                          >
-                            <img
-                              src={q.Image.URL}
-                              alt={q.Image.Name || "Attached image"}
-                              style={{
-                                minWidth: "600px",
-                                minHeight: "600px",
-                                maxWidth: "90%",
-                                maxHeight: "90%",
-                                border: "4px solid white",
-                                boxShadow: "0 0 20px rgba(0,0,0,0.5)",
-                              }}
-                            />
-                          </div>
-                        )}
                       </div>
                     )}
-                    {/* AUDIO FILE – Always visible if present */}
-                    {q["Audio file"]?.URL && (
-                      <div
-                        style={{
-                          marginTop: "0.5rem",
-                          marginLeft: "1.5rem",
-                          marginRight: "1.5rem",
-                        }}
-                      >
-                        <div className="audio-player-wrapper">
-                          <AudioPlayer
-                            src={q["Audio file"].URL}
-                            showJumpControls={false}
-                            layout="horizontal"
-                          />
-                        </div>
-                      </div>
-                    )}
-                    {/* ANSWER */}
-                    {showDetails && (
+                  </div>
+                )}
+
+                <hr
+                  style={{
+                    border: "none",
+                    borderTop: "2px solid #DC6A24",
+                    margin: "0.3rem 0 0 0",
+                  }}
+                />
+              </div>
+
+              {groupItems.map((q, qIndex) => {
+                const questionKey =
+                  q["Question ID"] || `${categoryName}-${q["Question order"]}`;
+                if (!questionRefs.current[questionKey]) {
+                  questionRefs.current[questionKey] = React.createRef();
+                }
+
+                return (
+                  <React.Fragment key={q["Question ID"] || q["Question order"]}>
+                    <div ref={questionRefs.current[questionKey]}>
+                      {/* QUESTION TEXT */}
                       <p
                         style={{
                           fontFamily: "Questrial, sans-serif",
                           fontSize: "1.125rem",
-                          marginTop: "0.5rem",
-                          marginBottom: "1rem",
-                          marginLeft: "1.5rem",
-                          marginRight: "1.5rem",
+                          marginTop: "1.75rem",
+                          marginBottom: "0rem",
                         }}
                       >
+                        <strong>
+                          Question{" "}
+                          {isVisualCategory
+                            ? numberToLetter(q["Question order"])
+                            : q["Question order"]}
+                          :
+                        </strong>{" "}
                         <span
                           dangerouslySetInnerHTML={{
                             __html: marked.parseInline(
-                              `<span style="font-size:0.7em; position: relative; top: -1px;">🟢</span> **Answer:** ${q["Answer"]}`
+                              q["Question text"] || ""
                             ),
                           }}
                         />
                       </p>
+
+                      {/* FLAVOR TEXT */}
+                      {q["Flavor text"]?.trim() && showDetails && (
+                        <p
+                          style={{
+                            fontFamily: "Lora, serif",
+                            fontSize: "1rem",
+                            fontStyle: "italic",
+                            marginTop: "0rem",
+                            marginBottom: "0.01rem",
+                          }}
+                        >
+                          <span
+                            dangerouslySetInnerHTML={{
+                              __html: marked.parseInline(
+                                `<span style="font-size:1em; position: relative; top: 1px; margin-right: -1px;">💭</span> ${q["Flavor text"]}`
+                              ),
+                            }}
+                          />
+                        </p>
+                      )}
+
+                      {/* IMAGE POPUP TOGGLE */}
+                      {q.Image?.URL && (
+                        <div style={{ marginTop: "0.25rem" }}>
+                          <button
+                            onClick={() =>
+                              setVisibleImages((prev) => ({
+                                ...prev,
+                                [q["Question ID"]]: true,
+                              }))
+                            }
+                            style={{
+                              fontSize: "1rem",
+                              fontFamily: "Questrial, sans-serif",
+                              marginBottom: "0.25rem",
+                              marginLeft: "1.5rem",
+                            }}
+                          >
+                            Show image
+                          </button>
+
+                          {visibleImages[q["Question ID"]] && (
+                            <div
+                              onClick={() =>
+                                setVisibleImages((prev) => ({
+                                  ...prev,
+                                  [q["Question ID"]]: false,
+                                }))
+                              }
+                              style={{
+                                position: "fixed",
+                                top: 0,
+                                left: 0,
+                                width: "100vw",
+                                height: "100vh",
+                                backgroundColor: "rgba(43, 57, 74, 0.7)",
+                                backdropFilter: "blur(10px)",
+                                WebkitBackdropFilter: "blur(8px)",
+                                display: "flex",
+                                justifyContent: "center",
+                                alignItems: "center",
+                                zIndex: 9999,
+                                cursor: "pointer",
+                              }}
+                            >
+                              <img
+                                src={q.Image.URL}
+                                alt={q.Image.Name || "Attached image"}
+                                style={{
+                                  display: "inline-block",
+                                  maxWidth: "90vw", // or 90% — depends on your layout
+                                  maxHeight: "90vh", // limits how tall it can be
+                                  objectFit: "contain",
+                                  border: "4px solid white",
+                                  boxShadow: "0 0 20px rgba(0,0,0,0.5)",
+                                }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {/* AUDIO FILE – Always visible if present */}
+                      {q["Audio file"]?.URL && (
+                        <div
+                          style={{
+                            marginTop: "0.5rem",
+                            marginLeft: "1.5rem",
+                            marginRight: "1.5rem",
+                          }}
+                        >
+                          <div className="audio-player-wrapper">
+                            <AudioPlayer
+                              src={q["Audio file"].URL}
+                              showJumpControls={false}
+                              layout="horizontal"
+                            />
+                          </div>
+                        </div>
+                      )}
+                      {/* ANSWER */}
+                      {showDetails && (
+                        <p
+                          style={{
+                            fontFamily: "Questrial, sans-serif",
+                            fontSize: "1.125rem",
+                            marginTop: "0.5rem",
+                            marginBottom: "1rem",
+                            marginLeft: "1.5rem",
+                            marginRight: "1.5rem",
+                          }}
+                        >
+                          <span
+                            dangerouslySetInnerHTML={{
+                              __html: marked.parseInline(
+                                `<span style="font-size:0.7em; position: relative; top: -1px;">🟢</span> **Answer:** ${q["Answer"]}`
+                              ),
+                            }}
+                          />
+                        </p>
+                      )}
+                    </div>
+                    {qIndex < groupItems.length - 1 && (
+                      <hr className="question-divider" />
                     )}
-                  </div>
-                  {qIndex < groupItems.length - 1 && (
-                    <hr className="question-divider" />
-                  )}
-                </React.Fragment>
-              );
-            })}
-          </div>
-        );
-      })}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          );
+        })}
     </div>
   );
 }
