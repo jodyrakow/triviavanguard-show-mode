@@ -1,9 +1,27 @@
+// App.js
+
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import "./App.css";
 import { marked } from "marked";
 import AudioPlayer from "react-h5-audio-player";
 import "react-h5-audio-player/lib/styles.css";
+
+// ✅ Password protection using sessionStorage
+const allowedPassword = "tv2025";
+const passwordKey = "showPasswordAuthorized";
+
+const isAuthorized = sessionStorage.getItem(passwordKey);
+if (!isAuthorized) {
+  const enteredPassword = prompt("Enter show password:");
+  if (enteredPassword?.toLowerCase() === allowedPassword.toLowerCase()) {
+    sessionStorage.setItem(passwordKey, "true");
+  } else {
+    document.body.innerHTML =
+      "<h2 style='font-family:sans-serif;'>Access denied.</h2>";
+    throw new Error("Unauthorized access");
+  }
+}
 
 export default function App() {
   const [shows, setShows] = useState([]);
@@ -13,6 +31,10 @@ export default function App() {
   const [questions, setQuestions] = useState([]);
   const [showDetails, setshowDetails] = useState(true);
   const [visibleImages, setVisibleImages] = useState({});
+
+  function numberToLetter(n) {
+    return String.fromCharCode(64 + n); // 1 → A, 2 → B, etc.
+  }
 
   useEffect(() => {
     const fetchShows = async () => {
@@ -59,8 +81,21 @@ export default function App() {
     const categoryName = q["Category name"] || "Uncategorized";
     const categoryDescription = q["Category description"] || "";
     const groupKey = `${categoryName}|||${categoryDescription}`;
-    if (!acc[groupKey]) acc[groupKey] = [];
-    acc[groupKey].push(q);
+
+    // Determine if the category is visual (based on first question's type)
+    const isVisual =
+      q["Question type"]?.name === "Visual" || // for single-select
+      (Array.isArray(q["Question type"]) &&
+        q["Question type"].some((type) => type.name === "Visual")); // for multi-select
+
+    if (!acc[groupKey]) {
+      acc[groupKey] = {
+        isVisualCategory: isVisual,
+        questions: [],
+      };
+    }
+
+    acc[groupKey].questions.push(q);
     return acc;
   }, {});
 
@@ -186,8 +221,10 @@ export default function App() {
         </button>
       )}
 
-      {Object.entries(groupedQuestions).map(([groupKey, groupItems], index) => {
+      {Object.entries(groupedQuestions).map(([groupKey, groupData], index) => {
         const [categoryName, categoryDescription] = groupKey.split("|||");
+        const isVisualCategory = groupData.isVisualCategory;
+        const groupItems = groupData.questions;
 
         return (
           <div
@@ -253,10 +290,16 @@ export default function App() {
                         fontFamily: "Questrial, sans-serif",
                         fontSize: "1.125rem",
                         marginTop: "1.75rem",
-                        marginBottom: "0.1rem",
+                        marginBottom: "0rem",
                       }}
                     >
-                      <strong>Question {q["Question order"]}:</strong>{" "}
+                      <strong>
+                        Question{" "}
+                        {isVisualCategory
+                          ? numberToLetter(q["Question order"])
+                          : q["Question order"]}
+                        :
+                      </strong>{" "}
                       <span
                         dangerouslySetInnerHTML={{
                           __html: marked.parseInline(q["Question text"] || ""),
@@ -271,7 +314,7 @@ export default function App() {
                           fontFamily: "Lora, serif",
                           fontSize: "1rem",
                           fontStyle: "italic",
-                          marginTop: "0.01rem",
+                          marginTop: "0rem",
                           marginBottom: "0.01rem",
                         }}
                       >
@@ -321,7 +364,7 @@ export default function App() {
                               width: "100vw",
                               height: "100vh",
                               backgroundColor: "rgba(43, 57, 74, 0.7)",
-                              backdropFiler: "blur(10px)",
+                              backdropFilter: "blur(10px)",
                               WebkitBackdropFilter: "blur(8px)",
                               display: "flex",
                               justifyContent: "center",
@@ -355,7 +398,7 @@ export default function App() {
                           marginRight: "1.5rem",
                         }}
                       >
-                        <div class="audio-player-wrapper">
+                        <div className="audio-player-wrapper">
                           <AudioPlayer
                             src={q["Audio file"].URL}
                             showJumpControls={false}
@@ -370,7 +413,7 @@ export default function App() {
                         style={{
                           fontFamily: "Questrial, sans-serif",
                           fontSize: "1.125rem",
-                          marginTop: "0.1rem",
+                          marginTop: "0.5rem",
                           marginBottom: "1rem",
                           marginLeft: "1.5rem",
                           marginRight: "1.5rem",
