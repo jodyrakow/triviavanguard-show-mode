@@ -1,6 +1,6 @@
 // App.js
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import "./App.css";
 import { marked } from "marked";
@@ -31,10 +31,30 @@ export default function App() {
   const [questions, setQuestions] = useState([]);
   const [showDetails, setshowDetails] = useState(true);
   const [visibleImages, setVisibleImages] = useState({});
+  const questionRefs = useRef({});
 
   function numberToLetter(n) {
     return String.fromCharCode(64 + n); // 1 → A, 2 → B, etc.
   }
+
+  const getClosestQuestionKey = () => {
+    const viewportCenter = window.innerHeight / 2;
+    let closestKey = null;
+    let closestDistance = Infinity;
+
+    for (const [key, ref] of Object.entries(questionRefs.current)) {
+      if (ref?.current) {
+        const rect = ref.current.getBoundingClientRect();
+        const distance = Math.abs(rect.top + rect.height / 2 - viewportCenter);
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestKey = key;
+        }
+      }
+    }
+
+    return closestKey;
+  };
 
   useEffect(() => {
     const fetchShows = async () => {
@@ -77,7 +97,27 @@ export default function App() {
     fetchQuestions();
   }, [selectedShowId, selectedRoundId]);
 
-  const groupedQuestions = questions.reduce((acc, q) => {
+  const sortedQuestions = [...questions].sort((a, b) => {
+    const aCatOrder = a["Category order"] ?? 999;
+    const bCatOrder = b["Category order"] ?? 999;
+
+    if (aCatOrder !== bCatOrder) return aCatOrder - bCatOrder;
+
+    const aQOrderRaw = a["Question order"];
+    const bQOrderRaw = b["Question order"];
+
+    const convert = (val) => {
+      if (typeof val === "string" && /^[A-Z]$/i.test(val)) {
+        return val.toUpperCase().charCodeAt(0) - 64; // A = 1
+      }
+      const num = parseInt(val);
+      return isNaN(num) ? 999 : num;
+    };
+
+    return convert(aQOrderRaw) - convert(bQOrderRaw);
+  });
+
+  const groupedQuestions = sortedQuestions.reduce((acc, q) => {
     const categoryName = q["Category name"] || "Uncategorized";
     const categoryDescription = q["Category description"] || "";
     const groupKey = `${categoryName}|||${categoryDescription}`;
@@ -214,7 +254,20 @@ export default function App() {
 
       {questions.length > 0 && (
         <button
-          onClick={() => setshowDetails(!showDetails)}
+          onClick={() => {
+            const key = getClosestQuestionKey();
+            setshowDetails((prev) => !prev);
+
+            setTimeout(() => {
+              const ref = questionRefs.current[key];
+              if (ref?.current) {
+                ref.current.scrollIntoView({
+                  behavior: "instant",
+                  block: "center",
+                });
+              }
+            }, 100);
+          }}
           className="fixed-answer-toggle"
         >
           {showDetails ? "Hide all answers" : "Show all answers"}
@@ -281,9 +334,15 @@ export default function App() {
             {groupItems.map((item, qIndex) => {
               const q = item.Question;
 
+              const questionKey =
+                q["Question ID"] || `${categoryName}-${q["Question order"]}`;
+              if (!questionRefs.current[questionKey]) {
+                questionRefs.current[questionKey] = React.createRef();
+              }
+
               return (
                 <React.Fragment key={q["Question ID"] || q["Question order"]}>
-                  <div>
+                  <div ref={questionRefs.current[questionKey]}>
                     {/* QUESTION TEXT */}
                     <p
                       style={{
@@ -329,7 +388,7 @@ export default function App() {
                     )}
 
                     {/* IMAGE POPUP TOGGLE */}
-                    {q.Image?.URL && showDetails && (
+                    {q.Image?.URL && (
                       <div style={{ marginTop: "0.25rem" }}>
                         <button
                           onClick={() =>
@@ -348,7 +407,6 @@ export default function App() {
                           Show image
                         </button>
 
-                        {/* FULLSCREEN MODAL IMAGE OVERLAY */}
                         {visibleImages[q["Question ID"]] && (
                           <div
                             onClick={() =>
