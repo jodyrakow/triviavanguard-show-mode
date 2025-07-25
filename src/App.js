@@ -33,6 +33,7 @@ export default function App() {
   const [visibleImages, setVisibleImages] = useState({});
   const questionRefs = useRef({});
   const [visibleCategoryImages, setVisibleCategoryImages] = useState({});
+  const [activeMode, setActiveMode] = useState("show"); // "show" or "score"
 
   function numberToLetter(n) {
     return String.fromCharCode(64 + n); // 1 → A, 2 → B, etc.
@@ -190,9 +191,42 @@ export default function App() {
           marginTop: "-.25rem",
         }}
       >
-        Show mode
+        {activeMode === "score" ? "Scoring mode" : "Show mode"}
       </h2>
+      <div style={{ marginTop: "1rem", marginBottom: "1rem" }}>
+        <button
+          onClick={() => setActiveMode("show")}
+          style={{
+            marginRight: "0.5rem",
+            padding: "0.5rem 1rem",
+            fontSize: "1rem",
+            fontFamily: "Questrial, sans-serif",
+            backgroundColor: activeMode === "show" ? "#DC6A24" : "#f0f0f0",
+            color: activeMode === "show" ? "#ffffff" : "#2B394A",
+            border: "1px solid #DC6A24",
+            borderRadius: "0.25rem",
+            cursor: "pointer",
+          }}
+        >
+          Show mode
+        </button>
 
+        <button
+          onClick={() => setActiveMode("score")}
+          style={{
+            padding: "0.5rem 1rem",
+            fontSize: "1rem",
+            fontFamily: "Questrial, sans-serif",
+            backgroundColor: activeMode === "score" ? "#DC6A24" : "#f0f0f0",
+            color: activeMode === "score" ? "#ffffff" : "#2B394A",
+            border: "1px solid #DC6A24",
+            borderRadius: "0.25rem",
+            cursor: "pointer",
+          }}
+        >
+          Scoring mode
+        </button>
+      </div>
       <div
         style={{
           display: "flex",
