@@ -121,23 +121,41 @@ export default function App() {
 
   const groupedQuestions = sortedQuestions.reduce((acc, item) => {
     const q = item.Question;
-    const categoryName = (item["Category name"] || "Uncategorized").trim();
-    const categoryDescription = (item["Category description"] || "").trim();
+    const categoryName = (item["Category name"] || "Uncategorized")
+      .replace(/\s+/g, " ")
+      .trim();
+    const categoryDescription = (item["Category description"] || "")
+      .replace(/\s+/g, " ")
+      .trim();
     const groupKey = `${categoryName}|||${categoryDescription}`;
 
+    // Parse string of question type(s) into array
+    const typeNames = (item["Question type"] || "")
+      .split(",")
+      .map((s) => s.trim());
+    const isVisual = typeNames.includes("Visual");
+
+    // Initialize the group if it's not in the accumulator yet
     if (!acc[groupKey]) {
       acc[groupKey] = {
         description: categoryDescription,
-        image: q["Category image"] || null, // ✅ Explicitly pulling from inside Question
+        image: q["Category image"] || null,
         questions: [],
-        isVisual: /^[A-J]$/.test(q["Question order"]),
+        isVisual,
+        isSuperSecret: false, // will be set below if true
       };
     }
 
+    // Add this question to the group
     acc[groupKey].questions.push({
       ...q,
       QuestionOrder: q["Question order"],
     });
+
+    // ✅ Check for "Super secret" directly on item, not in question
+    if (item["Super secret"] === "true") {
+      acc[groupKey].isSuperSecret ||= true; // ensure we don't unset it later
+    }
 
     return acc;
   }, {});
@@ -293,110 +311,261 @@ export default function App() {
               key={groupKey}
               style={{ marginTop: index === 0 ? "1rem" : "4rem" }}
             >
-              <div style={{ backgroundColor: "#2B394A", padding: "0" }}>
-                <hr
+              {catData.isSuperSecret ? (
+                <div
                   style={{
-                    border: "none",
-                    borderTop: "2px solid #DC6A24",
-                    margin: "0 0 0.3rem 0",
+                    borderStyle: "dashed",
+                    borderWidth: "3px",
+                    borderColor: "#DC6A24",
+                    backgroundColor: "#FFF2E6",
+                    borderRadius: ".75rem",
+                    padding: "0.5rem",
                   }}
-                />
-
-                <h2
-                  style={{
-                    color: "#DC6A24",
-                    fontFamily: "Antonio",
-                    fontSize: "1.85rem",
-                    margin: 0,
-                    textAlign: "left",
-                    letterSpacing: "0.015em",
-                    textIndent: "0.5rem",
-                  }}
-                  dangerouslySetInnerHTML={{
-                    __html: marked.parseInline(categoryName || ""),
-                  }}
-                />
-
-                <p
-                  style={{
-                    color: "#ffffff",
-                    fontStyle: "italic",
-                    fontFamily: "Sanchez",
-                    margin: "0 0 0.5rem 0",
-                    textAlign: "left",
-                    textIndent: "1rem",
-                  }}
-                  dangerouslySetInnerHTML={{
-                    __html: marked.parseInline(categoryDescription || ""),
-                  }}
-                />
-
-                {catData.image?.URL && (
-                  <div style={{ marginTop: "0.25rem", marginLeft: "1rem" }}>
-                    <button
-                      onClick={() =>
-                        setVisibleCategoryImages((prev) => ({
-                          ...prev,
-                          [groupKey]: true,
-                        }))
-                      }
+                >
+                  {/* Your original dark blue header block untouched */}
+                  <div
+                    style={{
+                      backgroundColor: "#2B394A",
+                      padding: "0",
+                    }}
+                  >
+                    <hr
                       style={{
-                        fontSize: "1rem",
+                        border: "none",
+                        borderTop: "2px solid #DC6A24",
+                        margin: "0 0 0.3rem 0",
+                      }}
+                    />
+                    <h2
+                      style={{
+                        color: "#DC6A24",
+                        fontFamily: "Antonio",
+                        fontSize: "1.85rem",
+                        margin: 0,
+                        textAlign: "left",
+                        letterSpacing: "0.015em",
+                        textIndent: "0.5rem",
+                      }}
+                      dangerouslySetInnerHTML={{
+                        __html: marked.parseInline(categoryName || ""),
+                      }}
+                    />
+                    <p
+                      style={{
+                        color: "#ffffff",
+                        fontStyle: "italic",
+                        fontFamily: "Sanchez",
+                        margin: "0 0 0.5rem 0",
+                        textAlign: "left",
+                        textIndent: "1rem",
+                      }}
+                      dangerouslySetInnerHTML={{
+                        __html: marked.parseInline(categoryDescription || ""),
+                      }}
+                    />
+                    <div
+                      style={{
+                        margin: "0.5rem 1rem",
+                        padding: "0.5rem 0.75rem",
+                        backgroundColor: "#FFF2E6",
+                        border: "1px solid  #DC6A24",
+                        borderRadius: "0.5rem",
                         fontFamily: "Questrial, sans-serif",
-                        marginBottom: "0.25rem",
+                        color: "#2B394A",
+                        fontSize: "1rem",
+                        textAlign: "center",
                       }}
                     >
-                      Show category image
-                    </button>
+                      🔎{" "}
+                      <em>
+                        <strong>
+                          This is the Super secret category of the week!
+                        </strong>
+                      </em>
+                      <br />
+                      <div style={{ marginTop: "0.25rem" }}>
+                        If you follow us on Facebook, you'll see a post at the
+                        start of each week letting you know where around central
+                        Minnesota you can find us that week. That post also
+                        tells you the super secret category for the week, so
+                        that you can study up before the contest to have a leg
+                        up on the competition!
+                      </div>
+                    </div>
+                    {catData.image?.URL && (
+                      <div style={{ marginTop: "0.25rem", marginLeft: "1rem" }}>
+                        <button
+                          onClick={() =>
+                            setVisibleCategoryImages((prev) => ({
+                              ...prev,
+                              [groupKey]: true,
+                            }))
+                          }
+                          style={{
+                            fontSize: "1rem",
+                            fontFamily: "Questrial, sans-serif",
+                            marginBottom: "0.25rem",
+                          }}
+                        >
+                          Show category image
+                        </button>
 
-                    {visibleCategoryImages[groupKey] && (
-                      <div
+                        {visibleCategoryImages[groupKey] && (
+                          <div
+                            onClick={() =>
+                              setVisibleCategoryImages((prev) => ({
+                                ...prev,
+                                [groupKey]: false,
+                              }))
+                            }
+                            style={{
+                              position: "fixed",
+                              top: 0,
+                              left: 0,
+                              width: "100vw",
+                              height: "100vh",
+                              backgroundColor: "rgba(43, 57, 74, 0.7)",
+                              backdropFilter: "blur(10px)",
+                              WebkitBackdropFilter: "blur(8px)",
+                              display: "flex",
+                              justifyContent: "center",
+                              alignItems: "center",
+                              zIndex: 9999,
+                              cursor: "pointer",
+                            }}
+                          >
+                            <img
+                              src={catData.image.URL}
+                              alt={catData.image.Name || "Category image"}
+                              style={{
+                                maxWidth: "90vw",
+                                maxHeight: "90vh",
+                                objectFit: "contain",
+                                border: "4px solid white",
+                                boxShadow: "0 0 20px rgba(0,0,0,0.5)",
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <hr
+                      style={{
+                        border: "none",
+                        borderTop: "2px solid #DC6A24",
+                        margin: "0.3rem 0 0 0",
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                // Standard block for non-secret categories
+                <div
+                  style={{
+                    backgroundColor: "#2B394A",
+                    padding: "0",
+                  }}
+                >
+                  <hr
+                    style={{
+                      border: "none",
+                      borderTop: "2px solid #DC6A24",
+                      margin: "0 0 0.3rem 0",
+                    }}
+                  />
+                  <h2
+                    style={{
+                      color: "#DC6A24",
+                      fontFamily: "Antonio",
+                      fontSize: "1.85rem",
+                      margin: 0,
+                      textAlign: "left",
+                      letterSpacing: "0.015em",
+                      textIndent: "0.5rem",
+                    }}
+                    dangerouslySetInnerHTML={{
+                      __html: marked.parseInline(categoryName || ""),
+                    }}
+                  />
+                  <p
+                    style={{
+                      color: "#ffffff",
+                      fontStyle: "italic",
+                      fontFamily: "Sanchez",
+                      margin: "0 0 0.5rem 0",
+                      textAlign: "left",
+                      textIndent: "1rem",
+                    }}
+                    dangerouslySetInnerHTML={{
+                      __html: marked.parseInline(categoryDescription || ""),
+                    }}
+                  />
+                  {catData.image?.URL && (
+                    <div style={{ marginTop: "0.25rem", marginLeft: "1rem" }}>
+                      <button
                         onClick={() =>
                           setVisibleCategoryImages((prev) => ({
                             ...prev,
-                            [groupKey]: false,
+                            [groupKey]: true,
                           }))
                         }
                         style={{
-                          position: "fixed",
-                          top: 0,
-                          left: 0,
-                          width: "100vw",
-                          height: "100vh",
-                          backgroundColor: "rgba(43, 57, 74, 0.7)",
-                          backdropFilter: "blur(10px)",
-                          WebkitBackdropFilter: "blur(8px)",
-                          display: "flex",
-                          justifyContent: "center",
-                          alignItems: "center",
-                          zIndex: 9999,
-                          cursor: "pointer",
+                          fontSize: "1rem",
+                          fontFamily: "Questrial, sans-serif",
+                          marginBottom: "0.25rem",
                         }}
                       >
-                        <img
-                          src={catData.image.URL}
-                          alt={catData.image.Name || "Category image"}
-                          style={{
-                            maxWidth: "90vw", // or 90% — depends on your layout
-                            maxHeight: "90vh", // limits how tall it can be
-                            objectFit: "contain",
-                            border: "4px solid white",
-                            boxShadow: "0 0 20px rgba(0,0,0,0.5)",
-                          }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
+                        Show category image
+                      </button>
 
-                <hr
-                  style={{
-                    border: "none",
-                    borderTop: "2px solid #DC6A24",
-                    margin: "0.3rem 0 0 0",
-                  }}
-                />
-              </div>
+                      {visibleCategoryImages[groupKey] && (
+                        <div
+                          onClick={() =>
+                            setVisibleCategoryImages((prev) => ({
+                              ...prev,
+                              [groupKey]: false,
+                            }))
+                          }
+                          style={{
+                            position: "fixed",
+                            top: 0,
+                            left: 0,
+                            width: "100vw",
+                            height: "100vh",
+                            backgroundColor: "rgba(43, 57, 74, 0.7)",
+                            backdropFilter: "blur(10px)",
+                            WebkitBackdropFilter: "blur(8px)",
+                            display: "flex",
+                            justifyContent: "center",
+                            alignItems: "center",
+                            zIndex: 9999,
+                            cursor: "pointer",
+                          }}
+                        >
+                          <img
+                            src={catData.image.URL}
+                            alt={catData.image.Name || "Category image"}
+                            style={{
+                              maxWidth: "90vw",
+                              maxHeight: "90vh",
+                              objectFit: "contain",
+                              border: "4px solid white",
+                              boxShadow: "0 0 20px rgba(0,0,0,0.5)",
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <hr
+                    style={{
+                      border: "none",
+                      borderTop: "2px solid #DC6A24",
+                      margin: "0.3rem 0 0 0",
+                    }}
+                  />
+                </div>
+              )}
 
               {groupItems.map((q, qIndex) => {
                 const questionKey =
