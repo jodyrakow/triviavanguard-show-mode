@@ -1,39 +1,103 @@
-// App.js
+// App.js — Import block: loads all the tools and libraries this file needs
 
-import React, { useEffect, useState, useRef } from "react";
-import axios from "axios";
-import "./App.css";
-import { marked } from "marked";
-import AudioPlayer from "react-h5-audio-player";
-import "react-h5-audio-player/lib/styles.css";
+import React, {
+  useEffect, // Hook to run side effects (like data fetching) on mount or when variables change
+  useState, // Hook to manage local component state (e.g., questions, activeMode)
+  useRef, // Hook for persisting mutable references across renders (used for questionRefs)
+} from "react"; // React is the core UI-building library
+import axios from "axios"; // HTTP library used to fetch shows, rounds, and questions
+import "./App.css"; // Global styling for the app
+import { marked } from "marked"; // Converts Markdown (like **bold**) into safe HTML
+import AudioPlayer from "react-h5-audio-player"; // Customizable audio player for sound-based questions
+import "react-h5-audio-player/lib/styles.css"; // Default styles for the audio player
+import Draggable from "react-draggable"; // To make countdown timer draggable
 
 // ✅ Password protection using sessionStorage
-const allowedPassword = "tv2025";
-const passwordKey = "showPasswordAuthorized";
+const allowedPassword = "tv2025"; // This is the correct password we're checking for
+const passwordKey = "showPasswordAuthorized"; // The key name we'll use to store auth status in sessionStorage
 
-const isAuthorized = sessionStorage.getItem(passwordKey);
+const isAuthorized = sessionStorage.getItem(passwordKey); // Checks the browser's sessionStorage to see if this person is already authorized
 if (!isAuthorized) {
+  // An exclamation point is JavaScript's logical NOT operator
   const enteredPassword = prompt("Enter show password:");
   if (enteredPassword?.toLowerCase() === allowedPassword.toLowerCase()) {
-    sessionStorage.setItem(passwordKey, "true");
+    // Converts to lowercase to prevent case being an issue
+    sessionStorage.setItem(passwordKey, "true"); // Marks this browser tab as authorized
   } else {
-    document.body.innerHTML =
+    // If the password was not correct, do this:
+    document.body.innerHTML = // 1. Replace the entire visible page with "Access denied."
       "<h2 style='font-family:sans-serif;'>Access denied.</h2>";
-    throw new Error("Unauthorized access");
+    throw new Error("Unauthorized access"); // 2. Throw this error to stop the app from loading any further
   }
 }
 
 export default function App() {
-  const [shows, setShows] = useState([]);
-  const [rounds, setRounds] = useState([]);
-  const [selectedShowId, setSelectedShowId] = useState("");
-  const [selectedRoundId, setSelectedRoundId] = useState("");
-  const [questions, setQuestions] = useState([]);
-  const [showDetails, setshowDetails] = useState(true);
-  const [visibleImages, setVisibleImages] = useState({});
-  const questionRefs = useRef({});
-  const [visibleCategoryImages, setVisibleCategoryImages] = useState({});
+  // Declares the main component - this is the *main thing* exported from this file; so other files can import it using import App from "./App"
+  const [shows, setShows] = useState([]); //Creates a state variable called shows, initally an empty array
+  const [rounds, setRounds] = useState([]); //Creates a state variable called rounds, initially an empty array
+  const [selectedShowId, setSelectedShowId] = useState(""); // Holds the ID of the selected show from the dropdown; initially an empty string
+  const [selectedRoundId, setSelectedRoundId] = useState(""); // Holds the ID of the selected round; initially an empty string
+  const [questions, setQuestions] = useState([]); // Holds the questions fetched from Airtable based on the selected show and round; initially an empty array
+  const [showDetails, setshowDetails] = useState(true); // A boolean toggle that defaults to true
+  const [visibleImages, setVisibleImages] = useState({}); // Holds an object like { questionId1: true, questionId2: false }; controls whether an image popup is open per question
+  const questionRefs = useRef({}); // Creates a persistent object that holds references to each question block in the DOM; used for smooth scrolling; unlike useState, changes to useRef don't trigger re-renders
+  const [visibleCategoryImages, setVisibleCategoryImages] = useState({}); // Similar to visibleImages
   const [activeMode, setActiveMode] = useState("show"); // "show" or "score"
+  const timerRef = useRef(null);
+  const [timerPosition, setTimerPosition] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const saved = localStorage.getItem("timerPosition");
+    if (saved) {
+      setTimerPosition(JSON.parse(saved));
+    } else {
+      // Default to bottom-right corner once we know the screen size
+      setTimerPosition({
+        x: window.innerWidth - 200,
+        y: window.innerHeight - 150,
+      });
+    }
+  }, []);
+
+  // Countdown Timer Component
+  const [timerDuration, setTimerDuration] = useState(60); // in seconds
+  const [timeLeft, setTimeLeft] = useState(60);
+  const [timerRunning, setTimerRunning] = useState(false);
+
+  // Update timer every second
+  useEffect(() => {
+    const savedPosition = localStorage.getItem("timerPosition");
+    if (savedPosition) {
+      try {
+        setTimerPosition(JSON.parse(savedPosition));
+      } catch (e) {
+        console.error("Invalid timer position in localStorage");
+      }
+    }
+    if (!timerRunning) return;
+    if (timeLeft <= 0) return;
+
+    const timer = setTimeout(() => {
+      setTimeLeft((prev) => prev - 1);
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [timerRunning, timeLeft]);
+
+  const handleStartPause = () => {
+    setTimerRunning((prev) => !prev);
+  };
+
+  const handleReset = () => {
+    setTimerRunning(false);
+    setTimeLeft(timerDuration);
+  };
+
+  const handleDurationChange = (e) => {
+    const newDuration = parseInt(e.target.value);
+    setTimerDuration(newDuration);
+    setTimeLeft(newDuration);
+  };
 
   function numberToLetter(n) {
     return String.fromCharCode(64 + n); // 1 → A, 2 → B, etc.
@@ -111,6 +175,7 @@ export default function App() {
 
     const convert = (val) => {
       if (typeof val === "string" && /^[A-Z]$/i.test(val)) {
+        //&& is the logical AND operator - it means "If the thing on the left is true, do (or return) the thing on the right"
         return val.toUpperCase().charCodeAt(0) - 64; // A = 1
       }
       const num = parseInt(val);
@@ -306,7 +371,6 @@ export default function App() {
           </div>
         )}
       </div>
-
       {questions.length > 0 && (
         <button
           onClick={() => {
@@ -328,7 +392,6 @@ export default function App() {
           {showDetails ? "Hide all answers" : "Show all answers"}
         </button>
       )}
-
       {Object.entries(groupedQuestions)
         .sort(([aName, aData], [bName, bData]) => {
           if (aData.isVisual && !bData.isVisual) return -1;
@@ -775,6 +838,117 @@ export default function App() {
             </div>
           );
         })}
+      {/* Countdown Timer Floating Box */}
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          pointerEvents: "none", // allow dragging only on the timer itself
+          zIndex: 999,
+        }}
+      >
+        <Draggable
+          nodeRef={timerRef}
+          position={timerPosition}
+          onStop={(e, data) => {
+            const newPos = { x: data.x, y: data.y };
+            setTimerPosition(newPos);
+            localStorage.setItem("timerPosition", JSON.stringify(newPos));
+          }}
+        >
+          <div
+            ref={timerRef}
+            style={{
+              position: "absolute",
+              backgroundColor: "#2B394A",
+              color: "white",
+              padding: "1rem",
+              borderRadius: "0.5rem",
+              border: "1px solid #DC6A24",
+              boxShadow: "0 0 10px rgba(0,0,0,0.3)",
+              fontFamily: "Questrial, sans-serif",
+              width: "180px",
+              textAlign: "center",
+              pointerEvents: "auto",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+            }}
+          >
+            {/* Countdown display */}
+            <div
+              style={{
+                fontSize: "2rem",
+                fontWeight: "bold",
+                marginBottom: "0.5rem",
+              }}
+            >
+              {timeLeft}s
+            </div>
+
+            {/* Start / Reset buttons */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                gap: "0.5rem",
+                marginBottom: "0.5rem",
+              }}
+            >
+              <button
+                onClick={handleStartPause}
+                style={{
+                  width: "70px",
+                  backgroundColor: "#DC6A24",
+                  color: "white",
+                  border: "none",
+                  padding: "0.4rem",
+                  fontSize: "0.9rem",
+                  borderRadius: "0.25rem",
+                  cursor: "pointer",
+                }}
+              >
+                {timerRunning ? "Pause" : "Start"}
+              </button>
+              <button
+                onClick={handleReset}
+                style={{
+                  width: "70px",
+                  backgroundColor: "#f0f0f0",
+                  color: "#2B394A",
+                  border: "none",
+                  padding: "0.4rem",
+                  fontSize: "0.9rem",
+                  borderRadius: "0.25rem",
+                  cursor: "pointer",
+                }}
+              >
+                Reset
+              </button>
+            </div>
+
+            {/* Duration input */}
+            <input
+              type="number"
+              value={timerDuration}
+              onChange={handleDurationChange}
+              style={{
+                width: "80px",
+                padding: "0.25rem",
+                borderRadius: "0.25rem",
+                border: "1px solid #ccc",
+                fontSize: "0.9rem",
+                textAlign: "center",
+              }}
+              min={5}
+              max={300}
+            />
+          </div>
+        </Draggable>
+      </div>{" "}
     </div>
   );
 }
