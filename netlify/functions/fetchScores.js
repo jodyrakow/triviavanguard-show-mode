@@ -124,22 +124,42 @@ exports.handler = async (event) => {
 
     // 3) Scores for this show (filter to current round via ShowQuestion membership)
     const sc = await all("Scores", {
-      filterByFormula: `({Show}='${showId}')`,
       fields: [
         "Is correct",
         "Effective points",
         "Question bonus",
         "ShowTeam",
         "ShowQuestion",
+        "Show",
       ],
     });
 
-    const scores = sc
-      .filter((s) => showQuestionIdSet.has(s.get("ShowQuestion")?.[0]?.id))
+    // helper: normalize a link cell’s first value to a record id
+    const firstId = (link) => {
+      if (!Array.isArray(link) || !link.length) return null;
+      const v = link[0];
+      return typeof v === "string" ? v : v?.id || null;
+    };
+
+    // keep only scores that belong to this show
+    const scForShow = sc.filter((s) => firstId(s.get("Show")) === showId);
+
+    console.log(
+      "fetchScores → Scores raw:",
+      sc.length,
+      "forShow:",
+      scForShow.length,
+      "showId:",
+      showId
+    );
+
+    // then filter by current round's ShowQuestions
+    const scores = scForShow
+      .filter((s) => showQuestionIdSet.has(firstId(s.get("ShowQuestion"))))
       .map((s) => ({
         id: s.id,
-        showTeamId: s.get("ShowTeam")?.[0]?.id || null,
-        showQuestionId: s.get("ShowQuestion")?.[0]?.id || null,
+        showTeamId: firstId(s.get("ShowTeam")),
+        showQuestionId: firstId(s.get("ShowQuestion")),
         isCorrect: !!s.get("Is correct"),
         effectivePoints: Number(s.get("Effective points") ?? 0),
         questionBonus: Number(s.get("Question bonus") ?? 0),

@@ -11,9 +11,14 @@ import axios from "axios";
 export default function ScoringMode({ selectedShowId, selectedRoundId }) {
   const colors = { dark: "#2B394A", accent: "#DC6A24", bg: "#eef1f4" };
 
+  const COL_Q_WIDTH = 60;
+  const TEAM_COL_WIDTH = 120;
+  const bonusBorder = "1px solid rgba(220,106,36,0.65)";
+  const thinRowBorder = "1px solid rgba(220,106,36,0.35)";
+
   const [teams, setTeams] = useState([]); // [{showTeamId, teamId, teamName, showBonus}]
   const [questions, setQuestions] = useState([]); // [{showQuestionId, questionId, order, text}]
-  const [grid, setGrid] = useState({}); // {[showTeamId]: {[showQuestionId]: {id,isCorrect,effectivePoints,questionBonus}}}
+  const [grid, setGrid] = useState({}); // {[showTeamId]: {[showQuestionId]: scoreRow}}
   const [focus, setFocus] = useState({ teamIdx: 0, qIdx: 0 });
 
   const [addingTeam, setAddingTeam] = useState(false);
@@ -22,31 +27,79 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
   const [hasSearched, setHasSearched] = useState(false);
   const [searching, setSearching] = useState(false);
 
-  // Fetch (memoized to satisfy deps)
-  const fetchAll = useCallback(async () => {
-    if (!selectedShowId || !selectedRoundId) return;
-    const res = await axios.get("/.netlify/functions/fetchScores", {
-      params: { showId: selectedShowId, roundId: selectedRoundId },
-    });
+  const [sortMode, setSortMode] = useState("entry"); // "entry" | "alpha"
+  const [entryOrder, setEntryOrder] = useState([]); // array of showTeamId in entry order
 
-    const { teams, questions, scores } = res.data;
+  // Sticky + tile styles
+  const sticky = {
+    thTop: { position: "sticky", top: 0, zIndex: 3, background: "#fff" },
+    qNumTh: {
+      position: "sticky",
+      left: 0,
+      zIndex: 4,
+      background: "#fff",
+      textAlign: "center",
+      minWidth: COL_Q_WIDTH,
+      width: COL_Q_WIDTH,
+      maxWidth: COL_Q_WIDTH,
+    },
+    qNumTd: {
+      position: "sticky",
+      left: 0,
+      zIndex: 2,
+      background: "#fff",
+      textAlign: "center",
+      minWidth: COL_Q_WIDTH,
+      width: COL_Q_WIDTH,
+      maxWidth: COL_Q_WIDTH,
+    },
+  };
 
-    const map = {};
-    for (const s of scores) {
-      if (!map[s.showTeamId]) map[s.showTeamId] = {};
-      map[s.showTeamId][s.showQuestionId] = s;
+  const tileBase = {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 36,
+    height: 30,
+    borderRadius: 5,
+    border: "1px solid #DC6A24",
+    padding: "0 .25rem",
+    userSelect: "none",
+    fontSize: ".95rem",
+  };
+
+  const tileStates = {
+    missing: { background: "#eee", color: "#999", cursor: "not-allowed" },
+    correct: { background: "#DC6A24", color: "#fff", cursor: "pointer" },
+    wrong: { background: "#f8f8f8", color: "#2B394A", cursor: "pointer" },
+  };
+
+  // Sort view of teams
+  const visibleTeams = useMemo(() => {
+    if (!teams.length) return [];
+    if (sortMode === "alpha") {
+      return [...teams].sort((a, b) =>
+        (a.teamName || "").localeCompare(b.teamName || "", "en", {
+          sensitivity: "base",
+        })
+      );
     }
-    setTeams(teams);
-    setQuestions(questions);
-    setGrid(map);
-    setFocus({ teamIdx: 0, qIdx: 0 });
-  }, [selectedShowId, selectedRoundId]);
+    const pos = new Map(entryOrder.map((id, i) => [id, i]));
+    return [...teams].sort(
+      (a, b) => (pos.get(a.showTeamId) ?? 1e9) - (pos.get(b.showTeamId) ?? 1e9)
+    );
+  }, [teams, sortMode, entryOrder]);
 
+  // Clamp focus when team list/questions change (e.g., sort switch)
   useEffect(() => {
-    fetchAll().catch(console.error);
-  }, [fetchAll]);
+    setFocus((f) => {
+      const ti = Math.min(f.teamIdx, Math.max(visibleTeams.length - 1, 0));
+      const qi = Math.min(f.qIdx, Math.max(questions.length - 1, 0));
+      return { teamIdx: ti, qIdx: qi };
+    });
+  }, [visibleTeams, questions.length]);
 
-  // Derived totals from Effective points (+ Show bonus)
+  // Totals from Effective points (+ Show bonus)
   const teamTotals = useMemo(() => {
     const totals = {};
     for (const t of teams) {
@@ -57,9 +110,37 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
       }
       totals[t.showTeamId] = sum;
     }
-
     return totals;
   }, [teams, questions, grid]);
+
+  // Fetch all
+  const fetchAll = useCallback(async () => {
+    if (!selectedShowId || !selectedRoundId) return;
+    const res = await axios.get("/.netlify/functions/fetchScores", {
+      params: { showId: selectedShowId, roundId: selectedRoundId },
+    });
+
+    const { teams: t, questions: q, scores: s } = res.data;
+
+    // Keep/refresh entry order (by arrival)
+    setEntryOrder(t.map((x) => x.showTeamId));
+
+    // Build grid
+    const map = {};
+    for (const row of s) {
+      if (!map[row.showTeamId]) map[row.showTeamId] = {};
+      map[row.showTeamId][row.showQuestionId] = row;
+    }
+
+    setTeams(t);
+    setQuestions(q);
+    setGrid(map);
+    setFocus({ teamIdx: 0, qIdx: 0 });
+  }, [selectedShowId, selectedRoundId]);
+
+  useEffect(() => {
+    fetchAll().catch(console.error);
+  }, [fetchAll]);
 
   // Debounced patch queue
   const updateQueue = useRef({});
@@ -87,6 +168,7 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
     }, 180);
   };
 
+  // Mutations
   const updateShowBonus = async (showTeamId, value) => {
     const val = Number(value) || 0;
     setTeams((prev) =>
@@ -104,14 +186,12 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
     }
   };
 
-  // Cell actions (memoized to satisfy deps)
   const toggleCell = useCallback(
     (ti, qi) => {
-      const t = teams[ti],
-        q = questions[qi];
+      const t = visibleTeams[ti];
+      const q = questions[qi];
       if (!t || !q) return;
       const cell = grid[t.showTeamId]?.[q.showQuestionId];
-
       if (!cell) return;
 
       const next = !cell.isCorrect; // optimistic
@@ -124,32 +204,12 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
       }));
       enqueue(cell.id, { isCorrect: next });
     },
-    [teams, questions, grid]
+    [visibleTeams, questions, grid]
   );
 
-  const setQuestionBonus = useCallback(
-    (ti, qi, value) => {
-      const t = teams[ti],
-        q = questions[qi];
-      const cell = grid[t.showTeamId]?.[q.showQuestionId];
-      if (!cell) return;
-      const val = Number(value) || 0;
-      setGrid((prev) => ({
-        ...prev,
-        [t.showTeamId]: {
-          ...prev[t.showTeamId],
-          [q.showQuestionId]: { ...cell, questionBonus: val },
-        },
-      }));
-      enqueue(cell.id, { questionBonus: val });
-    },
-    [teams, questions, grid]
-  );
-
-  // Keyboard navigation
+  // Keyboard navigation honors visibleTeams order
   useEffect(() => {
     const onKey = (e) => {
-      // ignore shortcuts while modal open or user is typing
       if (addingTeam) return;
       const el = e.target;
       if (
@@ -157,11 +217,10 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
         (el.tagName === "INPUT" ||
           el.tagName === "TEXTAREA" ||
           el.isContentEditable)
-      ) {
+      )
         return;
-      }
 
-      if (!teams.length || !questions.length) return;
+      if (!visibleTeams.length || !questions.length) return;
       const { teamIdx, qIdx } = focus;
 
       if (e.key === "1" || e.key === " ") {
@@ -182,7 +241,7 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
         setFocus(({ teamIdx, qIdx }) => ({
-          teamIdx: Math.min(teamIdx + 1, teams.length - 1),
+          teamIdx: Math.min(teamIdx + 1, visibleTeams.length - 1),
           qIdx,
         }));
       } else if (e.key === "ArrowLeft") {
@@ -208,7 +267,7 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [teams, questions, focus, addingTeam, toggleCell]);
+  }, [visibleTeams, questions, focus, addingTeam, toggleCell]);
 
   // Add team flow
   const searchExactTeam = async () => {
@@ -243,9 +302,9 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
     try {
       const res = await axios.post("/.netlify/functions/addTeamToShow", {
         showId: selectedShowId,
-        teamName: teamSearch.trim(), // server uses canonical if chosenTeamId present
-        chosenTeamId, // Airtable ID or null
-        createIfMissing, // true only for “create new team”
+        teamName: teamSearch.trim(),
+        chosenTeamId,
+        createIfMissing,
       });
 
       const { showTeamId } = res.data;
@@ -256,7 +315,6 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
         showTeamId,
       });
 
-      // Refresh UI from Airtable
       setAddingTeam(false);
       setTeamSearch("");
       setTeamMatches([]);
@@ -323,11 +381,50 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
         >
           + Add team to this show
         </button>
-        <div style={{ marginLeft: "auto" }}>
-          <strong>Teams:</strong> {teams.length} &nbsp;|&nbsp;{" "}
-          <strong>Questions:</strong> {questions.length} &nbsp;|&nbsp;
-          <strong>Focus:</strong> {teams[focus.teamIdx]?.teamName || "-"} / Q
-          {questions[focus.qIdx]?.order ?? "-"}
+
+        <div style={{ marginLeft: "auto", display: "flex", gap: ".5rem" }}>
+          <div
+            style={{
+              border: "1px solid #ccc",
+              borderRadius: "999px",
+              overflow: "hidden",
+              background: "#fff",
+            }}
+          >
+            <button
+              onClick={() => setSortMode("entry")}
+              style={{
+                padding: ".35rem .6rem",
+                border: "none",
+                background:
+                  sortMode === "entry" ? colors.accent : "transparent",
+                color: sortMode === "entry" ? "#fff" : colors.dark,
+                cursor: "pointer",
+              }}
+              title="Entry order"
+            >
+              Entry
+            </button>
+            <button
+              onClick={() => setSortMode("alpha")}
+              style={{
+                padding: ".35rem .6rem",
+                border: "none",
+                background:
+                  sortMode === "alpha" ? colors.accent : "transparent",
+                color: sortMode === "alpha" ? "#fff" : colors.dark,
+                cursor: "pointer",
+              }}
+              title="Alphabetical"
+            >
+              A→Z
+            </button>
+          </div>
+
+          <div>
+            <strong>Teams:</strong> {teams.length} &nbsp;|&nbsp;{" "}
+            <strong>Questions:</strong> {questions.length} &nbsp;|&nbsp;
+          </div>
         </div>
       </div>
 
@@ -338,132 +435,174 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
           background: "#fff",
           border: "1px solid #ddd",
           borderRadius: "0.5rem",
+          display: "inline-block",
+          maxWidth: "100%",
         }}
       >
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <table
+          style={{
+            width: "auto",
+            borderCollapse: "separate",
+            tableLayout: "fixed",
+            borderSpacing: 0,
+          }}
+        >
           <thead>
             <tr
-              style={{ background: colors.bg, borderBottom: "1px solid #ddd" }}
+              style={{
+                background: colors.bg,
+                borderBottom: thinRowBorder, // 👈 ultra-thin orange line here
+              }}
             >
               <th
-                style={{ textAlign: "left", padding: "0.5rem", minWidth: 70 }}
+                style={{
+                  padding: "0.35rem 0.4rem",
+                  ...sticky.qNumTh,
+                  ...sticky.thTop,
+                }}
               >
                 Q#
               </th>
-              <th style={{ textAlign: "left", padding: "0.5rem" }}>Question</th>
-              {teams.map((t, ti) => (
+              {visibleTeams.map((t) => (
                 <th
                   key={t.showTeamId}
                   style={{
                     textAlign: "center",
-                    padding: "0.5rem",
-                    minWidth: 160,
+                    padding: "0.3rem",
+                    width: TEAM_COL_WIDTH,
+                    maxWidth: TEAM_COL_WIDTH,
+                    minWidth: TEAM_COL_WIDTH,
+                    ...sticky.thTop,
+                    borderBottom: "none",
                   }}
                 >
-                  <div>{t.teamName}</div>
-                  <div style={{ fontSize: ".85rem", opacity: 0.8 }}>
-                    Total: <strong>{teamTotals[t.showTeamId]}</strong>
+                  <div
+                    style={{
+                      fontSize: "0.95rem",
+                      whiteSpace: "normal",
+                      wordBreak: "break-word",
+                      overflowWrap: "anywhere",
+                      lineHeight: 1.1,
+                    }}
+                  >
+                    {t.teamName}
                   </div>
-                  <div style={{ marginTop: "0.25rem" }}>
-                    <label style={{ fontSize: ".85rem" }}>
-                      Show bonus:&nbsp;
-                    </label>
-                    <input
-                      type="number"
-                      value={t.showBonus ?? 0}
-                      onChange={(e) =>
-                        updateShowBonus(t.showTeamId, e.target.value)
-                      }
-                      style={{
-                        width: 80,
-                        textAlign: "center",
-                        padding: "0.2rem",
-                        border: "1px solid #ccc",
-                        borderRadius: "0.25rem",
-                      }}
-                      title="Show-level bonus points"
-                    />
+                  <div
+                    style={{ fontSize: ".8rem", opacity: 0.85, marginTop: 2 }}
+                  >
+                    Total: <strong>{teamTotals[t.showTeamId]}</strong>
                   </div>
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {questions.map((q, qi) => (
-              <tr
-                key={q.showQuestionId}
-                style={{ borderTop: "1px solid #eee" }}
+            {/* Team bonus row */}
+            <tr>
+              <td
+                style={{
+                  padding: "0.3rem",
+                  ...sticky.qNumTd,
+                  fontWeight: "bold",
+                  color: colors.accent,
+                  borderTop: bonusBorder,
+                  borderBottom: bonusBorder,
+                  whiteSpace: "normal",
+                  wordBreak: "break-word",
+                  overflowWrap: "anywhere",
+                  lineHeight: 1.1,
+                  fontSize: ".9rem",
+                }}
               >
-                <td style={{ padding: "0.5rem" }}>
-                  <strong>{q.order}</strong>
-                </td>
+                Team bonus
+              </td>
+
+              {visibleTeams.map((t) => (
                 <td
+                  key={t.showTeamId}
                   style={{
-                    padding: "0.5rem",
-                    maxWidth: 560,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
+                    textAlign: "center",
+                    padding: "0.2rem",
+                    borderTop: bonusBorder,
+                    borderBottom: bonusBorder,
                   }}
                 >
-                  {q.text}
+                  <input
+                    type="number"
+                    value={t.showBonus ?? 0}
+                    onChange={(e) =>
+                      updateShowBonus(t.showTeamId, e.target.value)
+                    }
+                    style={{
+                      width: 40,
+                      textAlign: "center",
+                      padding: "0.2rem",
+                      border: `1px solid ${colors.accent}`,
+                      borderRadius: "0.25rem",
+                      fontSize: ".85rem",
+                      color: colors.accent,
+                      outlineColor: colors.accent,
+                    }}
+                    title="Show-level bonus points"
+                  />
                 </td>
-                {teams.map((t, ti) => {
+              ))}
+            </tr>
+
+            {questions.map((q, qi) => (
+              <tr key={q.showQuestionId}>
+                <td
+                  style={{
+                    padding: "0.35rem",
+                    ...sticky.qNumTd,
+                    borderBottom: thinRowBorder,
+                  }}
+                >
+                  <strong>{q.order}</strong>
+                </td>
+
+                {visibleTeams.map((t, ti) => {
                   const cell = grid[t.showTeamId]?.[q.showQuestionId];
+                  const isMissing = !cell;
                   const on = !!cell?.isCorrect;
-                  const isFocus = ti === focus.teamIdx && qi === focus.qIdx;
+                  const pts = Number(cell?.effectivePoints || 0);
+
+                  const style = {
+                    ...tileBase,
+                    ...(isMissing
+                      ? tileStates.missing
+                      : on
+                        ? tileStates.correct
+                        : tileStates.wrong),
+                  };
+
                   return (
                     <td
                       key={t.showTeamId}
-                      style={{ textAlign: "center", padding: "0.35rem" }}
+                      style={{
+                        textAlign: "center",
+                        padding: "0.25rem",
+                        borderBottom: thinRowBorder,
+                      }}
                     >
-                      <div>
-                        <button
-                          onClick={() => {
-                            setFocus({ teamIdx: ti, qIdx: qi });
-                            toggleCell(ti, qi);
-                          }}
-                          style={{
-                            padding: ".35rem .65rem",
-                            border: "1px solid #DC6A24",
-                            borderRadius: "4px",
-                            background: on ? "#DC6A24" : "#f0f0f0",
-                            color: on ? "#fff" : "#2B394A",
-                            outline: isFocus ? "2px solid #2B394A" : "none",
-                            cursor: "pointer",
-                            minWidth: 110,
-                          }}
-                          title="1/Space: toggle • Tab: next question"
-                        >
-                          {on ? "✓ Correct" : "○ Incorrect"}
-                        </button>
-                      </div>
-                      <div style={{ marginTop: "0.3rem", fontSize: ".9rem" }}>
-                        <label style={{ marginRight: 6 }}>Q bonus:</label>
-                        <input
-                          type="number"
-                          value={cell?.questionBonus ?? 0}
-                          onChange={(e) =>
-                            setQuestionBonus(ti, qi, e.target.value)
-                          }
-                          style={{
-                            width: 80,
-                            textAlign: "center",
-                            padding: "0.2rem",
-                            border: "1px solid #ccc",
-                            borderRadius: "0.25rem",
-                          }}
-                          title="Question-level bonus (adds in Airtable)"
-                        />
-                      </div>
                       <div
-                        style={{
-                          marginTop: "0.2rem",
-                          fontSize: ".85rem",
-                          opacity: 0.75,
+                        role="button"
+                        aria-disabled={isMissing}
+                        onClick={() => {
+                          if (isMissing) return;
+                          setFocus({ teamIdx: ti, qIdx: qi });
+                          toggleCell(ti, qi);
                         }}
+                        style={style}
+                        title={
+                          isMissing
+                            ? "No score row yet for this team & question"
+                            : on
+                              ? `Correct — ${pts} pts`
+                              : "Incorrect"
+                        }
                       >
-                        Eff. pts: <strong>{cell?.effectivePoints ?? 0}</strong>
+                        {isMissing ? "—" : on ? `✓ ${pts || ""}` : "○"}
                       </div>
                     </td>
                   );
