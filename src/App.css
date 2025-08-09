@@ -1,0 +1,173 @@
+.App {
+  text-align: center;
+}
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin infinite 20s linear;
+  }
+}
+
+.App-header {
+  background-color: #282c34;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+}
+
+.App-link {
+  color: #61dafb;
+}
+
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.fixed-answer-toggle {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  background-color: #dc6a24; /* your orange */
+  color: white;
+  border: 2px solid #2b394a;
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  font-family: "Questrial", sans-serif;
+  font-weight: bold;
+  cursor: pointer;
+  z-index: 1000;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  letter-spacing: 0.5px;
+  transition:
+    background-color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.fixed-answer-toggle:hover {
+  background-color: #b94f16; /* slightly darker orange on hover */
+  transform: scale(1.05); /* subtle grow effect */
+}
+
+/* === WRAPPER CONTAINER === */
+.audio-player-wrapper {
+  background-color: #ffffff;
+  border-radius: 12px;
+  width: 50%;
+  margin-bottom: 0.5rem;
+}
+
+/* === MAIN PLAYER CONTAINER === */
+.rhap_container {
+  background-color: #ffffff;
+  border-radius: 12px;
+  font-family: "Questrial", sans-serif;
+  padding: 0.25rem !important;
+}
+
+/* === PLAY BUTTON === */
+.rhap_play-pause-button {
+  color: #dc6a24 !important;
+  margin-right: 0.75rem;
+}
+
+/* === CONTROL LAYOUT === */
+.rhap_controls-section {
+  display: flex !important;
+  flex-direction: row;
+  align-items: left;
+  order: -1;
+  gap: 0 !important; /* removes space between sibling flex children */
+  justify-content: flex-start !important; /* ensures no space-between effect */
+  flex: 0 0 auto !important;
+}
+
+.rhap_main-controls {
+  order: -1;
+  margin-right: 0.5rem;
+}
+
+.rhap_additional-controls {
+  margin-right: 0.5rem !important;
+}
+
+.rhap_additional-controls,
+.rhap_volume-controls {
+  margin: 0 !important;
+  padding: 0 !important;
+  flex-shrink: 1 !important;
+  flex-grow: 0 !important;
+  width: auto !important;
+}
+
+/* === PROGRESS BAR === */
+.rhap_progress-bar {
+  background-color: #e0e0e0 !important;
+  height: 4px;
+  border-radius: 3px;
+}
+
+.rhap_progress-filled {
+  background-color: #dc6a24 !important;
+  height: 4px;
+  border-radius: 3px;
+}
+
+.rhap_progress-indicator {
+  background: #dc6a24 !important;
+}
+
+/* === VOLUME BAR === */
+.rhap_volume-bar {
+  height: 4px;
+  width: 70px !important;
+  margin-right: 1.5rem !important;
+}
+
+.rhap_volume-indicator {
+  background-color: #dc6a24 !important;
+  height: 4px;
+  border-radius: 3px;
+}
+
+.rhap_volume-button {
+  color: #dc6a24 !important;
+}
+
+/* === TIME DISPLAY === */
+.rhap_time {
+  color: #dc6a24 !important;
+  font-size: 0.9rem;
+  font-family: "Questrial", sans-serif;
+}
+
+.rhap_total-time {
+  margin-right: 1rem !important;
+}
+
+.question-divider {
+  border: none;
+  height: 1.75px;
+  margin: 2rem 1rem;
+  background: linear-gradient(
+    to right,
+    rgba(220, 106, 36, 0.4),
+    rgba(43, 57, 74, 0.2),
+    rgba(220, 106, 36, 0.4)
+  );
+  border-radius: 1px;
+}
