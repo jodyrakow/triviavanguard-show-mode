@@ -7,10 +7,23 @@ import React, {
   useState,
 } from "react";
 import axios from "axios";
+import {
+  ui,
+  ButtonPrimary,
+  ButtonTab,
+  colors as theme,
+} from "./styles/index.js";
 
-export default function ScoringMode({ selectedShowId, selectedRoundId }) {
-  const colors = { dark: "#2B394A", accent: "#DC6A24", bg: "#eef1f4" };
-
+export default function ScoringMode({
+  selectedShowId,
+  selectedRoundId,
+  scoringMode,
+  setScoringMode,
+  pubPoints,
+  setPubPoints,
+  poolPerQuestion,
+  setPoolPerQuestion,
+}) {
   const COL_Q_WIDTH = 60;
   const TEAM_COL_WIDTH = 120;
   const bonusBorder = "1px solid rgba(220,106,36,0.65)";
@@ -29,6 +42,25 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
 
   const [sortMode, setSortMode] = useState("entry"); // "entry" | "alpha"
   const [entryOrder, setEntryOrder] = useState([]); // array of showTeamId in entry order
+  const [teamMode, setTeamMode] = useState(false); // show only one team?
+  const [teamIdxSolo, setTeamIdxSolo] = useState(0); // which team is shown in team mode
+
+  const focusColor = theme.dark;
+
+  // How many teams got each ShowQuestion correct (for pooled share)
+  const correctCountByShowQuestionId = useMemo(() => {
+    const out = {};
+    for (const q of questions) {
+      const sqid = q.showQuestionId;
+      let count = 0;
+      for (const t of teams) {
+        const cell = grid[t.showTeamId]?.[sqid];
+        if (cell?.isCorrect) count++;
+      }
+      out[sqid] = count;
+    }
+    return out;
+  }, [questions, teams, grid]);
 
   // Sticky + tile styles
   const sticky = {
@@ -74,6 +106,13 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
     wrong: { background: "#f8f8f8", color: "#2B394A", cursor: "pointer" },
   };
 
+  const tileFocus = {
+    boxShadow: `0 0 0 2px #fff, 0 0 0 4px ${focusColor}`, // outside halos (no inset)
+    transform: "scale(1.04)",
+    outline: "none",
+    transition: "box-shadow 120ms ease, transform 120ms ease",
+  };
+
   // Sort view of teams
   const visibleTeams = useMemo(() => {
     if (!teams.length) return [];
@@ -89,6 +128,22 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
       (a, b) => (pos.get(a.showTeamId) ?? 1e9) - (pos.get(b.showTeamId) ?? 1e9)
     );
   }, [teams, sortMode, entryOrder]);
+
+  const renderTeams = useMemo(() => {
+    if (!teamMode) return visibleTeams;
+    const one = visibleTeams[teamIdxSolo];
+    return one ? [one] : [];
+  }, [teamMode, visibleTeams, teamIdxSolo]);
+
+  const prevTeam = useCallback(() => {
+    if (!visibleTeams.length) return;
+    setTeamIdxSolo((i) => (i - 1 + visibleTeams.length) % visibleTeams.length);
+  }, [visibleTeams.length]);
+
+  const nextTeam = useCallback(() => {
+    if (!visibleTeams.length) return;
+    setTeamIdxSolo((i) => (i + 1) % visibleTeams.length);
+  }, [visibleTeams.length]);
 
   // Clamp focus when team list/questions change (e.g., sort switch)
   useEffect(() => {
@@ -113,33 +168,92 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
     return totals;
   }, [teams, questions, grid]);
 
-  // Fetch all
-  const fetchAll = useCallback(async () => {
-    if (!selectedShowId || !selectedRoundId) return;
-    const res = await axios.get("/.netlify/functions/fetchScores", {
-      params: { showId: selectedShowId, roundId: selectedRoundId },
-    });
+  // 🔢 Display totals that respect global scoring mode (pub/pooled)
+  // Uses grid, questions, and teams already in ScoringMode state.
+  const displayTotals = useMemo(() => {
+    if (!teams.length || !questions.length) return {};
 
-    const { teams: t, questions: q, scores: s } = res.data;
-
-    // Keep/refresh entry order (by arrival)
-    setEntryOrder(t.map((x) => x.showTeamId));
-
-    // Build grid
-    const map = {};
-    for (const row of s) {
-      if (!map[row.showTeamId]) map[row.showTeamId] = {};
-      map[row.showTeamId][row.showQuestionId] = row;
+    // Build per-question set of correct teams (for pooled division)
+    const correctSets = new Map(); // showQuestionId -> Set(showTeamId)
+    for (const q of questions) {
+      const set = new Set();
+      for (const t of teams) {
+        const cell = grid[t.showTeamId]?.[q.showQuestionId];
+        if (cell?.isCorrect) set.add(t.showTeamId);
+      }
+      correctSets.set(q.showQuestionId, set);
     }
 
-    setTeams(t);
-    setQuestions(q);
-    setGrid(map);
-    setFocus({ teamIdx: 0, qIdx: 0 });
-  }, [selectedShowId, selectedRoundId]);
+    const totals = {};
+    for (const t of teams) {
+      let sum = Number(t.showBonus || 0);
+      for (const q of questions) {
+        const cell = grid[t.showTeamId]?.[q.showQuestionId];
+        if (!cell) continue;
+
+        const qb = Number(cell.questionBonus || 0);
+
+        if (scoringMode === "pub") {
+          const earned = cell.isCorrect ? Number(pubPoints) : 0;
+          sum += earned + qb;
+        } else {
+          // pooled — divide pool among correct teams, round to nearest point
+          const set = correctSets.get(q.showQuestionId) || new Set();
+          const n = set.size;
+          const share =
+            cell.isCorrect && n > 0
+              ? Math.round(Number(poolPerQuestion) / n)
+              : 0;
+          sum += share + qb;
+        }
+      }
+      totals[t.showTeamId] = sum;
+    }
+    return totals;
+  }, [teams, questions, grid, scoringMode, pubPoints, poolPerQuestion]);
+
+  // AFTER
+  const fetchAll = useCallback(
+    async ({ resetFocus = false } = {}) => {
+      if (!selectedShowId || !selectedRoundId) return;
+
+      const res = await axios.get("/.netlify/functions/fetchScores", {
+        params: { showId: selectedShowId, roundId: selectedRoundId },
+      });
+
+      const {
+        teams: fetchedTeams,
+        questions: fetchedQuestions,
+        scores,
+      } = res.data;
+
+      // Keep/refresh entry order (by arrival)
+      setEntryOrder(fetchedTeams.map((x) => x.showTeamId));
+
+      // Build grid
+      const gridMap = {};
+      for (const row of scores) {
+        if (!gridMap[row.showTeamId]) gridMap[row.showTeamId] = {};
+        gridMap[row.showTeamId][row.showQuestionId] = row;
+      }
+
+      setTeams(fetchedTeams);
+      setQuestions(fetchedQuestions);
+      setGrid(gridMap);
+
+      if (resetFocus) {
+        setFocus((prev) => ({
+          teamIdx: Math.min(prev.teamIdx, Math.max(fetchedTeams.length - 1, 0)),
+          qIdx: Math.min(prev.qIdx, Math.max(fetchedQuestions.length - 1, 0)),
+        }));
+      }
+    },
+    [selectedShowId, selectedRoundId]
+  );
 
   useEffect(() => {
-    fetchAll().catch(console.error);
+    // first load for this show/round -> allow reset
+    fetchAll({ resetFocus: true }).catch(console.error);
   }, [fetchAll]);
 
   // Debounced patch queue
@@ -188,13 +302,12 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
 
   const toggleCell = useCallback(
     (ti, qi) => {
-      const t = visibleTeams[ti];
+      const t = renderTeams[ti];
       const q = questions[qi];
       if (!t || !q) return;
       const cell = grid[t.showTeamId]?.[q.showQuestionId];
       if (!cell) return;
-
-      const next = !cell.isCorrect; // optimistic
+      const next = !cell.isCorrect;
       setGrid((prev) => ({
         ...prev,
         [t.showTeamId]: {
@@ -204,7 +317,7 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
       }));
       enqueue(cell.id, { isCorrect: next });
     },
-    [visibleTeams, questions, grid]
+    [renderTeams, questions, grid]
   );
 
   // Keyboard navigation honors visibleTeams order
@@ -225,26 +338,26 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
 
       if (e.key === "1" || e.key === " ") {
         e.preventDefault();
-        toggleCell(teamIdx, qIdx);
+        toggleCell(teamMode ? 0 : teamIdx, qIdx);
       } else if (e.key === "Tab" && !e.shiftKey) {
         e.preventDefault();
-        setFocus(({ teamIdx, qIdx }) => ({
-          teamIdx,
+        setFocus(({ teamIdx: t, qIdx }) => ({
+          teamIdx: teamMode ? teamIdxSolo : t,
           qIdx: (qIdx + 1) % questions.length,
         }));
       } else if (e.key === "Tab" && e.shiftKey) {
         e.preventDefault();
-        setFocus(({ teamIdx, qIdx }) => ({
-          teamIdx,
+        setFocus(({ teamIdx: t, qIdx }) => ({
+          teamIdx: teamMode ? teamIdxSolo : t,
           qIdx: (qIdx - 1 + questions.length) % questions.length,
         }));
-      } else if (e.key === "ArrowRight") {
+      } else if (!teamMode && e.key === "ArrowRight") {
         e.preventDefault();
         setFocus(({ teamIdx, qIdx }) => ({
           teamIdx: Math.min(teamIdx + 1, visibleTeams.length - 1),
           qIdx,
         }));
-      } else if (e.key === "ArrowLeft") {
+      } else if (!teamMode && e.key === "ArrowLeft") {
         e.preventDefault();
         setFocus(({ teamIdx, qIdx }) => ({
           teamIdx: Math.max(teamIdx - 1, 0),
@@ -252,22 +365,44 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
         }));
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
-        setFocus(({ teamIdx, qIdx }) => ({
-          teamIdx,
+        setFocus(({ teamIdx: t, qIdx }) => ({
+          teamIdx: teamMode ? teamIdxSolo : t,
           qIdx: Math.min(qIdx + 1, questions.length - 1),
         }));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setFocus(({ teamIdx, qIdx }) => ({
-          teamIdx,
+        setFocus(({ teamIdx: t, qIdx }) => ({
+          teamIdx: teamMode ? teamIdxSolo : t,
           qIdx: Math.max(qIdx - 1, 0),
+        }));
+      } else if (teamMode && e.key === "[") {
+        e.preventDefault();
+        setTeamIdxSolo((i) => Math.max(0, i - 1));
+        setFocus((f) => ({
+          teamIdx: Math.max(0, teamIdxSolo - 1),
+          qIdx: f.qIdx,
+        }));
+      } else if (teamMode && e.key === "]") {
+        e.preventDefault();
+        setTeamIdxSolo((i) => Math.min(visibleTeams.length - 1, i + 1));
+        setFocus((f) => ({
+          teamIdx: Math.min(visibleTeams.length - 1, teamIdxSolo + 1),
+          qIdx: f.qIdx,
         }));
       }
     };
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [visibleTeams, questions, focus, addingTeam, toggleCell]);
+  }, [
+    visibleTeams,
+    questions,
+    focus,
+    addingTeam,
+    toggleCell,
+    teamMode,
+    teamIdxSolo,
+  ]);
 
   // Add team flow
   const searchExactTeam = async () => {
@@ -332,22 +467,23 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
       style={{
         marginTop: "1rem",
         fontFamily: "Questrial, sans-serif",
-        color: colors.dark,
+        color: theme.dark,
+        boxSizing: "border-box",
       }}
     >
       {/* Header */}
       <div
         style={{
-          backgroundColor: colors.dark,
+          backgroundColor: theme.dark,
           padding: "0.5rem 0",
-          borderTop: `2px solid ${colors.accent}`,
-          borderBottom: `2px solid ${colors.accent}`,
+          borderTop: `2px solid ${theme.accent}`,
+          borderBottom: `2px solid ${theme.accent}`,
           marginBottom: "0.75rem",
         }}
       >
         <h2
           style={{
-            color: colors.accent,
+            color: theme.accent,
             fontFamily: "Antonio",
             fontSize: "1.6rem",
             margin: 0,
@@ -360,73 +496,149 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
       </div>
 
       {/* Top controls */}
-      <div
-        style={{
-          display: "flex",
-          gap: "0.5rem",
-          alignItems: "center",
-          marginBottom: "0.5rem",
-        }}
-      >
-        <button
-          onClick={() => setAddingTeam(true)}
+      <ui.Bar>
+        {/* LEFT controls */}
+        <div
           style={{
-            padding: "0.4rem 0.75rem",
-            border: `1px solid ${colors.accent}`,
-            background: colors.accent,
-            color: "#fff",
-            borderRadius: "0.25rem",
-            cursor: "pointer",
+            display: "flex",
+            flexDirection: "column", // 👈 stack rows
+            gap: "0.35rem", // spacing between the top and bottom rows
+            minWidth: 0,
           }}
         >
-          + Add team to this show
-        </button>
-
-        <div style={{ marginLeft: "auto", display: "flex", gap: ".5rem" }}>
+          {/* Row 1 — existing buttons */}
           <div
             style={{
-              border: "1px solid #ccc",
-              borderRadius: "999px",
-              overflow: "hidden",
-              background: "#fff",
+              display: "flex",
+              gap: "0.5rem",
+              flexWrap: "nowrap",
+              minWidth: 0,
             }}
           >
-            <button
-              onClick={() => setSortMode("entry")}
-              style={{
-                padding: ".35rem .6rem",
-                border: "none",
-                background:
-                  sortMode === "entry" ? colors.accent : "transparent",
-                color: sortMode === "entry" ? "#fff" : colors.dark,
-                cursor: "pointer",
-              }}
-              title="Entry order"
+            <ButtonPrimary onClick={() => setAddingTeam(true)}>
+              + Add team to this show
+            </ButtonPrimary>
+
+            <ui.Segmented style={{ flexShrink: 0 }}>
+              <button
+                style={ui.segBtn(sortMode === "entry")}
+                onClick={() => setSortMode("entry")}
+                title="Entry order"
+              >
+                Entry
+              </button>
+              <button
+                style={ui.segBtn(sortMode === "alpha")}
+                onClick={() => setSortMode("alpha")}
+                title="Alphabetical"
+              >
+                A→Z
+              </button>
+            </ui.Segmented>
+
+            <ButtonTab
+              active={teamMode}
+              onClick={() => setTeamMode((prev) => !prev)}
+              title="Toggle team scoring mode"
+              style={{ flexShrink: 0 }}
             >
-              Entry
-            </button>
-            <button
-              onClick={() => setSortMode("alpha")}
-              style={{
-                padding: ".35rem .6rem",
-                border: "none",
-                background:
-                  sortMode === "alpha" ? colors.accent : "transparent",
-                color: sortMode === "alpha" ? "#fff" : colors.dark,
-                cursor: "pointer",
-              }}
-              title="Alphabetical"
-            >
-              A→Z
-            </button>
+              {teamMode ? "Exit Team Scoring Mode" : "Team Scoring Mode"}
+            </ButtonTab>
           </div>
 
-          <div>
-            <strong>Teams:</strong> {teams.length} &nbsp;|&nbsp;{" "}
-            <strong>Questions:</strong> {questions.length} &nbsp;|&nbsp;
+          {/* Row 2 — scoring controls */}
+          <div style={{ display: "flex", gap: ".5rem", alignItems: "center" }}>
+            <div
+              style={{
+                display: "inline-flex",
+                border: "1px solid #ccc",
+                borderRadius: 999,
+                overflow: "hidden",
+                background: "#fff",
+              }}
+              title="Choose scoring type"
+            >
+              <button
+                style={ui.segBtn(scoringMode === "pub")}
+                onClick={() => setScoringMode("pub")}
+              >
+                Pub
+              </button>
+              <button
+                style={ui.segBtn(scoringMode === "pooled")}
+                onClick={() => setScoringMode("pooled")}
+              >
+                Pooled
+              </button>
+            </div>
+
+            {scoringMode === "pub" ? (
+              <label
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: ".35rem",
+                }}
+              >
+                <span style={{ whiteSpace: "nowrap" }}>Pts/Q:</span>
+                <input
+                  type="number"
+                  value={pubPoints}
+                  min={0}
+                  step={1}
+                  onChange={(e) => setPubPoints(Number(e.target.value || 0))}
+                  style={{
+                    width: 70,
+                    padding: ".3rem .4rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                  }}
+                />
+              </label>
+            ) : (
+              <label
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: ".35rem",
+                }}
+              >
+                <span style={{ whiteSpace: "nowrap" }}>Pool/Q:</span>
+                <input
+                  type="number"
+                  value={poolPerQuestion}
+                  min={0}
+                  step={10}
+                  onChange={(e) =>
+                    setPoolPerQuestion(Number(e.target.value || 0))
+                  }
+                  style={{
+                    width: 110,
+                    padding: ".3rem .4rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                  }}
+                />
+              </label>
+            )}
           </div>
         </div>
-      </div>
+
+        {/* RIGHT stats */}
+        <div
+          style={{
+            justifySelf: "end",
+            minWidth: 0,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            textAlign: "right",
+          }}
+        >
+          <strong>Teams:</strong> {teams.length} &nbsp;|&nbsp;
+          <strong>Questions:</strong> {questions.length}
+        </div>
+      </ui.Bar>
 
       {/* Grid */}
       <div
@@ -435,10 +647,88 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
           background: "#fff",
           border: "1px solid #ddd",
           borderRadius: "0.5rem",
-          display: "inline-block",
+          display: "block",
           maxWidth: "100%",
+          width: "100%",
+          boxSizing: "border-box", // 👈 fixes the 2px overflow
         }}
       >
+        {teamMode && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              padding: "0.4rem 0.5rem",
+              borderBottom: "1px solid #eee",
+              position: "sticky",
+              top: 0,
+              background: "#fff",
+              zIndex: 5,
+            }}
+          >
+            <div
+              style={{
+                fontWeight: 600,
+                color: theme.dark,
+                whiteSpace: "nowrap",
+              }}
+            >
+              Scoring team:
+            </div>
+
+            <select
+              value={teamIdxSolo}
+              onChange={(e) => setTeamIdxSolo(Number(e.target.value))}
+              style={{
+                padding: "0.35rem 0.5rem",
+                border: "1px solid #ccc",
+                borderRadius: "0.35rem",
+                minWidth: 180,
+                maxWidth: 360,
+              }}
+              title="Choose team to score"
+            >
+              {visibleTeams.map((t, idx) => (
+                <option key={t.showTeamId} value={idx}>
+                  {t.teamName}
+                </option>
+              ))}
+            </select>
+
+            <div
+              style={{ marginLeft: "auto", display: "flex", gap: "0.35rem" }}
+            >
+              <button
+                onClick={prevTeam}
+                style={{
+                  padding: ".35rem .6rem",
+                  border: "1px solid #ccc",
+                  background: "#f7f7f7",
+                  borderRadius: "0.35rem",
+                  cursor: "pointer",
+                }}
+                title="Previous team"
+              >
+                ← Prev
+              </button>
+              <button
+                onClick={nextTeam}
+                style={{
+                  padding: ".35rem .6rem",
+                  border: "1px solid #ccc",
+                  background: "#f7f7f7",
+                  borderRadius: "0.35rem",
+                  cursor: "pointer",
+                }}
+                title="Next team"
+              >
+                Next →
+              </button>
+            </div>
+          </div>
+        )}
+
         <table
           style={{
             width: "auto",
@@ -450,7 +740,7 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
           <thead>
             <tr
               style={{
-                background: colors.bg,
+                background: theme.bg,
                 borderBottom: thinRowBorder, // 👈 ultra-thin orange line here
               }}
             >
@@ -463,7 +753,7 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
               >
                 Q#
               </th>
-              {visibleTeams.map((t) => (
+              {renderTeams.map((t) => (
                 <th
                   key={t.showTeamId}
                   style={{
@@ -490,7 +780,7 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
                   <div
                     style={{ fontSize: ".8rem", opacity: 0.85, marginTop: 2 }}
                   >
-                    Total: <strong>{teamTotals[t.showTeamId]}</strong>
+                    Total: <strong>{displayTotals[t.showTeamId] ?? 0}</strong>
                   </div>
                 </th>
               ))}
@@ -504,7 +794,7 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
                   padding: "0.3rem",
                   ...sticky.qNumTd,
                   fontWeight: "bold",
-                  color: colors.accent,
+                  color: theme.accent,
                   borderTop: bonusBorder,
                   borderBottom: bonusBorder,
                   whiteSpace: "normal",
@@ -517,7 +807,7 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
                 Team bonus
               </td>
 
-              {visibleTeams.map((t) => (
+              {renderTeams.map((t) => (
                 <td
                   key={t.showTeamId}
                   style={{
@@ -537,11 +827,11 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
                       width: 40,
                       textAlign: "center",
                       padding: "0.2rem",
-                      border: `1px solid ${colors.accent}`,
+                      border: `1px solid ${theme.accent}`,
                       borderRadius: "0.25rem",
                       fontSize: ".85rem",
-                      color: colors.accent,
-                      outlineColor: colors.accent,
+                      color: theme.accent,
+                      outlineColor: theme.accent,
                     }}
                     title="Show-level bonus points"
                   />
@@ -561,11 +851,25 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
                   <strong>{q.order}</strong>
                 </td>
 
-                {visibleTeams.map((t, ti) => {
+                {renderTeams.map((t, ti) => {
                   const cell = grid[t.showTeamId]?.[q.showQuestionId];
                   const isMissing = !cell;
                   const on = !!cell?.isCorrect;
-                  const pts = Number(cell?.effectivePoints || 0);
+
+                  const correctCount =
+                    correctCountByShowQuestionId[q.showQuestionId] || 0;
+
+                  const pts = on
+                    ? scoringMode === "pub"
+                      ? Number(pubPoints)
+                      : Math.round(
+                          Number(poolPerQuestion) / Math.max(1, correctCount)
+                        )
+                    : 0;
+
+                  const logicalTi = teamMode ? teamIdxSolo : ti;
+                  const isFocused =
+                    focus.teamIdx === logicalTi && focus.qIdx === qi;
 
                   const style = {
                     ...tileBase,
@@ -574,6 +878,7 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
                       : on
                         ? tileStates.correct
                         : tileStates.wrong),
+                    ...(isFocused ? tileFocus : null),
                   };
 
                   return (
@@ -583,15 +888,19 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
                         textAlign: "center",
                         padding: "0.25rem",
                         borderBottom: thinRowBorder,
+
+                        transition: "background 120ms ease",
                       }}
                     >
                       <div
                         role="button"
                         aria-disabled={isMissing}
+                        aria-selected={isFocused}
                         onClick={() => {
                           if (isMissing) return;
-                          setFocus({ teamIdx: ti, qIdx: qi });
-                          toggleCell(ti, qi);
+                          const renderedTi = teamMode ? 0 : ti; // index within renderTeams
+                          setFocus({ teamIdx: logicalTi, qIdx: qi });
+                          toggleCell(renderedTi, qi);
                         }}
                         style={style}
                         title={
@@ -602,7 +911,7 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
                               : "Incorrect"
                         }
                       >
-                        {isMissing ? "—" : on ? `✓ ${pts || ""}` : "○"}
+                        {isMissing ? "—" : on ? `✓ ${pts}` : "○"}
                       </div>
                     </td>
                   );
@@ -640,10 +949,10 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
               padding: "1rem",
               borderRadius: "0.5rem",
               minWidth: 420,
-              border: `1px solid ${colors.accent}`,
+              border: `1px solid ${theme.accent}`,
             }}
           >
-            <h3 style={{ marginTop: 0, color: colors.dark }}>
+            <h3 style={{ marginTop: 0, color: theme.dark }}>
               Add team to this show
             </h3>
             <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -663,8 +972,8 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
                 onClick={searchExactTeam}
                 style={{
                   padding: "0.5rem 0.75rem",
-                  border: `1px solid ${colors.accent}`,
-                  background: colors.accent,
+                  border: `1px solid ${theme.accent}`,
+                  background: theme.accent,
                   color: "#fff",
                   borderRadius: "0.25rem",
                   cursor: "pointer",
@@ -772,9 +1081,9 @@ export default function ScoringMode({ selectedShowId, selectedRoundId }) {
                 onClick={() => confirmTeam(null, true)}
                 style={{
                   padding: ".5rem .75rem",
-                  border: `1px solid ${colors.accent}`,
+                  border: `1px solid ${theme.accent}`,
                   background: "#fff",
-                  color: colors.accent,
+                  color: theme.accent,
                   borderRadius: "0.25rem",
                   cursor: "pointer",
                 }}

@@ -6,6 +6,13 @@ import "react-h5-audio-player/lib/styles.css";
 import ShowMode from "./ShowMode";
 import ScoringMode from "./ScoringMode";
 import ResultsMode from "./ResultsMode";
+import {
+  ui,
+  Button,
+  ButtonTab,
+  ButtonPrimary,
+  colors,
+} from "./styles/index.js";
 
 // 🔐 PASSWORD PROTECTION — Locks the app behind a simple prompt
 const allowedPassword = "tv2025";
@@ -43,6 +50,29 @@ export default function App() {
   const [timerDuration, setTimerDuration] = useState(60); // in seconds
   const [timeLeft, setTimeLeft] = useState(60);
   const [timerRunning, setTimerRunning] = useState(false);
+  // 🔢 Global scoring settings (persisted)
+  const [scoringMode, setScoringMode] = useState(
+    () => localStorage.getItem("tv_scoringMode") || "pub" // "pub" | "pooled"
+  );
+  const [pubPoints, setPubPoints] = useState(
+    () => Number(localStorage.getItem("tv_pubPoints")) || 10
+  );
+  const [poolPerQuestion, setPoolPerQuestion] = useState(
+    () => Number(localStorage.getItem("tv_poolPerQuestion")) || 500
+  );
+
+  // persist on change
+  useEffect(() => {
+    localStorage.setItem("tv_scoringMode", scoringMode);
+  }, [scoringMode]);
+
+  useEffect(() => {
+    localStorage.setItem("tv_pubPoints", String(pubPoints));
+  }, [pubPoints]);
+
+  useEffect(() => {
+    localStorage.setItem("tv_poolPerQuestion", String(poolPerQuestion));
+  }, [poolPerQuestion]);
 
   // 💾 LOAD TIMER POSITION
   useEffect(() => {
@@ -201,64 +231,31 @@ export default function App() {
         style={{
           display: "flex",
           justifyContent: "left",
-          gap: "1rem",
+          gap: "0.5rem",
           marginTop: "1rem",
           marginBottom: "1rem",
         }}
       >
-        <button
+        <ButtonTab
+          active={activeMode === "show"}
           onClick={() => setActiveMode("show")}
-          style={{
-            padding: "0.5rem 1rem",
-            fontSize: "1rem",
-            fontFamily: "Questrial, sans-serif",
-            backgroundColor: activeMode === "show" ? "#DC6A24" : "#f0f0f0",
-            color: activeMode === "show" ? "#ffffff" : "#2B394A",
-            border: "1px solid #DC6A24",
-            borderRadius: "0.25rem",
-            cursor: "pointer",
-
-            textAlign: "center",
-          }}
         >
           Show mode
-        </button>
+        </ButtonTab>
 
-        <button
+        <ButtonTab
+          active={activeMode === "score"}
           onClick={() => setActiveMode("score")}
-          style={{
-            padding: "0.5rem 1rem",
-            fontSize: "1rem",
-            fontFamily: "Questrial, sans-serif",
-            backgroundColor: activeMode === "score" ? "#DC6A24" : "#f0f0f0",
-            color: activeMode === "score" ? "#ffffff" : "#2B394A",
-            border: "1px solid #DC6A24",
-            borderRadius: "0.25rem",
-            cursor: "pointer",
-
-            textAlign: "center",
-          }}
         >
           Scoring mode
-        </button>
+        </ButtonTab>
 
-        <button
+        <ButtonTab
+          active={activeMode === "results"}
           onClick={() => setActiveMode("results")}
-          style={{
-            padding: "0.5rem 1rem",
-            fontSize: "1rem",
-            fontFamily: "Questrial, sans-serif",
-            backgroundColor: activeMode === "results" ? "#DC6A24" : "#f0f0f0",
-            color: activeMode === "results" ? "#ffffff" : "#2B394A",
-            border: "1px solid #DC6A24",
-            borderRadius: "0.25rem",
-            cursor: "pointer",
-
-            textAlign: "center",
-          }}
         >
           Results mode
-        </button>
+        </ButtonTab>
       </div>
 
       <div>
@@ -359,6 +356,25 @@ export default function App() {
         <ScoringMode
           selectedShowId={selectedShowId}
           selectedRoundId={selectedRoundId}
+          scoringMode={scoringMode}
+          setScoringMode={setScoringMode}
+          pubPoints={pubPoints}
+          setPubPoints={setPubPoints}
+          poolPerQuestion={poolPerQuestion}
+          setPoolPerQuestion={setPoolPerQuestion}
+        />
+      )}
+
+      {activeMode === "results" && (
+        <ResultsMode
+          selectedShowId={selectedShowId}
+          selectedRoundId={selectedRoundId}
+          scoringMode={scoringMode}
+          setScoringMode={setScoringMode}
+          pubPoints={pubPoints}
+          setPubPoints={setPubPoints}
+          poolPerQuestion={poolPerQuestion}
+          setPoolPerQuestion={setPoolPerQuestion}
         />
       )}
     </div>

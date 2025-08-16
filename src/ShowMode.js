@@ -1,7 +1,9 @@
+// src/ShowMode.js
 import React from "react";
 import AudioPlayer from "react-h5-audio-player";
 import Draggable from "react-draggable";
 import { marked } from "marked";
+import { Button, ButtonPrimary, overlayStyle, overlayImg } from "./styles";
 
 export default function ShowMode({
   groupedQuestions,
@@ -24,55 +26,69 @@ export default function ShowMode({
   timerPosition,
   setTimerPosition,
   getClosestQuestionKey,
-  numberToLetter,
 }) {
-  const sortedGroupedEntries = Object.entries(groupedQuestions)
-    .sort(([aId, aData], [bId, bData]) => {
-      const aOrder = aData.categoryInfo?.["Category order"] ?? 999;
-      const bOrder = bData.categoryInfo?.["Category order"] ?? 999;
-      return aOrder - bOrder;
-    })
-    .sort(([aId, aData], [bId, bData]) => {
-      const aVisual = Object.values(aData.questions || {}).some((q) =>
-        (q["Question type"] || "").includes("Visual")
+  const sortedGroupedEntries = React.useMemo(() => {
+    const entries = Object.entries(groupedQuestions);
+    const hasVisual = (cat) =>
+      Object.values(cat?.questions || {}).some((q) =>
+        (q?.["Question type"] || "").includes("Visual")
       );
-      const bVisual = Object.values(bData.questions || {}).some((q) =>
-        (q["Question type"] || "").includes("Visual")
-      );
-      return aVisual === bVisual ? 0 : aVisual ? -1 : 1;
+
+    return entries.sort(([, a], [, b]) => {
+      const av = hasVisual(a) ? 1 : 0;
+      const bv = hasVisual(b) ? 1 : 0;
+      if (av !== bv) return bv - av; // visuals first
+      const ao = a?.categoryInfo?.["Category order"] ?? 999;
+      const bo = b?.categoryInfo?.["Category order"] ?? 999;
+      return ao - bo;
     });
+  }, [groupedQuestions]);
 
   return (
     <>
       {Object.keys(groupedQuestions).length > 0 && (
-        <button
+        <ButtonPrimary
           onClick={() => {
             const key = getClosestQuestionKey();
             setshowDetails((prev) => !prev);
-
             setTimeout(() => {
               const ref = questionRefs.current[key];
               if (ref?.current) {
                 ref.current.scrollIntoView({
-                  behavior: "instant",
+                  behavior: "auto",
                   block: "center",
                 });
               }
             }, 100);
           }}
-          className="fixed-answer-toggle"
+          style={{
+            position: "fixed",
+            left: "1rem",
+            top: "1rem",
+            zIndex: 1000,
+            pointerEvents: "auto",
+          }}
         >
           {showDetails ? "Hide all answers" : "Show all answers"}
-        </button>
+        </ButtonPrimary>
       )}
+
       {sortedGroupedEntries.map(([categoryId, catData], index) => {
         const { categoryInfo, questions } = catData;
         const categoryName =
-          categoryInfo["Category name"]?.trim() || "Uncategorized";
+          categoryInfo?.["Category name"]?.trim() || "Uncategorized";
         const categoryDescription =
-          categoryInfo["Category description"]?.trim() || "";
-        const isSuperSecret = categoryInfo["Super secret"];
+          categoryInfo?.["Category description"]?.trim() || "";
+        const isSuperSecret = !!categoryInfo?.["Super secret"];
+
+        // Unified key + image handling (works for single or array)
         const groupKey = `${categoryName}|||${categoryDescription}`;
+        const catImages = categoryInfo?.["Category image"];
+        const catImagesArr = Array.isArray(catImages)
+          ? catImages
+          : catImages
+            ? [catImages]
+            : [];
 
         return (
           <div
@@ -90,13 +106,7 @@ export default function ShowMode({
                   padding: "0.5rem",
                 }}
               >
-                {/* Your original dark blue header block untouched */}
-                <div
-                  style={{
-                    backgroundColor: "#2B394A",
-                    padding: "0",
-                  }}
-                >
+                <div style={{ backgroundColor: "#2B394A", padding: 0 }}>
                   <hr
                     style={{
                       border: "none",
@@ -131,6 +141,8 @@ export default function ShowMode({
                       __html: marked.parseInline(categoryDescription || ""),
                     }}
                   />
+
+                  {/* Secret category explainer box */}
                   <div
                     style={{
                       margin: "0.5rem 1rem",
@@ -160,70 +172,45 @@ export default function ShowMode({
                       competition!
                     </div>
                   </div>
-                  {Array.isArray(categoryInfo["Category image"]) &&
-                    categoryInfo["Category image"].length > 0 && (
-                      <div style={{ marginTop: "0.25rem", marginLeft: "1rem" }}>
-                        <button
+
+                  {/* Category images (optional) */}
+                  {catImagesArr.length > 0 && (
+                    <div style={{ marginTop: "0.25rem", marginLeft: "1rem" }}>
+                      <Button
+                        onClick={() =>
+                          setVisibleCategoryImages((prev) => ({
+                            ...prev,
+                            [groupKey]: true,
+                          }))
+                        }
+                        style={{ marginTop: ".25rem", marginLeft: "1rem" }}
+                      >
+                        Show category image{catImagesArr.length > 1 ? "s" : ""}
+                      </Button>
+
+                      {visibleCategoryImages[groupKey] && (
+                        <div
                           onClick={() =>
                             setVisibleCategoryImages((prev) => ({
                               ...prev,
-                              [groupKey]: true,
+                              [groupKey]: false,
                             }))
                           }
-                          style={{
-                            fontSize: "1rem",
-                            fontFamily: "Questrial, sans-serif",
-                            marginBottom: "0.25rem",
-                          }}
+                          style={overlayStyle}
                         >
-                          Show category image
-                          {categoryInfo["Category image"].length > 1 ? "s" : ""}
-                        </button>
+                          {catImagesArr.map((img, idx) => (
+                            <img
+                              key={idx}
+                              src={img.url}
+                              alt={img.filename || "Category image"}
+                              style={overlayImg}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                        {visibleCategoryImages[groupKey] && (
-                          <div
-                            onClick={() =>
-                              setVisibleCategoryImages((prev) => ({
-                                ...prev,
-                                [groupKey]: false,
-                              }))
-                            }
-                            style={{
-                              position: "fixed",
-                              top: 0,
-                              left: 0,
-                              width: "100vw",
-                              height: "100vh",
-                              backgroundColor: "rgba(43, 57, 74, 0.7)",
-                              backdropFilter: "blur(10px)",
-                              WebkitBackdropFilter: "blur(8px)",
-                              display: "flex",
-                              flexDirection: "column",
-                              justifyContent: "center",
-                              alignItems: "center",
-                              zIndex: 9999,
-                              cursor: "pointer",
-                            }}
-                          >
-                            {categoryInfo["Category image"].map((img, idx) => (
-                              <img
-                                key={idx}
-                                src={img.url}
-                                alt={img.filename || "Category image"}
-                                style={{
-                                  maxWidth: "90vw",
-                                  maxHeight: "80vh",
-                                  objectFit: "contain",
-                                  border: "4px solid white",
-                                  boxShadow: "0 0 20px rgba(0,0,0,0.5)",
-                                  marginBottom: "1rem",
-                                }}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
                   <hr
                     style={{
                       border: "none",
@@ -235,12 +222,7 @@ export default function ShowMode({
               </div>
             ) : (
               // Standard block for non-secret categories
-              <div
-                style={{
-                  backgroundColor: "#2B394A",
-                  padding: "0",
-                }}
-              >
+              <div style={{ backgroundColor: "#2B394A", padding: 0 }}>
                 <hr
                   style={{
                     border: "none",
@@ -275,9 +257,11 @@ export default function ShowMode({
                     __html: marked.parseInline(categoryDescription || ""),
                   }}
                 />
-                {categoryInfo["Category image"]?.url && (
+
+                {/* Category images (optional) */}
+                {catImagesArr.length > 0 && (
                   <div style={{ marginTop: "0.25rem", marginLeft: "1rem" }}>
-                    <button
+                    <Button
                       onClick={() =>
                         setVisibleCategoryImages((prev) => ({
                           ...prev,
@@ -290,8 +274,8 @@ export default function ShowMode({
                         marginBottom: "0.25rem",
                       }}
                     >
-                      Show category image
-                    </button>
+                      Show category image{catImagesArr.length > 1 ? "s" : ""}
+                    </Button>
 
                     {visibleCategoryImages[groupKey] && (
                       <div
@@ -301,40 +285,21 @@ export default function ShowMode({
                             [groupKey]: false,
                           }))
                         }
-                        style={{
-                          position: "fixed",
-                          top: 0,
-                          left: 0,
-                          width: "100vw",
-                          height: "100vh",
-                          backgroundColor: "rgba(43, 57, 74, 0.7)",
-                          backdropFilter: "blur(10px)",
-                          WebkitBackdropFilter: "blur(8px)",
-                          display: "flex",
-                          justifyContent: "center",
-                          alignItems: "center",
-                          zIndex: 9999,
-                          cursor: "pointer",
-                        }}
+                        style={overlayStyle}
                       >
-                        <img
-                          src={categoryInfo["Category image"].url}
-                          alt={
-                            categoryInfo["Category image"].Name ||
-                            "Category image"
-                          }
-                          style={{
-                            maxWidth: "90vw",
-                            maxHeight: "90vh",
-                            objectFit: "contain",
-                            border: "4px solid white",
-                            boxShadow: "0 0 20px rgba(0,0,0,0.5)",
-                          }}
-                        />
+                        {catImagesArr.map((img, idx) => (
+                          <img
+                            key={idx}
+                            src={img.url}
+                            alt={img.filename || "Category image"}
+                            style={overlayImg}
+                          />
+                        ))}
                       </div>
                     )}
                   </div>
                 )}
+
                 <hr
                   style={{
                     border: "none",
@@ -351,7 +316,7 @@ export default function ShowMode({
                   if (typeof val === "string" && /^[A-Z]$/i.test(val)) {
                     return val.toUpperCase().charCodeAt(0) - 64;
                   }
-                  const num = parseInt(val);
+                  const num = parseInt(val, 10);
                   return isNaN(num) ? 999 : num;
                 };
                 return (
@@ -374,7 +339,7 @@ export default function ShowMode({
                           fontFamily: "Questrial, sans-serif",
                           fontSize: "1.125rem",
                           marginTop: "1.75rem",
-                          marginBottom: "0rem",
+                          marginBottom: 0,
                         }}
                       >
                         <strong>Question {q["Question order"]}:</strong> <br />
@@ -402,14 +367,14 @@ export default function ShowMode({
                             display: "block",
                             paddingLeft: "1.5rem",
                             paddingTop: "0.25rem",
-                            marginTop: "0rem",
+                            marginTop: 0,
                             marginBottom: "0.01rem",
                           }}
                         >
                           <span
                             dangerouslySetInnerHTML={{
                               __html: marked.parseInline(
-                                `<span style="font-size:1em; position: relative; top: 1px; margin-right: -1px;">💭</span> ${q["Flavor text"]}`
+                                `<span style="font-size:1em; position: relative; top: 1px; margin-right:-1px;">💭</span> ${q["Flavor text"]}`
                               ),
                             }}
                           />
@@ -419,7 +384,7 @@ export default function ShowMode({
                       {/* IMAGE POPUP TOGGLE */}
                       {Array.isArray(q.Images) && q.Images.length > 0 && (
                         <div style={{ marginTop: "0.25rem" }}>
-                          <button
+                          <Button
                             onClick={() => {
                               setVisibleImages((prev) => ({
                                 ...prev,
@@ -431,14 +396,12 @@ export default function ShowMode({
                               }));
                             }}
                             style={{
-                              fontSize: "1rem",
-                              fontFamily: "Questrial, sans-serif",
                               marginBottom: "0.25rem",
                               marginLeft: "1.5rem",
                             }}
                           >
                             Show image
-                          </button>
+                          </Button>
 
                           {visibleImages[q["Question ID"]] && (
                             <div
@@ -448,21 +411,7 @@ export default function ShowMode({
                                   [q["Question ID"]]: false,
                                 }))
                               }
-                              style={{
-                                position: "fixed",
-                                top: 0,
-                                left: 0,
-                                width: "100vw",
-                                height: "100vh",
-                                backgroundColor: "rgba(43, 57, 74, 0.7)",
-                                backdropFilter: "blur(10px)",
-                                display: "flex",
-                                flexDirection: "column",
-                                justifyContent: "center",
-                                alignItems: "center",
-                                zIndex: 9999,
-                                cursor: "pointer",
-                              }}
+                              style={overlayStyle}
                             >
                               <img
                                 src={
@@ -475,14 +424,7 @@ export default function ShowMode({
                                     currentImageIndex[q["Question ID"]] || 0
                                   ]?.Name || "Attached image"
                                 }
-                                style={{
-                                  maxWidth: "90vw",
-                                  maxHeight: "80vh",
-                                  objectFit: "contain",
-                                  border: "4px solid white",
-                                  boxShadow: "0 0 20px rgba(0,0,0,0.5)",
-                                  marginBottom: "1rem",
-                                }}
+                                style={overlayImg}
                               />
 
                               {q.Images.length > 1 && (
@@ -495,7 +437,7 @@ export default function ShowMode({
                                     fontFamily: "Questrial, sans-serif",
                                   }}
                                 >
-                                  <button
+                                  <Button
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       setCurrentImageIndex((prev) => {
@@ -509,20 +451,11 @@ export default function ShowMode({
                                         };
                                       });
                                     }}
-                                    style={{
-                                      padding: "0.5rem 1rem",
-                                      fontSize: "1rem",
-                                      backgroundColor: "#ffffff",
-                                      color: "#2B394A",
-                                      border: "1px solid #DC6A24",
-                                      borderRadius: "0.25rem",
-                                      cursor: "pointer",
-                                    }}
                                   >
                                     Previous
-                                  </button>
+                                  </Button>
 
-                                  <button
+                                  <Button
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       setCurrentImageIndex((prev) => {
@@ -535,24 +468,16 @@ export default function ShowMode({
                                         };
                                       });
                                     }}
-                                    style={{
-                                      padding: "0.5rem 1rem",
-                                      fontSize: "1rem",
-                                      backgroundColor: "#ffffff",
-                                      color: "#2B394A",
-                                      border: "1px solid #DC6A24",
-                                      borderRadius: "0.25rem",
-                                      cursor: "pointer",
-                                    }}
                                   >
                                     Next
-                                  </button>
+                                  </Button>
                                 </div>
                               )}
                             </div>
                           )}
                         </div>
                       )}
+
                       {/* AUDIO FILE – Always visible if present */}
                       {Array.isArray(q.Audio) && q.Audio.length > 0 && (
                         <div
@@ -570,14 +495,12 @@ export default function ShowMode({
                                   className="audio-player-wrapper"
                                   style={{
                                     marginTop: "0.5rem",
-                                    marginLeft: "1.5rem",
-                                    marginRight: "1.5rem",
                                     maxWidth: "600px",
                                     border: "1px solid #ccc",
                                     borderRadius: "1.5rem",
                                     overflow: "hidden",
                                     backgroundColor: "#f9f9f9",
-                                    boxShadow: "0 0 10px rgba(0, 0, 0, 0.15)", // restore shadow
+                                    boxShadow: "0 0 10px rgba(0, 0, 0, 0.15)",
                                   }}
                                 >
                                   <AudioPlayer
@@ -585,7 +508,7 @@ export default function ShowMode({
                                     showJumpControls={false}
                                     layout="horizontal"
                                     style={{
-                                      borderRadius: "1.5rem 1.5rem 0rem 0rem",
+                                      borderRadius: "1.5rem 1.5rem 0 0",
                                       width: "100%",
                                     }}
                                   />
@@ -610,6 +533,7 @@ export default function ShowMode({
                           )}
                         </div>
                       )}
+
                       {/* ANSWER */}
                       {showDetails && (
                         <p
@@ -632,6 +556,7 @@ export default function ShowMode({
                         </p>
                       )}
                     </div>
+
                     {qIndex < Object.values(questions).length - 1 && (
                       <hr className="question-divider" />
                     )}
@@ -641,6 +566,7 @@ export default function ShowMode({
           </div>
         );
       })}
+
       {/* Countdown Timer Floating Box */}
       <div
         style={{
@@ -655,7 +581,7 @@ export default function ShowMode({
       >
         <Draggable
           nodeRef={timerRef}
-          position={timerPosition}
+          defaultPosition={timerPosition} // use defaultPosition for controlled-by-localStorage behavior
           onStop={(e, data) => {
             const newPos = { x: data.x, y: data.y };
             setTimerPosition(newPos);
@@ -701,36 +627,15 @@ export default function ShowMode({
                 marginBottom: "0.5rem",
               }}
             >
-              <button
+              <ButtonPrimary
                 onClick={handleStartPause}
-                style={{
-                  width: "70px",
-                  backgroundColor: "#DC6A24",
-                  color: "white",
-                  border: "none",
-                  padding: "0.4rem",
-                  fontSize: "0.9rem",
-                  borderRadius: "0.25rem",
-                  cursor: "pointer",
-                }}
+                style={{ width: "70px" }}
               >
                 {timerRunning ? "Pause" : "Start"}
-              </button>
-              <button
-                onClick={handleReset}
-                style={{
-                  width: "70px",
-                  backgroundColor: "#f0f0f0",
-                  color: "#2B394A",
-                  border: "none",
-                  padding: "0.4rem",
-                  fontSize: "0.9rem",
-                  borderRadius: "0.25rem",
-                  cursor: "pointer",
-                }}
-              >
+              </ButtonPrimary>
+              <Button onClick={handleReset} style={{ width: "70px" }}>
                 Reset
-              </button>
+              </Button>
             </div>
 
             {/* Duration input */}
@@ -751,7 +656,7 @@ export default function ShowMode({
             />
           </div>
         </Draggable>
-      </div>{" "}
+      </div>
     </>
   );
 }

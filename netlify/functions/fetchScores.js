@@ -54,7 +54,6 @@ exports.handler = async (event) => {
     const showQuestionIdSet = new Set(questions.map((q) => q.showQuestionId));
 
     // 2) Teams for this show
-    // We fetch all ShowTeams, then filter in JS to handle both string and object link shapes.
     const stAll = await all("ShowTeams", {
       fields: ["Show", "Show bonus", "Team"],
     });
@@ -85,7 +84,6 @@ exports.handler = async (event) => {
     const teamNameById = {};
     if (teamIds.length) {
       const tf = `OR(${teamIds.map((id) => `RECORD_ID()='${id}'`).join(",")})`;
-      // don't restrict fields so the first field (primary) is always available
       const teamRecs = await all("Teams", { filterByFormula: tf });
       for (const tr of teamRecs) {
         const fields = tr._rawJson?.fields || {};
@@ -127,6 +125,7 @@ exports.handler = async (event) => {
       fields: [
         "Is correct",
         "Effective points",
+        "Points earned", // ✨ NEW: read Points earned
         "Question bonus",
         "ShowTeam",
         "ShowQuestion",
@@ -162,6 +161,7 @@ exports.handler = async (event) => {
         showQuestionId: firstId(s.get("ShowQuestion")),
         isCorrect: !!s.get("Is correct"),
         effectivePoints: Number(s.get("Effective points") ?? 0),
+        pointsEarned: Number(s.get("Points earned") ?? 0), // ✨ NEW: expose Points earned
         questionBonus: Number(s.get("Question bonus") ?? 0),
       }));
 
