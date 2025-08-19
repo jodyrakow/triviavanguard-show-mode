@@ -12,6 +12,7 @@ import {
   ButtonTab,
   ButtonPrimary,
   colors,
+  tokens,
 } from "./styles/index.js";
 
 // 🔐 PASSWORD PROTECTION — Locks the app behind a simple prompt
@@ -44,6 +45,11 @@ export default function App() {
   const [currentImageIndex, setCurrentImageIndex] = useState({});
   const timerRef = useRef(null);
   const [groupedQuestions, setGroupedQuestions] = useState({});
+  const [showBundle, setShowBundle] = useState(null);
+  const [bundleLoading, setBundleLoading] = useState(false);
+  const [bundleError, setBundleError] = useState("");
+  // Rounds come from the bundle now
+  const bundledRounds = showBundle?.rounds ?? [];
 
   // ⏲️ TIMER STATE
   const [timerPosition, setTimerPosition] = useState({ x: 0, y: 0 });
@@ -143,70 +149,102 @@ export default function App() {
     return closestKey;
   };
 
-  // 📡 FETCH SHOWS & ROUNDS
+  const [selectedShow, setSelectedShow] = useState(null);
+  const [pendingShow, setPendingShow] = useState(null); // for when a different show is clicked
+
+  // 📡 FETCH SHOWS (list only)
   useEffect(() => {
-    const fetchShows = async () => {
+    async function loadShows() {
       try {
-        console.log("Fetching shows...");
-        const res = await axios.get("/.netlify/functions/fetchShowsRounds");
-        console.log("Fetched shows/rounds:", res.data);
-        setShows(res.data.Shows || []);
-        setRounds(res.data.Rounds || []);
-      } catch (error) {
-        console.error("Error fetching shows/rounds:", error);
+        const res = await axios.get("/.netlify/functions/fetchShows");
+        setShows(res.data?.Shows || []);
+      } catch (err) {
+        console.error("Error fetching shows:", err);
       }
-    };
-    fetchShows();
+    }
+    loadShows();
   }, []);
 
-  // 🔄 AUTO-SELECT ROUND IF ONLY ONE
+  // 🧠 Fetch the selected show's bundle (rounds, questions, teams)
   useEffect(() => {
-    if (!selectedShowId) return;
-    // match the filter you use elsewhere: r.Round?.Show?.[0] === selectedShowId
-    const showRounds = rounds.filter(
-      (r) => r.Round?.Show?.[0] === selectedShowId
-    );
-    if (showRounds.length === 1) {
-      // value in the <option> is r.id, so set that
-      setSelectedRoundId(showRounds[0].id);
+    if (!selectedShowId) {
+      setShowBundle(null);
+      return;
     }
-  }, [selectedShowId, rounds]);
-
-  // 🧠 FETCH QUESTIONS BASED ON SELECTION
-  useEffect(() => {
-    const fetchShowData = async () => {
-      if (!selectedShowId || !selectedRoundId) return;
+    let cancelled = false;
+    (async () => {
       try {
-        const res = await axios.post("/.netlify/functions/fetchShowData", {
-          showId: selectedShowId,
-          roundId: selectedRoundId,
+        setBundleLoading(true);
+        setBundleError("");
+        const res = await axios.get("/.netlify/functions/fetchShowBundle", {
+          params: { showId: selectedShowId },
         });
-        console.log("Fetched grouped questions:", res.data);
-        setGroupedQuestions(res.data);
-      } catch (error) {
-        console.error("Error fetching questions:", error);
-      }
-    };
-    fetchShowData();
-  }, [selectedShowId, selectedRoundId]);
+        if (cancelled) return;
+        setShowBundle(res.data || null);
 
-  const selectedShowRounds = rounds.filter(
-    (r) => r.Round?.Show?.[0] === selectedShowId // ✅ correct
-  );
+        // Auto-pick first round if none chosen yet
+        const firstRoundId = res.data?.rounds?.[0]?.id;
+        if (!selectedRoundId && firstRoundId) {
+          setSelectedRoundId(firstRoundId);
+        }
+      } catch (e) {
+        if (!cancelled) setBundleError("Failed to load show data.");
+        console.error(e);
+      } finally {
+        if (!cancelled) setBundleLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedShowId]); // only when show changes
+
+  {
+    bundledRounds.length > 1 && (
+      <div>
+        <label
+          style={{
+            fontSize: "1.25rem",
+            color: colors.dark,
+            marginRight: "1rem",
+          }}
+        >
+          Select Round:
+          <select
+            value={selectedRoundId}
+            onChange={(e) => setSelectedRoundId(e.target.value)}
+            style={{
+              fontSize: "1.25rem",
+              fontFamily: tokens.font.body,
+              marginLeft: "0.5rem",
+              verticalAlign: "middle",
+            }}
+          >
+            <option value="">-- Select a Round --</option>
+            {bundledRounds.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name || "Untitled round"}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    );
+  }
 
   // 🖥️ RENDER THE APP INTERFACE
   return (
     <div
       style={{
-        fontFamily: "Antonio, sans-serif",
+        fontFamily: tokens.font.display,
         padding: "2rem",
-        backgroundColor: "#eef1f4",
+        backgroundColor: colors.bg,
       }}
     >
       <h1
         style={{
           fontSize: "3rem",
-          color: "#2B394A",
+          color: colors.dark,
           marginTop: "2rem",
           marginBottom: "0",
         }}
@@ -216,7 +254,7 @@ export default function App() {
       <h2
         style={{
           fontSize: "1.75rem",
-          color: "#2B394A",
+          color: colors.dark,
           textIndent: "0.75rem",
           marginTop: "-.25rem",
         }}
@@ -262,7 +300,7 @@ export default function App() {
         <label
           style={{
             fontSize: "1.25rem",
-            color: "#2B394A",
+            color: colors.dark,
             marginRight: "1rem",
           }}
         >
@@ -270,12 +308,41 @@ export default function App() {
           <select
             value={selectedShowId}
             onChange={(e) => {
-              setSelectedShowId(e.target.value);
+              const newId = e.target.value;
+
+              // If nothing was selected yet or user picked the same show, just proceed.
+              if (!selectedShowId || selectedShowId === newId) {
+                setSelectedShowId(newId);
+                setSelectedRoundId("");
+                return;
+              }
+
+              // Warn before switching shows (this will discard in-app progress)
+              const ok = window.confirm(
+                "Switch shows? This will delete all scores and data you've entered for the current show."
+              );
+              if (!ok) {
+                // Do nothing — select stays on the current show because it's controlled by state
+                return;
+              }
+
+              // Clear any in-memory, per-show state here
+              // (add/remove lines to match what you keep locally)
               setSelectedRoundId("");
+              setGroupedQuestions({});
+              setVisibleImages({});
+              setVisibleCategoryImages({});
+              setCurrentImageIndex({});
+              // If you cache a bundle or scores locally, also clear them here:
+              // setShowBundle(null);
+              // setScoresState(initialScores);
+
+              // Finally switch shows
+              setSelectedShowId(newId);
             }}
             style={{
               fontSize: "1.25rem",
-              fontFamily: "Questrial, sans-serif",
+              fontFamily: tokens.font.body,
               marginLeft: "0.5rem",
               verticalAlign: "middle",
             }}
@@ -285,7 +352,7 @@ export default function App() {
               <option
                 key={s.id}
                 value={s.id}
-                style={{ fontFamily: "Questrial, sans-serif" }}
+                style={{ fontFamily: tokens.font.body }}
               >
                 {s.Show?.Show}
               </option>
@@ -293,12 +360,12 @@ export default function App() {
           </select>
         </label>
       </div>
-      {selectedShowRounds.length > 1 && (
+      {bundledRounds.length > 1 && (
         <div>
           <label
             style={{
               fontSize: "1.25rem",
-              color: "#2B394A",
+              color: colors.dark,
               marginRight: "1rem",
             }}
           >
@@ -308,7 +375,7 @@ export default function App() {
               onChange={(e) => setSelectedRoundId(e.target.value)}
               style={{
                 fontSize: "1.25rem",
-                fontFamily: "Questrial, sans-serif",
+                fontFamily: tokens.font.body,
                 marginLeft: "0.5rem",
                 verticalAlign: "middle",
               }}
@@ -328,7 +395,7 @@ export default function App() {
 
       {activeMode === "show" && (
         <ShowMode
-          groupedQuestions={groupedQuestions}
+          groupedQuestions={showBundle?.questions || {}}
           showDetails={showDetails}
           setshowDetails={setshowDetails}
           questionRefs={questionRefs}

@@ -7,15 +7,26 @@ export const colors = {
   bg: "#eef1f4",
 };
 
+export const tokens = {
+  radius: { sm: 4, md: 8, pill: 999 },
+  spacing: { xs: "0.25rem", sm: "0.5rem", md: "1rem" },
+  font: {
+    body: "Questrial, sans-serif",
+    display: "Antonio, sans-serif",
+    flavor: "Sanchez, serif",
+    size: "1rem",
+  },
+};
+
 // --- Buttons ----------------------------------------------------
 const baseBtn = {
   padding: "0.5rem 1rem",
   fontSize: "1rem",
-  fontFamily: "Questrial, sans-serif",
+  fontFamily: tokens.font.body,
   borderRadius: "0.25rem",
   cursor: "pointer",
   border: "1px solid #ccc",
-  background: "#fff", // default white
+  background: "#fff",
   color: colors.dark,
 };
 
@@ -24,7 +35,7 @@ export const Button = ({ style, children, type = "button", ...props }) => (
     type={type}
     style={{
       ...baseBtn,
-      border: `1px solid ${colors.accent}`, // match primary border
+      border: `1px solid ${colors.accent}`,
       background: "#fff",
       color: colors.dark,
       ...style,
@@ -42,6 +53,24 @@ export const ButtonPrimary = ({ style, children, ...props }) => (
       border: `1px solid ${colors.accent}`,
       background: colors.accent,
       color: "#fff",
+      ...style,
+    }}
+    {...props}
+  >
+    {children}
+  </button>
+);
+
+// Tab-style toggle button (use prop `active`)
+export const ButtonTab = ({ active, style, children, ...props }) => (
+  <button
+    style={{
+      ...baseBtn,
+      borderRadius: tokens.radius.pill,
+      border: `1px solid ${active ? colors.accent : "#ccc"}`,
+      background: active ? colors.accent : "#fff",
+      color: active ? "#fff" : colors.dark,
+      padding: ".35rem .6rem",
       ...style,
     }}
     {...props}
@@ -77,37 +106,31 @@ export const overlayImg = {
   marginBottom: "1rem",
 };
 
-// Tab-style toggle button (use prop `active`)
-export const ButtonTab = ({ active, style, children, ...props }) => (
-  <button
-    style={{
-      ...baseBtn,
-      borderRadius: 999,
-      border: `1px solid ${active ? colors.accent : "#ccc"}`,
-      background: active ? colors.accent : "#fff",
-      color: active ? "#fff" : colors.dark,
-      padding: ".35rem .6rem",
-      ...style,
-    }}
-    {...props}
-  >
-    {children}
-  </button>
-);
-
-// --- Small layout primitives & segmented control helpers --------
-const rowBase = {
-  display: "flex",
-  gap: "0.5rem",
-  alignItems: "center",
-};
-
+// --- Layout primitives ------------------------------------------
 export const ui = {
-  // Segmented control container + button style fn
+  // Unified segmented container
+  Segmented: ({ style, children }) => (
+    <div
+      style={{
+        display: "inline-flex",
+        border: "1px solid #ccc",
+        borderRadius: tokens.radius.pill,
+        overflow: "hidden",
+        background: "#fff",
+        flex: "0 1 auto",
+        minWidth: 0,
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  ),
+
+  // Back-compat aliases (use Segmented going forward)
   seg: {
     display: "inline-flex",
     border: "1px solid #ccc",
-    borderRadius: 999,
+    borderRadius: tokens.radius.pill,
     overflow: "hidden",
     background: "#fff",
   },
@@ -118,48 +141,19 @@ export const ui = {
     color: active ? "#fff" : colors.dark,
     cursor: "pointer",
   }),
-
-  // ===== Layout primitives =====
-  Row: ({ style, children }) => (
-    <div
-      style={{
-        display: "flex",
-        gap: "0.5rem",
-        alignItems: "center",
-        ...style,
-      }}
-    >
-      {children}
-    </div>
-  ),
-
-  // in src/styles/ui.js
-  Bar: ({ style, children }) => (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "1fr auto", // left shrinks, right hugs content
-        alignItems: "center",
-        columnGap: "0.5rem",
-        rowGap: "0.5rem",
-        width: "100%",
-        boxSizing: "border-box",
-        padding: "0 12px",
-        marginBottom: "0.5rem",
-        overflow: "hidden", // guard against tiny overflow
-        ...style,
-      }}
-    >
-      {children}
-    </div>
-  ),
-
+  segWrap: {
+    display: "inline-flex",
+    border: "1px solid #ccc",
+    borderRadius: tokens.radius.pill,
+    overflow: "hidden",
+    background: "#fff",
+  },
   Group: ({ style, children }) => (
     <div
       style={{
         display: "inline-flex",
         border: "1px solid #ccc",
-        borderRadius: 999,
+        borderRadius: tokens.radius.pill,
         overflow: "hidden",
         background: "#fff",
         ...style,
@@ -169,16 +163,32 @@ export const ui = {
     </div>
   ),
 
-  Segmented: ({ style, children }) => (
+  Row: ({ style, children }) => (
     <div
       style={{
-        display: "inline-flex",
-        border: "1px solid #ccc",
-        borderRadius: 999,
+        display: "flex",
+        gap: tokens.spacing.sm,
+        alignItems: "center",
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  ),
+
+  Bar: ({ style, children }) => (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr auto",
+        alignItems: "center",
+        columnGap: tokens.spacing.sm,
+        rowGap: tokens.spacing.sm,
+        width: "100%",
+        boxSizing: "border-box",
+        padding: "0 12px",
+        marginBottom: tokens.spacing.sm,
         overflow: "hidden",
-        background: "#fff",
-        flex: "0 1 auto", // 👈 allow shrinking
-        minWidth: 0, // 👈 allow content to shrink
         ...style,
       }}
     >
@@ -190,7 +200,7 @@ export const ui = {
     <span
       style={{
         padding: "0.125rem 0.5rem",
-        borderRadius: 999,
+        borderRadius: tokens.radius.pill,
         background: "#f3f3f3",
         fontSize: ".85rem",
         ...style,
@@ -202,26 +212,33 @@ export const ui = {
 
   Filler: () => <div style={{ flex: 1 }} />,
 
-  // ===== Aliases/helpers so ScoringMode works without edits =====
-  // Same style as Bar (your “top controls” row)
-  row: {
-    display: "flex",
-    gap: "0.5rem",
-    alignItems: "center",
-    flexWrap: "wrap",
-    marginBottom: "0.5rem",
-  },
+  // Optional tiny helpers you’ll likely reuse
+  Divider: ({ style }) => (
+    <hr
+      style={{
+        border: "none",
+        borderTop: `2px solid ${colors.accent}`,
+        margin: "0.3rem 0",
+        ...style,
+      }}
+    />
+  ),
+  Card: ({ style, children }) => (
+    <div
+      style={{
+        background: "#fff",
+        border: "1px solid #ddd",
+        borderRadius: tokens.radius.md,
+        padding: tokens.spacing.sm,
+        boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  ),
 
-  // Same as the segmented container
-  segWrap: {
-    display: "inline-flex",
-    border: "1px solid #ccc",
-    borderRadius: 999,
-    overflow: "hidden",
-    background: "#fff",
-  },
-
-  // Style helper for the “Team Scoring Mode” toggle button
+  // Back-compat: used in ScoringMode for a toggle & stats text
   btnToggle: (active) => ({
     padding: "0.4rem 0.75rem",
     borderRadius: "4px",
@@ -232,10 +249,5 @@ export const ui = {
     fontWeight: 600,
     cursor: "pointer",
   }),
-
-  // Stats text on the right
-  statText: {
-    fontSize: ".95rem",
-    opacity: 0.9,
-  },
+  statText: { fontSize: ".95rem", opacity: 0.9 },
 };
