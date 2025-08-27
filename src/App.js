@@ -1,11 +1,12 @@
-// 🧩 IMPORTS — External libraries, styles, and app modules
-import React, { useEffect, useState, useRef } from "react";
+// App.js
+import React, { useEffect, useState, useRef, useMemo } from "react";
 import axios from "axios";
 import "./App.css";
 import "react-h5-audio-player/lib/styles.css";
 import ShowMode from "./ShowMode";
 import ScoringMode from "./ScoringMode";
 import ResultsMode from "./ResultsMode";
+import AnswersMode from "./AnswersMode";
 import {
   ui,
   Button,
@@ -15,7 +16,7 @@ import {
   tokens,
 } from "./styles/index.js";
 
-// 🔐 PASSWORD PROTECTION — Locks the app behind a simple prompt
+// 🔐 PASSWORD PROTECTION
 const allowedPassword = "tv2025";
 const passwordKey = "showPasswordAuthorized";
 const isAuthorized = sessionStorage.getItem(passwordKey);
@@ -30,13 +31,11 @@ if (!isAuthorized) {
   }
 }
 
-// 🚀 MAIN COMPONENT — This is your app!
 export default function App() {
-  // 📦 STATE VARIABLES — Track what's selected, shown, and loaded
+  // Core app state
   const [shows, setShows] = useState([]);
-  const [rounds, setRounds] = useState([]);
   const [selectedShowId, setSelectedShowId] = useState("");
-  const [selectedRoundId, setSelectedRoundId] = useState("");
+  const [selectedRoundId, setSelectedRoundId] = useState(""); // store as string of round number (e.g. "1")
   const [showDetails, setshowDetails] = useState(true);
   const [visibleImages, setVisibleImages] = useState({});
   const questionRefs = useRef({});
@@ -45,20 +44,38 @@ export default function App() {
   const [currentImageIndex, setCurrentImageIndex] = useState({});
   const timerRef = useRef(null);
   const [groupedQuestions, setGroupedQuestions] = useState({});
+
+  // Bundle (rounds+questions+teams)
   const [showBundle, setShowBundle] = useState(null);
   const [bundleLoading, setBundleLoading] = useState(false);
   const [bundleError, setBundleError] = useState("");
-  // Rounds come from the bundle now
-  const bundledRounds = showBundle?.rounds ?? [];
 
-  // ⏲️ TIMER STATE
+  // Scoring cache across mode switches
+  const [scoringCache, setScoringCache] = useState({});
+  // Restore scoring backup (if any) on app load
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("trivia.scoring.backup");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          setScoringCache(parsed);
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to load scoring backup:", err);
+    }
+  }, []);
+
+  // Timer state
   const [timerPosition, setTimerPosition] = useState({ x: 0, y: 0 });
-  const [timerDuration, setTimerDuration] = useState(60); // in seconds
+  const [timerDuration, setTimerDuration] = useState(60);
   const [timeLeft, setTimeLeft] = useState(60);
   const [timerRunning, setTimerRunning] = useState(false);
-  // 🔢 Global scoring settings (persisted)
+
+  // Global scoring settings
   const [scoringMode, setScoringMode] = useState(
-    () => localStorage.getItem("tv_scoringMode") || "pub" // "pub" | "pooled"
+    () => localStorage.getItem("tv_scoringMode") || "pub"
   );
   const [pubPoints, setPubPoints] = useState(
     () => Number(localStorage.getItem("tv_pubPoints")) || 10
@@ -67,7 +84,7 @@ export default function App() {
     () => Number(localStorage.getItem("tv_poolPerQuestion")) || 500
   );
 
-  // persist on change
+  // Persist scoring settings
   useEffect(() => {
     localStorage.setItem("tv_scoringMode", scoringMode);
   }, [scoringMode]);
@@ -80,7 +97,7 @@ export default function App() {
     localStorage.setItem("tv_poolPerQuestion", String(poolPerQuestion));
   }, [poolPerQuestion]);
 
-  // 💾 LOAD TIMER POSITION
+  // Load timer position
   useEffect(() => {
     const saved = localStorage.getItem("timerPosition");
     if (saved) {
@@ -93,28 +110,20 @@ export default function App() {
     }
   }, []);
 
-  // ⏱️ TIMER BEHAVIOR
   useEffect(() => {
     const savedPosition = localStorage.getItem("timerPosition");
     if (savedPosition) {
       try {
         setTimerPosition(JSON.parse(savedPosition));
-      } catch (e) {
-        console.error("Invalid timer position in localStorage");
-      }
+      } catch {}
     }
     if (!timerRunning) return;
     if (timeLeft <= 0) return;
-    const timer = setTimeout(() => {
-      setTimeLeft((prev) => prev - 1);
-    }, 1000);
-    return () => clearTimeout(timer);
+    const t = setTimeout(() => setTimeLeft((prev) => prev - 1), 1000);
+    return () => clearTimeout(t);
   }, [timerRunning, timeLeft]);
 
-  // 🧮 TIMER CONTROLS
-  const handleStartPause = () => {
-    setTimerRunning((prev) => !prev);
-  };
+  const handleStartPause = () => setTimerRunning((p) => !p);
   const handleReset = () => {
     setTimerRunning(false);
     setTimeLeft(timerDuration);
@@ -125,16 +134,15 @@ export default function App() {
     setTimeLeft(newDuration);
   };
 
-  // 🔠 UTILITIES
+  // Utils
   function numberToLetter(n) {
-    return String.fromCharCode(64 + n); // 1 → A, 2 → B, etc.
+    return String.fromCharCode(64 + n);
   }
 
   const getClosestQuestionKey = () => {
     const viewportCenter = window.innerHeight / 2;
     let closestKey = null;
     let closestDistance = Infinity;
-
     for (const [key, ref] of Object.entries(questionRefs.current)) {
       if (ref?.current) {
         const rect = ref.current.getBoundingClientRect();
@@ -145,30 +153,26 @@ export default function App() {
         }
       }
     }
-
     return closestKey;
   };
 
-  const [selectedShow, setSelectedShow] = useState(null);
-  const [pendingShow, setPendingShow] = useState(null); // for when a different show is clicked
-
-  // 📡 FETCH SHOWS (list only)
+  // Fetch shows
   useEffect(() => {
-    async function loadShows() {
+    (async () => {
       try {
         const res = await axios.get("/.netlify/functions/fetchShows");
         setShows(res.data?.Shows || []);
       } catch (err) {
         console.error("Error fetching shows:", err);
       }
-    }
-    loadShows();
+    })();
   }, []);
 
-  // 🧠 Fetch the selected show's bundle (rounds, questions, teams)
+  // Fetch bundle for selected show
   useEffect(() => {
     if (!selectedShowId) {
       setShowBundle(null);
+      setSelectedRoundId("");
       return;
     }
     let cancelled = false;
@@ -179,60 +183,53 @@ export default function App() {
         const res = await axios.get("/.netlify/functions/fetchShowBundle", {
           params: { showId: selectedShowId },
         });
-        if (cancelled) return;
-        setShowBundle(res.data || null);
 
-        // Auto-pick first round if none chosen yet
-        const firstRoundId = res.data?.rounds?.[0]?.id;
-        if (!selectedRoundId && firstRoundId) {
-          setSelectedRoundId(firstRoundId);
+        if (cancelled) return;
+
+        const bundle = res.data || null;
+        setShowBundle(bundle);
+
+        // Set default round if needed (pick smallest round number)
+        const roundNums = (bundle?.rounds || [])
+          .map((r) => Number(r.round))
+          .filter((n) => Number.isFinite(n));
+        const uniqueSorted = Array.from(new Set(roundNums)).sort(
+          (a, b) => a - b
+        );
+        if (!selectedRoundId && uniqueSorted.length) {
+          setSelectedRoundId(String(uniqueSorted[0]));
+        } else if (
+          selectedRoundId &&
+          uniqueSorted.length &&
+          !uniqueSorted.includes(Number(selectedRoundId))
+        ) {
+          // if current selection isn't present, reset to first
+          setSelectedRoundId(String(uniqueSorted[0]));
         }
       } catch (e) {
-        if (!cancelled) setBundleError("Failed to load show data.");
-        console.error(e);
+        if (!cancelled) {
+          setBundleError("Failed to load show data.");
+          console.error(e);
+        }
       } finally {
         if (!cancelled) setBundleLoading(false);
       }
     })();
+
     return () => {
       cancelled = true;
     };
-  }, [selectedShowId]); // only when show changes
+  }, [selectedShowId, selectedRoundId]);
 
-  {
-    bundledRounds.length > 1 && (
-      <div>
-        <label
-          style={{
-            fontSize: "1.25rem",
-            color: colors.dark,
-            marginRight: "1rem",
-          }}
-        >
-          Select Round:
-          <select
-            value={selectedRoundId}
-            onChange={(e) => setSelectedRoundId(e.target.value)}
-            style={{
-              fontSize: "1.25rem",
-              fontFamily: tokens.font.body,
-              marginLeft: "0.5rem",
-              verticalAlign: "middle",
-            }}
-          >
-            <option value="">-- Select a Round --</option>
-            {bundledRounds.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name || "Untitled round"}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-    );
-  }
+  // Round numbers for dropdown (from bundle)
+  const roundNumbers = useMemo(() => {
+    const arr = (showBundle?.rounds || [])
+      .map((r) => Number(r.round))
+      .filter((n) => Number.isFinite(n));
+    return Array.from(new Set(arr)).sort((a, b) => a - b);
+  }, [showBundle]);
 
-  // 🖥️ RENDER THE APP INTERFACE
+  // UI
   return (
     <div
       style={{
@@ -265,6 +262,7 @@ export default function App() {
             ? "Results mode"
             : "Show mode"}
       </h2>
+
       <div
         style={{
           display: "flex",
@@ -289,6 +287,13 @@ export default function App() {
         </ButtonTab>
 
         <ButtonTab
+          active={activeMode === "answers"}
+          onClick={() => setActiveMode("answers")}
+        >
+          Answers mode
+        </ButtonTab>
+
+        <ButtonTab
           active={activeMode === "results"}
           onClick={() => setActiveMode("results")}
         >
@@ -310,34 +315,24 @@ export default function App() {
             onChange={(e) => {
               const newId = e.target.value;
 
-              // If nothing was selected yet or user picked the same show, just proceed.
               if (!selectedShowId || selectedShowId === newId) {
                 setSelectedShowId(newId);
                 setSelectedRoundId("");
                 return;
               }
 
-              // Warn before switching shows (this will discard in-app progress)
               const ok = window.confirm(
                 "Switch shows? This will delete all scores and data you've entered for the current show."
               );
-              if (!ok) {
-                // Do nothing — select stays on the current show because it's controlled by state
-                return;
-              }
+              if (!ok) return;
 
-              // Clear any in-memory, per-show state here
-              // (add/remove lines to match what you keep locally)
+              // Clear in-memory, per-show UI bits
               setSelectedRoundId("");
               setGroupedQuestions({});
               setVisibleImages({});
               setVisibleCategoryImages({});
               setCurrentImageIndex({});
-              // If you cache a bundle or scores locally, also clear them here:
-              // setShowBundle(null);
-              // setScoresState(initialScores);
 
-              // Finally switch shows
               setSelectedShowId(newId);
             }}
             style={{
@@ -360,7 +355,8 @@ export default function App() {
           </select>
         </label>
       </div>
-      {bundledRounds.length > 1 && (
+
+      {roundNumbers.length > 1 && (
         <div>
           <label
             style={{
@@ -380,14 +376,11 @@ export default function App() {
                 verticalAlign: "middle",
               }}
             >
-              <option value="">-- Select a Round --</option>
-              {rounds
-                .filter((r) => r.Round?.Show?.[0] === selectedShowId)
-                .map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.Round?.Round}
-                  </option>
-                ))}
+              {roundNumbers.map((n) => (
+                <option key={n} value={String(n)}>
+                  {`Round ${n}`}
+                </option>
+              ))}
             </select>
           </label>
         </div>
@@ -395,7 +388,7 @@ export default function App() {
 
       {activeMode === "show" && (
         <ShowMode
-          groupedQuestions={showBundle?.questions || {}}
+          rounds={showBundle?.rounds || []}
           showDetails={showDetails}
           setshowDetails={setshowDetails}
           questionRefs={questionRefs}
@@ -421,8 +414,31 @@ export default function App() {
 
       {activeMode === "score" && (
         <ScoringMode
+          showBundle={showBundle}
           selectedShowId={selectedShowId}
           selectedRoundId={selectedRoundId}
+          preloadedTeams={showBundle?.teams ?? []}
+          cachedState={scoringCache[selectedShowId]?.[selectedRoundId] ?? null}
+          onChangeState={(payload) => {
+            setScoringCache((prev) => {
+              const next = {
+                ...prev,
+                [selectedShowId]: {
+                  ...(prev[selectedShowId] || {}),
+                  [selectedRoundId]: payload,
+                },
+              };
+              try {
+                localStorage.setItem(
+                  "trivia.scoring.backup",
+                  JSON.stringify(next)
+                );
+              } catch (err) {
+                console.warn("Failed to save scoring backup:", err);
+              }
+              return next;
+            });
+          }}
           scoringMode={scoringMode}
           setScoringMode={setScoringMode}
           pubPoints={pubPoints}
@@ -432,10 +448,24 @@ export default function App() {
         />
       )}
 
-      {activeMode === "results" && (
-        <ResultsMode
+      {activeMode === "answers" && (
+        <AnswersMode
+          showBundle={showBundle}
           selectedShowId={selectedShowId}
           selectedRoundId={selectedRoundId}
+          cachedState={scoringCache[selectedShowId]?.[selectedRoundId] ?? null}
+          scoringMode={scoringMode}
+          pubPoints={pubPoints}
+          poolPerQuestion={poolPerQuestion}
+        />
+      )}
+
+      {activeMode === "results" && (
+        <ResultsMode
+          showBundle={showBundle}
+          selectedShowId={selectedShowId}
+          selectedRoundId={selectedRoundId}
+          cachedState={scoringCache[selectedShowId]?.[selectedRoundId] ?? null}
           scoringMode={scoringMode}
           setScoringMode={setScoringMode}
           pubPoints={pubPoints}

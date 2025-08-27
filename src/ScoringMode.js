@@ -1,4 +1,4 @@
-// ScoringMode.js
+// ScoringMode.js — local/offline scoring with parent-provided cache
 import React, {
   useCallback,
   useEffect,
@@ -6,7 +6,6 @@ import React, {
   useRef,
   useState,
 } from "react";
-import axios from "axios";
 import {
   ui,
   ButtonPrimary,
@@ -14,9 +13,19 @@ import {
   colors as theme,
 } from "./styles/index.js";
 
+// Small helper to make local IDs for teams added during the show
+const makeLocalId = (prefix = "local") =>
+  `${prefix}:${Date.now().toString(36)}:${Math.random()
+    .toString(36)
+    .slice(2, 7)}`;
+
 export default function ScoringMode({
+  showBundle, // { rounds: [{ round, questions: [...] }], teams?: [...] }
   selectedShowId,
-  selectedRoundId,
+  selectedRoundId, // string, e.g. "1"
+  preloadedTeams = [], // [{showTeamId, teamId?, teamName, showBonus}]
+  cachedState, // { teams, grid, entryOrder } from App-level cache
+  onChangeState = () => {},
   scoringMode,
   setScoringMode,
   pubPoints,
@@ -24,45 +33,444 @@ export default function ScoringMode({
   poolPerQuestion,
   setPoolPerQuestion,
 }) {
-  const COL_Q_WIDTH = 60;
-  const TEAM_COL_WIDTH = 120;
-  const bonusBorder = "1px solid rgba(220,106,36,0.65)";
-  const thinRowBorder = "1px solid rgba(220,106,36,0.35)";
+  const roundNumber = Number(selectedRoundId);
 
-  const [teams, setTeams] = useState([]); // [{showTeamId, teamId, teamName, showBonus}]
-  const [questions, setQuestions] = useState([]); // [{showQuestionId, questionId, order, text}]
-  const [grid, setGrid] = useState({}); // {[showTeamId]: {[showQuestionId]: scoreRow}}
-  const [focus, setFocus] = useState({ teamIdx: 0, qIdx: 0 });
+  // ---- Build question list for the round (compact shape for grid) ----
+  const roundObj = useMemo(() => {
+    if (!Array.isArray(showBundle?.rounds)) return null;
+    return (
+      showBundle.rounds.find((r) => Number(r.round) === roundNumber) || null
+    );
+  }, [showBundle, roundNumber]);
 
+  const questions = useMemo(() => {
+    const raw = roundObj?.questions || [];
+    const bySort = [...raw].sort((a, b) => {
+      const sa = Number(a.sortOrder ?? 9999);
+      const sb = Number(b.sortOrder ?? 9999);
+      if (sa !== sb) return sa - sb;
+      const cvt = (val) => {
+        if (typeof val === "string" && /^[A-Z]$/i.test(val))
+          return val.toUpperCase().charCodeAt(0) - 64; // A=1
+        const n = parseInt(val, 10);
+        return isNaN(n) ? 9999 : 100 + n; // letters first, then numbers
+      };
+      return cvt(a.questionOrder) - cvt(b.questionOrder);
+    });
+
+    return bySort.map((q) => ({
+      showQuestionId: q.id,
+      questionId: (Array.isArray(q.questionId) && q.questionId[0]) || null,
+      order: q.questionOrder,
+      text: q.questionText || "",
+      flavor: q.flavorText || "",
+      answer: q.answer || "",
+      pubPerQuestion:
+        typeof q.pointsPerQuestion === "number" ? q.pointsPerQuestion : null,
+    }));
+  }, [roundObj]);
+
+  // ---------------- Local state (seeded from cachedState OR preloadedTeams) ----------------
+  const [teams, setTeams] = useState([]); // [{showTeamId, teamId?, teamName, showBonus}]
+  const [grid, setGrid] = useState({}); // {[showTeamId]: {[showQuestionId]: {isCorrect, questionBonus}}}
+  const [entryOrder, setEntryOrder] = useState([]); // [showTeamId]
+  // --- Per-cell points editor (modal) ---
+  const [editingCell, setEditingCell] = useState(null);
+  // { showTeamId, showQuestionId, draftBonus, draftOverride }
+  // Search results state (used by Add Team modal)
+  const [searchResults, setSearchResults] = useState([]);
+  // 🔁 MOVED UP: Add Team modal state so it's defined before useEffect below
   const [addingTeam, setAddingTeam] = useState(false);
-  const [teamSearch, setTeamSearch] = useState("");
-  const [teamMatches, setTeamMatches] = useState([]);
-  const [hasSearched, setHasSearched] = useState(false);
-  const [searching, setSearching] = useState(false);
+  const [teamInput, setTeamInput] = useState("");
+  // Keep refs to each cell <div> for scrolling into view
+  const cellRefs = useRef({});
 
+  // Remove a team and all their cells
+  const removeTeam = (showTeamId) => {
+    const hasAnyScores =
+      Object.values(grid[showTeamId] || {}).some(
+        (c) =>
+          c?.isCorrect ||
+          (c?.questionBonus ?? 0) !== 0 ||
+          c?.overridePoints != null
+      ) ||
+      (teams.find((t) => t.showTeamId === showTeamId)?.showBonus ?? 0) !== 0;
+
+    const name =
+      teams.find((t) => t.showTeamId === showTeamId)?.teamName || "this team";
+    const ok = window.confirm(
+      hasAnyScores
+        ? `Delete “${name}” and all their scores/bonuses for this round? This cannot be undone.`
+        : `Delete “${name}”?`
+    );
+    if (!ok) return;
+
+    setTeams((prev) => prev.filter((t) => t.showTeamId !== showTeamId));
+    setGrid((prev) => {
+      const next = { ...prev };
+      delete next[showTeamId];
+      return next;
+    });
+    setEntryOrder((prev) => prev.filter((id) => id !== showTeamId));
+
+    // If focused column was this team, bump focus left if possible
+    setFocus((f) => {
+      const idx = renderTeams.findIndex((t) => t.showTeamId === showTeamId);
+      if (idx === -1) return f;
+      const newTeamIdx = Math.max(0, f.teamIdx - (f.teamIdx >= idx ? 1 : 0));
+      return { teamIdx: newTeamIdx, qIdx: f.qIdx };
+    });
+  };
+
+  useEffect(() => {
+    if (!addingTeam) setSearchResults([]);
+  }, [addingTeam]);
+
+  const pubPerQuestionByShowQ = useMemo(() => {
+    const m = {};
+    for (const q of questions) {
+      if (q.pubPerQuestion !== null && q.pubPerQuestion !== undefined) {
+        m[q.showQuestionId] = q.pubPerQuestion; // allow 0 as a valid value
+      }
+    }
+    return m;
+  }, [questions]);
+
+  const openCellEditor = (showTeamId, showQuestionId) => {
+    const cell = grid[showTeamId]?.[showQuestionId] || {};
+    setEditingCell({
+      showTeamId,
+      showQuestionId,
+      draftBonus: Number(cell.questionBonus ?? 0),
+      draftOverride:
+        cell.overridePoints === null || cell.overridePoints === undefined
+          ? ""
+          : String(cell.overridePoints),
+    });
+  };
+
+  const closeCellEditor = () => setEditingCell(null);
+
+  const applyCellEditor = () => {
+    if (!editingCell) return;
+    const { showTeamId, showQuestionId, draftBonus, draftOverride } =
+      editingCell;
+    setGrid((prev) => {
+      const byTeam = prev[showTeamId] ? { ...prev[showTeamId] } : {};
+      const cell = byTeam[showQuestionId] || {
+        isCorrect: false,
+        questionBonus: 0,
+        overridePoints: null,
+      };
+      byTeam[showQuestionId] = {
+        ...cell,
+        questionBonus: Number(draftBonus || 0),
+        overridePoints:
+          draftOverride === "" || draftOverride === null
+            ? null
+            : Number(draftOverride),
+      };
+      return { ...prev, [showTeamId]: byTeam };
+    });
+    setEditingCell(null);
+  };
+
+  // helper: coerce Airtable-ish shapes into what the grid expects
+  const normalizeTeam = (t) => ({
+    showTeamId: t.showTeamId || makeLocalId("team"),
+    teamId: t.teamId ?? null,
+    teamName: Array.isArray(t.teamName)
+      ? t.teamName[0]
+      : t.teamName || "(Unnamed team)",
+    showBonus: Number(t.showBonus || 0),
+  });
+
+  // Clear local state when the SHOW changes (not the round)
+  useEffect(() => {
+    setTeams([]);
+    setGrid({});
+    setEntryOrder([]);
+    setFocus({ teamIdx: 0, qIdx: 0 });
+  }, [selectedShowId]);
+
+  // Seed once we have a source (cache or preloadedTeams). Avoid seeding empty.
+  useEffect(() => {
+    if (teams.length > 0) return;
+
+    const source =
+      (cachedState?.teams?.length && cachedState.teams) ||
+      (preloadedTeams?.length && preloadedTeams) ||
+      null;
+
+    if (!source) return; // wait until data arrives
+
+    const seededTeams = source.map(normalizeTeam);
+    const seededGrid = cachedState?.grid || {};
+    const seededEntryOrder =
+      cachedState?.entryOrder || seededTeams.map((t) => t.showTeamId);
+
+    setTeams(seededTeams);
+    setGrid(seededGrid);
+    setEntryOrder(seededEntryOrder);
+    setFocus({ teamIdx: 0, qIdx: 0 });
+  }, [teams.length, cachedState, preloadedTeams]);
+
+  // ---------- Persist local changes up to App ----------
+  const lastSentRef = useRef("");
+  useEffect(() => {
+    const payload = { teams, grid, entryOrder };
+    const key = JSON.stringify(payload);
+    if (key !== lastSentRef.current) {
+      lastSentRef.current = key;
+      onChangeState(payload);
+    }
+  }, [teams, grid, entryOrder, onChangeState]);
+
+  // ---------------- View wiring (sorting, team mode, nav) ----------------
   const [sortMode, setSortMode] = useState("entry"); // "entry" | "alpha"
-  const [entryOrder, setEntryOrder] = useState([]); // array of showTeamId in entry order
-  const [teamMode, setTeamMode] = useState(false); // show only one team?
-  const [teamIdxSolo, setTeamIdxSolo] = useState(0); // which team is shown in team mode
 
-  const focusColor = theme.dark;
+  const visibleTeams = useMemo(() => {
+    if (!teams.length) return [];
+    if (sortMode === "alpha") {
+      return [...teams].sort((a, b) =>
+        (a.teamName || "").localeCompare(b.teamName || "", "en", {
+          sensitivity: "base",
+        })
+      );
+    }
+    const pos = new Map(entryOrder.map((id, i) => [id, i]));
+    return [...teams].sort(
+      (a, b) => (pos.get(a.showTeamId) ?? 1e9) - (pos.get(b.showTeamId) ?? 1e9)
+    );
+  }, [teams, sortMode, entryOrder]);
 
-  // How many teams got each ShowQuestion correct (for pooled share)
+  const [teamMode, setTeamMode] = useState(false);
+  const [teamIdxSolo, setTeamIdxSolo] = useState(0);
+  const renderTeams = useMemo(() => {
+    if (!teamMode) return visibleTeams;
+    const one = visibleTeams[teamIdxSolo];
+    return one ? [one] : [];
+  }, [teamMode, visibleTeams, teamIdxSolo]);
+
+  // ---------------- Focus + keyboard nav ----------------
+  const [focus, setFocus] = useState({ teamIdx: 0, qIdx: 0 });
+  useEffect(() => {
+    setFocus((f) => ({
+      teamIdx: Math.min(f.teamIdx, Math.max(renderTeams.length - 1, 0)),
+      qIdx: Math.min(f.qIdx, Math.max(questions.length - 1, 0)),
+    }));
+  }, [renderTeams, questions.length]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      const el = e.target;
+      if (
+        el &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.isContentEditable)
+      )
+        return;
+
+      if (!renderTeams.length || !questions.length) return;
+      const { teamIdx, qIdx } = focus;
+
+      if (e.key === "1" || e.key === " ") {
+        e.preventDefault();
+        toggleCell(teamMode ? 0 : teamIdx, qIdx);
+      } else if (e.key === "Tab" && !e.shiftKey) {
+        e.preventDefault();
+        setFocus(({ teamIdx: t, qIdx }) => ({
+          teamIdx: teamMode ? teamIdxSolo : t,
+          qIdx: (qIdx + 1) % questions.length,
+        }));
+      } else if (e.key === "Tab" && e.shiftKey) {
+        e.preventDefault();
+        setFocus(({ teamIdx: t, qIdx }) => ({
+          teamIdx: teamMode ? teamIdxSolo : t,
+          qIdx: (qIdx - 1 + questions.length) % questions.length,
+        }));
+      } else if (!teamMode && e.key === "ArrowRight") {
+        e.preventDefault();
+        setFocus(({ teamIdx, qIdx }) => ({
+          teamIdx: Math.min(teamIdx + 1, renderTeams.length - 1),
+          qIdx,
+        }));
+      } else if (!teamMode && e.key === "ArrowLeft") {
+        e.preventDefault();
+        setFocus(({ teamIdx, qIdx }) => ({
+          teamIdx: Math.max(teamIdx - 1, 0),
+          qIdx,
+        }));
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setFocus(({ teamIdx: t, qIdx }) => ({
+          teamIdx: teamMode ? teamIdxSolo : t,
+          qIdx: Math.min(qIdx + 1, questions.length - 1),
+        }));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setFocus(({ teamIdx: t, qIdx }) => ({
+          teamIdx: teamMode ? teamIdxSolo : t,
+          qIdx: Math.max(qIdx - 1, 0),
+        }));
+      }
+    };
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [renderTeams, questions, focus, teamMode, teamIdxSolo]); // toggleCell stable via useCallback
+
+  // 👉 Add this just after the keydown useEffect
+  useEffect(() => {
+    if (!renderTeams.length || !questions.length) return;
+
+    // Which team column is logically focused?
+    const logicalTeamIdx = teamMode ? teamIdxSolo : focus.teamIdx;
+
+    const t = renderTeams[logicalTeamIdx];
+    const q = questions[focus.qIdx];
+    if (!t || !q) return;
+
+    const key = `${t.showTeamId}:${q.showQuestionId}`;
+    const el = cellRefs.current[key];
+    if (el && typeof el.scrollIntoView === "function") {
+      el.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+        behavior: "smooth",
+      });
+    }
+  }, [focus, renderTeams, questions, teamMode, teamIdxSolo]);
+  // ---------------- Derived scoring helpers ----------------
   const correctCountByShowQuestionId = useMemo(() => {
     const out = {};
     for (const q of questions) {
-      const sqid = q.showQuestionId;
       let count = 0;
       for (const t of teams) {
-        const cell = grid[t.showTeamId]?.[sqid];
+        const cell = grid[t.showTeamId]?.[q.showQuestionId];
         if (cell?.isCorrect) count++;
       }
-      out[sqid] = count;
+      out[q.showQuestionId] = count;
     }
     return out;
   }, [questions, teams, grid]);
 
-  // Sticky + tile styles
+  const earnedFor = useCallback(
+    (cell, showQuestionId) => {
+      if (!cell?.isCorrect) return 0;
+
+      const nCorrect = Math.max(
+        1,
+        correctCountByShowQuestionId[showQuestionId] || 0
+      );
+
+      // Use per-question pub value if provided, else global pubPoints
+      const perQPub = pubPerQuestionByShowQ[showQuestionId];
+      const base =
+        scoringMode === "pub"
+          ? Number(
+              perQPub !== null && perQPub !== undefined ? perQPub : pubPoints
+            )
+          : Math.round(Number(poolPerQuestion) / nCorrect);
+
+      const override =
+        cell.overridePoints === null || cell.overridePoints === undefined
+          ? null
+          : Number(cell.overridePoints);
+
+      const earned = override !== null ? override : base;
+      const bonus = Number(cell.questionBonus || 0); // add only if correct
+      return earned + bonus;
+    },
+    [
+      correctCountByShowQuestionId,
+      scoringMode,
+      pubPoints,
+      poolPerQuestion,
+      pubPerQuestionByShowQ,
+    ]
+  );
+
+  const displayTotals = useMemo(() => {
+    if (!teams.length || !questions.length) return {};
+    const totals = {};
+    for (const t of teams) {
+      let sum = Number(t.showBonus || 0);
+      for (const q of questions) {
+        const cell = grid[t.showTeamId]?.[q.showQuestionId];
+        if (!cell) continue;
+        sum += earnedFor(cell, q.showQuestionId);
+      }
+      totals[t.showTeamId] = sum;
+    }
+    return totals;
+  }, [teams, questions, grid, earnedFor]);
+
+  // ---------------- Local mutations (pure state) ----------------
+  const updateShowBonus = (showTeamId, val) => {
+    const v = Number(val) || 0;
+    setTeams((prev) =>
+      prev.map((t) =>
+        t.showTeamId === showTeamId ? { ...t, showBonus: v } : t
+      )
+    );
+  };
+
+  const toggleCell = useCallback(
+    (renderTeamIdx, qIdx) => {
+      const t = renderTeams[renderTeamIdx];
+      const q = questions[qIdx];
+      if (!t || !q) return;
+      setGrid((prev) => {
+        const byTeam = prev[t.showTeamId] ? { ...prev[t.showTeamId] } : {};
+        const cell = byTeam[q.showQuestionId] || {
+          isCorrect: false,
+          questionBonus: 0,
+          overridePoints: null,
+        };
+        byTeam[q.showQuestionId] = { ...cell, isCorrect: !cell.isCorrect };
+        return { ...prev, [t.showTeamId]: byTeam };
+      });
+      setFocus({ teamIdx: teamMode ? teamIdxSolo : renderTeamIdx, qIdx });
+    },
+    [renderTeams, questions, teamMode, teamIdxSolo]
+  );
+
+  const setQuestionBonus = (showTeamId, showQuestionId, value) => {
+    const v = Number(value) || 0;
+    setGrid((prev) => {
+      const byTeam = prev[showTeamId] ? { ...prev[showTeamId] } : {};
+      const cell = byTeam[showQuestionId] || {
+        isCorrect: false,
+        questionBonus: 0,
+        overridePoints: null,
+      };
+      byTeam[showQuestionId] = { ...cell, questionBonus: v };
+      return { ...prev, [showTeamId]: byTeam };
+    });
+  };
+
+  const addTeamLocal = (teamName, airtableId = null) => {
+    const trimmed = (teamName || "").trim();
+    if (!trimmed) return;
+    const newTeam = {
+      showTeamId: makeLocalId("team"),
+      teamId: airtableId, // ✅ keep Airtable Team recordId if available
+      teamName: trimmed,
+      showBonus: 0,
+    };
+    setTeams((prev) => [...prev, newTeam]);
+    setEntryOrder((prev) => [...prev, newTeam.showTeamId]);
+  };
+
+  // ---------------- Sticky & tile styles ----------------
+  const COL_Q_WIDTH = 60;
+  const TEAM_COL_WIDTH = 120;
+  const bonusBorder = "1px solid rgba(220,106,36,0.65)";
+  const thinRowBorder = "1px solid rgba(220,106,36,0.35)";
+  const focusColor = theme.dark;
+
   const sticky = {
     thTop: { position: "sticky", top: 0, zIndex: 3, background: "#fff" },
     qNumTh: {
@@ -99,376 +507,25 @@ export default function ScoringMode({
     userSelect: "none",
     fontSize: ".95rem",
   };
-
   const tileStates = {
-    missing: { background: "#eee", color: "#999", cursor: "not-allowed" },
     correct: { background: "#DC6A24", color: "#fff", cursor: "pointer" },
     wrong: { background: "#f8f8f8", color: "#2B394A", cursor: "pointer" },
   };
-
   const tileFocus = {
-    boxShadow: `0 0 0 2px #fff, 0 0 0 4px ${focusColor}`, // outside halos (no inset)
+    boxShadow: `0 0 0 2px #fff, 0 0 0 4px ${focusColor}`,
     transform: "scale(1.04)",
     outline: "none",
     transition: "box-shadow 120ms ease, transform 120ms ease",
   };
 
-  // Sort view of teams
-  const visibleTeams = useMemo(() => {
-    if (!teams.length) return [];
-    if (sortMode === "alpha") {
-      return [...teams].sort((a, b) =>
-        (a.teamName || "").localeCompare(b.teamName || "", "en", {
-          sensitivity: "base",
-        })
-      );
-    }
-    const pos = new Map(entryOrder.map((id, i) => [id, i]));
-    return [...teams].sort(
-      (a, b) => (pos.get(a.showTeamId) ?? 1e9) - (pos.get(b.showTeamId) ?? 1e9)
-    );
-  }, [teams, sortMode, entryOrder]);
+  // ---------------- Render ----------------
 
-  const renderTeams = useMemo(() => {
-    if (!teamMode) return visibleTeams;
-    const one = visibleTeams[teamIdxSolo];
-    return one ? [one] : [];
-  }, [teamMode, visibleTeams, teamIdxSolo]);
-
-  const prevTeam = useCallback(() => {
-    if (!visibleTeams.length) return;
-    setTeamIdxSolo((i) => (i - 1 + visibleTeams.length) % visibleTeams.length);
-  }, [visibleTeams.length]);
-
-  const nextTeam = useCallback(() => {
-    if (!visibleTeams.length) return;
-    setTeamIdxSolo((i) => (i + 1) % visibleTeams.length);
-  }, [visibleTeams.length]);
-
-  // Clamp focus when team list/questions change (e.g., sort switch)
-  useEffect(() => {
-    setFocus((f) => {
-      const ti = Math.min(f.teamIdx, Math.max(visibleTeams.length - 1, 0));
-      const qi = Math.min(f.qIdx, Math.max(questions.length - 1, 0));
-      return { teamIdx: ti, qIdx: qi };
-    });
-  }, [visibleTeams, questions.length]);
-
-  // Totals from Effective points (+ Show bonus)
-  const teamTotals = useMemo(() => {
-    const totals = {};
-    for (const t of teams) {
-      let sum = Number(t.showBonus || 0);
-      for (const q of questions) {
-        const cell = grid[t.showTeamId]?.[q.showQuestionId];
-        sum += Number(cell?.effectivePoints || 0);
-      }
-      totals[t.showTeamId] = sum;
-    }
-    return totals;
-  }, [teams, questions, grid]);
-
-  // 🔢 Display totals that respect global scoring mode (pub/pooled)
-  // Uses grid, questions, and teams already in ScoringMode state.
-  const displayTotals = useMemo(() => {
-    if (!teams.length || !questions.length) return {};
-
-    // Build per-question set of correct teams (for pooled division)
-    const correctSets = new Map(); // showQuestionId -> Set(showTeamId)
-    for (const q of questions) {
-      const set = new Set();
-      for (const t of teams) {
-        const cell = grid[t.showTeamId]?.[q.showQuestionId];
-        if (cell?.isCorrect) set.add(t.showTeamId);
-      }
-      correctSets.set(q.showQuestionId, set);
-    }
-
-    const totals = {};
-    for (const t of teams) {
-      let sum = Number(t.showBonus || 0);
-      for (const q of questions) {
-        const cell = grid[t.showTeamId]?.[q.showQuestionId];
-        if (!cell) continue;
-
-        const qb = Number(cell.questionBonus || 0);
-
-        if (scoringMode === "pub") {
-          const earned = cell.isCorrect ? Number(pubPoints) : 0;
-          sum += earned + qb;
-        } else {
-          // pooled — divide pool among correct teams, round to nearest point
-          const set = correctSets.get(q.showQuestionId) || new Set();
-          const n = set.size;
-          const share =
-            cell.isCorrect && n > 0
-              ? Math.round(Number(poolPerQuestion) / n)
-              : 0;
-          sum += share + qb;
-        }
-      }
-      totals[t.showTeamId] = sum;
-    }
-    return totals;
-  }, [teams, questions, grid, scoringMode, pubPoints, poolPerQuestion]);
-
-  // AFTER
-  const fetchAll = useCallback(
-    async ({ resetFocus = false } = {}) => {
-      if (!selectedShowId || !selectedRoundId) return;
-
-      const res = await axios.get("/.netlify/functions/fetchScores", {
-        params: { showId: selectedShowId, roundId: selectedRoundId },
-      });
-
-      const {
-        teams: fetchedTeams,
-        questions: fetchedQuestions,
-        scores,
-      } = res.data;
-
-      // Keep/refresh entry order (by arrival)
-      setEntryOrder(fetchedTeams.map((x) => x.showTeamId));
-
-      // Build grid
-      const gridMap = {};
-      for (const row of scores) {
-        if (!gridMap[row.showTeamId]) gridMap[row.showTeamId] = {};
-        gridMap[row.showTeamId][row.showQuestionId] = row;
-      }
-
-      setTeams(fetchedTeams);
-      setQuestions(fetchedQuestions);
-      setGrid(gridMap);
-
-      if (resetFocus) {
-        setFocus((prev) => ({
-          teamIdx: Math.min(prev.teamIdx, Math.max(fetchedTeams.length - 1, 0)),
-          qIdx: Math.min(prev.qIdx, Math.max(fetchedQuestions.length - 1, 0)),
-        }));
-      }
-    },
-    [selectedShowId, selectedRoundId]
-  );
-
-  useEffect(() => {
-    // first load for this show/round -> allow reset
-    fetchAll({ resetFocus: true }).catch(console.error);
-  }, [fetchAll]);
-
-  // Debounced patch queue
-  const updateQueue = useRef({});
-  const debounceTimer = useRef(null);
-  const enqueue = (scoreId, patch) => {
-    updateQueue.current[scoreId] = {
-      ...(updateQueue.current[scoreId] || {}),
-      ...patch,
-    };
-    clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(async () => {
-      const batch = { ...updateQueue.current };
-      updateQueue.current = {};
-      for (const [scoreId, fields] of Object.entries(batch)) {
-        try {
-          await axios.post("/.netlify/functions/updateScore", {
-            scoreId,
-            ...fields,
-          });
-        } catch (e) {
-          console.error("updateScore failed", scoreId, e);
-        }
-      }
-      fetchAll().catch(console.error); // refresh after formulas run
-    }, 180);
-  };
-
-  // Mutations
-  const updateShowBonus = async (showTeamId, value) => {
-    const val = Number(value) || 0;
-    setTeams((prev) =>
-      prev.map((t) =>
-        t.showTeamId === showTeamId ? { ...t, showBonus: val } : t
-      )
-    );
-    try {
-      await axios.post("/.netlify/functions/updateShowTeam", {
-        showTeamId,
-        showBonus: val,
-      });
-    } catch (e) {
-      console.error("updateShowTeam failed", e);
-    }
-  };
-
-  const toggleCell = useCallback(
-    (ti, qi) => {
-      const t = renderTeams[ti];
-      const q = questions[qi];
-      if (!t || !q) return;
-      const cell = grid[t.showTeamId]?.[q.showQuestionId];
-      if (!cell) return;
-      const next = !cell.isCorrect;
-      setGrid((prev) => ({
-        ...prev,
-        [t.showTeamId]: {
-          ...prev[t.showTeamId],
-          [q.showQuestionId]: { ...cell, isCorrect: next },
-        },
-      }));
-      enqueue(cell.id, { isCorrect: next });
-    },
-    [renderTeams, questions, grid]
-  );
-
-  // Keyboard navigation honors visibleTeams order
-  useEffect(() => {
-    const onKey = (e) => {
-      if (addingTeam) return;
-      const el = e.target;
-      if (
-        el &&
-        (el.tagName === "INPUT" ||
-          el.tagName === "TEXTAREA" ||
-          el.isContentEditable)
-      )
-        return;
-
-      if (!visibleTeams.length || !questions.length) return;
-      const { teamIdx, qIdx } = focus;
-
-      if (e.key === "1" || e.key === " ") {
-        e.preventDefault();
-        toggleCell(teamMode ? 0 : teamIdx, qIdx);
-      } else if (e.key === "Tab" && !e.shiftKey) {
-        e.preventDefault();
-        setFocus(({ teamIdx: t, qIdx }) => ({
-          teamIdx: teamMode ? teamIdxSolo : t,
-          qIdx: (qIdx + 1) % questions.length,
-        }));
-      } else if (e.key === "Tab" && e.shiftKey) {
-        e.preventDefault();
-        setFocus(({ teamIdx: t, qIdx }) => ({
-          teamIdx: teamMode ? teamIdxSolo : t,
-          qIdx: (qIdx - 1 + questions.length) % questions.length,
-        }));
-      } else if (!teamMode && e.key === "ArrowRight") {
-        e.preventDefault();
-        setFocus(({ teamIdx, qIdx }) => ({
-          teamIdx: Math.min(teamIdx + 1, visibleTeams.length - 1),
-          qIdx,
-        }));
-      } else if (!teamMode && e.key === "ArrowLeft") {
-        e.preventDefault();
-        setFocus(({ teamIdx, qIdx }) => ({
-          teamIdx: Math.max(teamIdx - 1, 0),
-          qIdx,
-        }));
-      } else if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setFocus(({ teamIdx: t, qIdx }) => ({
-          teamIdx: teamMode ? teamIdxSolo : t,
-          qIdx: Math.min(qIdx + 1, questions.length - 1),
-        }));
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setFocus(({ teamIdx: t, qIdx }) => ({
-          teamIdx: teamMode ? teamIdxSolo : t,
-          qIdx: Math.max(qIdx - 1, 0),
-        }));
-      } else if (teamMode && e.key === "[") {
-        e.preventDefault();
-        setTeamIdxSolo((i) => Math.max(0, i - 1));
-        setFocus((f) => ({
-          teamIdx: Math.max(0, teamIdxSolo - 1),
-          qIdx: f.qIdx,
-        }));
-      } else if (teamMode && e.key === "]") {
-        e.preventDefault();
-        setTeamIdxSolo((i) => Math.min(visibleTeams.length - 1, i + 1));
-        setFocus((f) => ({
-          teamIdx: Math.min(visibleTeams.length - 1, teamIdxSolo + 1),
-          qIdx: f.qIdx,
-        }));
-      }
-    };
-
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [
-    visibleTeams,
-    questions,
-    focus,
-    addingTeam,
-    toggleCell,
-    teamMode,
-    teamIdxSolo,
-  ]);
-
-  // Add team flow
-  const searchExactTeam = async () => {
-    setHasSearched(true);
-    setTeamMatches([]);
-    if (!teamSearch.trim()) return;
-
-    setSearching(true);
-    try {
-      const res = await axios.post("/.netlify/functions/addTeamToShow", {
-        showId: selectedShowId,
-        teamName: teamSearch.trim(),
-      });
-      setTeamMatches(res.data.matches || []);
-    } catch (err) {
-      console.error(
-        "addTeamToShow search error:",
-        err.response?.data || err.message
-      );
-      alert(`AddTeamToShow error: ${err.response?.data?.error || err.message}`);
-    } finally {
-      setSearching(false);
-    }
-  };
-
-  const confirmTeam = async (chosenTeamId, createIfMissing = false) => {
-    if (!selectedShowId) {
-      alert("Pick a show first, then confirm a team.");
-      return;
-    }
-
-    try {
-      const res = await axios.post("/.netlify/functions/addTeamToShow", {
-        showId: selectedShowId,
-        teamName: teamSearch.trim(),
-        chosenTeamId,
-        createIfMissing,
-      });
-
-      const { showTeamId } = res.data;
-
-      await axios.post("/.netlify/functions/ensureScoreRows", {
-        showId: selectedShowId,
-        roundId: selectedRoundId,
-        showTeamId,
-      });
-
-      setAddingTeam(false);
-      setTeamSearch("");
-      setTeamMatches([]);
-      setHasSearched(false);
-      fetchAll().catch(console.error);
-    } catch (e) {
-      console.error(e);
-      alert(e.response?.data?.error || "Failed to add team.");
-    }
-  };
-
-  // Render
   return (
     <div
       style={{
         marginTop: "1rem",
         fontFamily: "Questrial, sans-serif",
         color: theme.dark,
-        boxSizing: "border-box",
       }}
     >
       {/* Header */}
@@ -491,7 +548,7 @@ export default function ScoringMode({
             letterSpacing: "0.015em",
           }}
         >
-          Live Scoring
+          Live Scoring (local)
         </h2>
       </div>
 
@@ -501,12 +558,11 @@ export default function ScoringMode({
         <div
           style={{
             display: "flex",
-            flexDirection: "column", // 👈 stack rows
-            gap: "0.35rem", // spacing between the top and bottom rows
+            flexDirection: "column",
+            gap: ".35rem",
             minWidth: 0,
           }}
         >
-          {/* Row 1 — existing buttons */}
           <div
             style={{
               display: "flex",
@@ -516,7 +572,7 @@ export default function ScoringMode({
             }}
           >
             <ButtonPrimary onClick={() => setAddingTeam(true)}>
-              + Add team to this show
+              + Add team
             </ButtonPrimary>
 
             <ui.Segmented style={{ flexShrink: 0 }}>
@@ -546,7 +602,7 @@ export default function ScoringMode({
             </ButtonTab>
           </div>
 
-          {/* Row 2 — scoring controls */}
+          {/* Scoring controls */}
           <div style={{ display: "flex", gap: ".5rem", alignItems: "center" }}>
             <div
               style={{
@@ -650,7 +706,7 @@ export default function ScoringMode({
           display: "block",
           maxWidth: "100%",
           width: "100%",
-          boxSizing: "border-box", // 👈 fixes the 2px overflow
+          boxSizing: "border-box",
         }}
       >
         {teamMode && (
@@ -695,37 +751,6 @@ export default function ScoringMode({
                 </option>
               ))}
             </select>
-
-            <div
-              style={{ marginLeft: "auto", display: "flex", gap: "0.35rem" }}
-            >
-              <button
-                onClick={prevTeam}
-                style={{
-                  padding: ".35rem .6rem",
-                  border: "1px solid #ccc",
-                  background: "#f7f7f7",
-                  borderRadius: "0.35rem",
-                  cursor: "pointer",
-                }}
-                title="Previous team"
-              >
-                ← Prev
-              </button>
-              <button
-                onClick={nextTeam}
-                style={{
-                  padding: ".35rem .6rem",
-                  border: "1px solid #ccc",
-                  background: "#f7f7f7",
-                  borderRadius: "0.35rem",
-                  cursor: "pointer",
-                }}
-                title="Next team"
-              >
-                Next →
-              </button>
-            </div>
           </div>
         )}
 
@@ -738,12 +763,7 @@ export default function ScoringMode({
           }}
         >
           <thead>
-            <tr
-              style={{
-                background: theme.bg,
-                borderBottom: thinRowBorder, // 👈 ultra-thin orange line here
-              }}
-            >
+            <tr style={{ background: theme.bg, borderBottom: thinRowBorder }}>
               <th
                 style={{
                   padding: "0.35rem 0.4rem",
@@ -777,6 +797,41 @@ export default function ScoringMode({
                   >
                     {t.teamName}
                   </div>
+                  <button
+                    aria-label={`Remove ${t.teamName}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeTeam(t.showTeamId);
+                    }}
+                    style={{
+                      margin: "0 auto",
+                      width: 20,
+                      height: 20,
+                      borderRadius: "50%",
+                      border: `1px solid ${theme.accent}`,
+                      background: theme.bg,
+                      color: theme.accent,
+                      cursor: "pointer",
+                      padding: 0,
+                      display: "grid",
+                      placeItems: "center",
+                    }}
+                    title="Delete team"
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M6 6l12 12M18 6L6 18"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
                   <div
                     style={{ fontSize: ".8rem", opacity: 0.85, marginTop: 2 }}
                   >
@@ -798,7 +853,7 @@ export default function ScoringMode({
                   borderTop: bonusBorder,
                   borderBottom: bonusBorder,
                   whiteSpace: "normal",
-                  wordBreak: "break-word",
+                  wordBreak: "word-break",
                   overflowWrap: "anywhere",
                   lineHeight: 1.1,
                   fontSize: ".9rem",
@@ -852,33 +907,20 @@ export default function ScoringMode({
                 </td>
 
                 {renderTeams.map((t, ti) => {
-                  const cell = grid[t.showTeamId]?.[q.showQuestionId];
-                  const isMissing = !cell;
-                  const on = !!cell?.isCorrect;
-
-                  const correctCount =
-                    correctCountByShowQuestionId[q.showQuestionId] || 0;
-
-                  const pts = on
-                    ? scoringMode === "pub"
-                      ? Number(pubPoints)
-                      : Math.round(
-                          Number(poolPerQuestion) / Math.max(1, correctCount)
-                        )
-                    : 0;
-
                   const logicalTi = teamMode ? teamIdxSolo : ti;
+                  const cell = grid[t.showTeamId]?.[q.showQuestionId];
+                  const on = !!cell?.isCorrect;
                   const isFocused =
                     focus.teamIdx === logicalTi && focus.qIdx === qi;
 
+                  const pts = earnedFor(cell, q.showQuestionId);
+
                   const style = {
                     ...tileBase,
-                    ...(isMissing
-                      ? tileStates.missing
-                      : on
-                        ? tileStates.correct
-                        : tileStates.wrong),
+                    ...(on ? tileStates.correct : tileStates.wrong),
                     ...(isFocused ? tileFocus : null),
+                    scrollMarginTop: 56,
+                    scrollMarginBottom: 56,
                   };
 
                   return (
@@ -888,30 +930,33 @@ export default function ScoringMode({
                         textAlign: "center",
                         padding: "0.25rem",
                         borderBottom: thinRowBorder,
-
-                        transition: "background 120ms ease",
                       }}
                     >
                       <div
+                        ref={(el) => {
+                          cellRefs.current[
+                            `${t.showTeamId}:${q.showQuestionId}`
+                          ] = el;
+                        }}
                         role="button"
-                        aria-disabled={isMissing}
                         aria-selected={isFocused}
-                        onClick={() => {
-                          if (isMissing) return;
-                          const renderedTi = teamMode ? 0 : ti; // index within renderTeams
-                          setFocus({ teamIdx: logicalTi, qIdx: qi });
-                          toggleCell(renderedTi, qi);
+                        onClick={() => toggleCell(ti, qi)}
+                        onDoubleClick={(e) => {
+                          e.preventDefault();
+                          openCellEditor(t.showTeamId, q.showQuestionId);
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          openCellEditor(t.showTeamId, q.showQuestionId);
                         }}
                         style={style}
                         title={
-                          isMissing
-                            ? "No score row yet for this team & question"
-                            : on
-                              ? `Correct — ${pts} pts`
-                              : "Incorrect"
+                          on
+                            ? `Correct — ${pts} pts\n(⇧ Double-click or Right-click for bonus/override)`
+                            : `Incorrect\n(⇧ Double-click or Right-click for bonus/override)`
                         }
                       >
-                        {isMissing ? "—" : on ? `✓ ${pts}` : "○"}
+                        {on ? `✓ ${pts}` : "○"}
                       </div>
                     </td>
                   );
@@ -928,7 +973,175 @@ export default function ScoringMode({
         <code>↑/↓</code> question
       </div>
 
-      {/* Add Team Modal */}
+      {/* Per-cell Bonus/Override Editor */}
+      {editingCell && (
+        <div
+          onClick={closeCellEditor}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(43,57,74,.65)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(92vw, 460px)",
+              background: "#fff",
+              borderRadius: ".6rem",
+              border: `1px solid ${theme.accent}`,
+              overflow: "hidden",
+              boxShadow: "0 10px 30px rgba(0,0,0,.25)",
+              fontFamily: "Questrial, sans-serif",
+            }}
+          >
+            {/* Header */}
+            <div
+              style={{
+                background: theme.dark,
+                color: "#fff",
+                padding: ".6rem .8rem",
+                borderBottom: `2px solid ${theme.accent}`,
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: "Antonio, sans-serif",
+                  fontSize: "1.25rem",
+                  letterSpacing: ".01em",
+                }}
+              >
+                Edit Points (this team • this question)
+              </div>
+              <div
+                style={{ fontSize: ".9rem", opacity: 0.9, marginTop: ".15rem" }}
+              >
+                Bonus is added (only if correct). Override replaces the earned
+                points.
+              </div>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: ".9rem .9rem .2rem" }}>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: ".5rem",
+                  marginBottom: ".6rem",
+                }}
+              >
+                <div
+                  style={{
+                    minWidth: 140,
+                    fontWeight: 600,
+                    color: theme.accent,
+                  }}
+                >
+                  Bonus points
+                </div>
+                <input
+                  type="number"
+                  value={editingCell.draftBonus}
+                  onChange={(e) =>
+                    setEditingCell((p) => ({
+                      ...p,
+                      draftBonus: Number(e.target.value || 0),
+                    }))
+                  }
+                  style={{
+                    width: 120,
+                    padding: ".45rem .55rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                  }}
+                />
+              </label>
+
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: ".5rem",
+                  marginBottom: ".6rem",
+                }}
+              >
+                <div
+                  style={{
+                    minWidth: 140,
+                    fontWeight: 600,
+                    color: theme.accent,
+                  }}
+                >
+                  Override points
+                </div>
+                <input
+                  type="number"
+                  placeholder="(leave blank for none)"
+                  value={editingCell.draftOverride}
+                  onChange={(e) =>
+                    setEditingCell((p) => ({
+                      ...p,
+                      draftOverride: e.target.value, // keep "" if blank
+                    }))
+                  }
+                  style={{
+                    width: 160,
+                    padding: ".45rem .55rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                  }}
+                />
+              </label>
+            </div>
+
+            {/* Footer */}
+            <div
+              style={{
+                display: "flex",
+                gap: ".5rem",
+                justifyContent: "flex-end",
+                padding: ".8rem .9rem .9rem",
+                borderTop: "1px solid #eee",
+              }}
+            >
+              <button
+                onClick={closeCellEditor}
+                style={{
+                  padding: ".5rem .75rem",
+                  border: "1px solid #ccc",
+                  background: "#f7f7f7",
+                  borderRadius: ".35rem",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={applyCellEditor}
+                style={{
+                  padding: ".5rem .8rem",
+                  border: `1px solid ${theme.accent}`,
+                  background: theme.accent,
+                  color: "#fff",
+                  borderRadius: ".35rem",
+                  cursor: "pointer",
+                  fontWeight: 700,
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Team Modal (local or Airtable search) */}
       {addingTeam && (
         <div
           style={{
@@ -955,21 +1168,112 @@ export default function ScoringMode({
             <h3 style={{ marginTop: 0, color: theme.dark }}>
               Add team to this show
             </h3>
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              <input
-                value={teamSearch}
-                onChange={(e) => setTeamSearch(e.target.value)}
-                placeholder="Team name"
-                onKeyDown={(e) => e.key === "Enter" && searchExactTeam()}
-                style={{
-                  flex: 1,
-                  padding: "0.5rem",
-                  border: "1px solid #ccc",
-                  borderRadius: "0.25rem",
+
+            {/* Search field */}
+            <input
+              value={teamInput}
+              onChange={async (e) => {
+                const val = e.target.value;
+                setTeamInput(val);
+
+                if (val.length >= 2) {
+                  try {
+                    const res = await fetch(
+                      `/.netlify/functions/searchTeams?q=${encodeURIComponent(val)}`
+                    );
+                    const json = await res.json();
+                    console.log("searchTeams matches (raw):", json.matches);
+
+                    // Normalize to { id, name, recentShowTeams: [{id,label}] }
+                    const normalized = (json.matches || []).map((m) => {
+                      const id = m.teamId ?? m.id ?? "";
+                      const name = m.teamName ?? m.name ?? "";
+                      // If backend returns strings in m.showTeams, convert to [{id,label}]
+                      const recentShowTeams = Array.isArray(m.showTeams)
+                        ? m.showTeams.map((label, idx) => ({
+                            id: `${id}::${idx}`, // unique key for React
+                            label: String(label || ""),
+                          }))
+                        : Array.isArray(m.recentShowTeams)
+                          ? m.recentShowTeams.map((r, idx) => ({
+                              id: r.id ?? `${id}::${idx}`,
+                              label: r.label ?? String(r || ""),
+                            }))
+                          : [];
+
+                      return { id, name, recentShowTeams };
+                    });
+
+                    setSearchResults(normalized);
+                  } catch (err) {
+                    console.error("searchTeams error:", err);
+                    setSearchResults([]);
+                  }
+                } else {
+                  setSearchResults([]);
+                }
+              }}
+              placeholder="Enter team name"
+              style={{
+                width: "100%",
+                marginBottom: ".5rem",
+                padding: "0.5rem",
+                border: "1px solid #ccc",
+                borderRadius: "0.25rem",
+              }}
+            />
+
+            {searchResults.map((t) => (
+              <div
+                key={t.id} // ✅ unique team key
+                onClick={() => {
+                  addTeamLocal(t.name, t.id);
+                  setTeamInput("");
+                  setAddingTeam(false);
+                  setSearchResults([]);
                 }}
-              />
+                style={{
+                  padding: ".45rem .6rem",
+                  cursor: "pointer",
+                  borderBottom: "1px solid #eee",
+                }}
+                title={
+                  Array.isArray(t.recentShowTeams) && t.recentShowTeams.length
+                    ? `Recent: ${t.recentShowTeams.map((r) => r.label).join(" • ")}`
+                    : ""
+                }
+              >
+                <div style={{ fontWeight: 600 }}>{t.name}</div>
+
+                {Array.isArray(t.recentShowTeams) &&
+                  t.recentShowTeams.length > 0 && (
+                    <div
+                      style={{ fontSize: ".85rem", opacity: 0.8, marginTop: 4 }}
+                    >
+                      <div style={{ fontWeight: 600, marginBottom: 2 }}>
+                        Recent:
+                      </div>
+                      <div>
+                        {t.recentShowTeams.slice(0, 3).map((r) => (
+                          <div key={r.id} style={{ lineHeight: 1.2 }}>
+                            {r.label}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+              </div>
+            ))}
+
+            {/* Manual add fallback */}
+            <div style={{ display: "flex", gap: "0.5rem" }}>
               <button
-                onClick={searchExactTeam}
+                onClick={() => {
+                  addTeamLocal(teamInput); // no Airtable ID
+                  setTeamInput("");
+                  setAddingTeam(false);
+                  setSearchResults([]);
+                }}
                 style={{
                   padding: "0.5rem 0.75rem",
                   border: `1px solid ${theme.accent}`,
@@ -977,98 +1281,15 @@ export default function ScoringMode({
                   color: "#fff",
                   borderRadius: "0.25rem",
                   cursor: "pointer",
+                  flex: 1,
                 }}
               >
-                Search
+                Add “{teamInput || "Unnamed"}”
               </button>
-            </div>
-
-            {hasSearched && teamMatches.length > 0 ? (
-              teamMatches.map((m) => (
-                <div
-                  key={m.teamId}
-                  style={{ padding: ".6rem 0", borderTop: "1px solid #eee" }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <div>
-                      <div>
-                        <strong>{m.teamName}</strong>
-                      </div>
-                      <div style={{ fontSize: ".9rem", opacity: 0.8 }}>
-                        Previous shows: {m.previousShowsCount ?? 0}
-                        {Array.isArray(m.recentShows) &&
-                          m.recentShows.length > 0 && (
-                            <div style={{ marginTop: ".25rem" }}>
-                              <em>Most recent:</em>
-                              <ul
-                                style={{
-                                  margin: ".3rem 0 0 .9rem",
-                                  padding: 0,
-                                }}
-                              >
-                                {m.recentShows.map((rs, idx) => (
-                                  <li
-                                    key={rs.showId || idx}
-                                    style={{ listStyle: "disc" }}
-                                  >
-                                    {rs.showName}
-                                    {rs.date
-                                      ? ` — ${new Date(rs.date).toLocaleDateString()}`
-                                      : ""}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => confirmTeam(m.teamId)}
-                      style={{
-                        padding: ".35rem .7rem",
-                        border: "1px solid #DC6A24",
-                        background: "#f0f0f0",
-                        color: "#2B394A",
-                        borderRadius: "0.25rem",
-                        cursor: "pointer",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      Use this team
-                    </button>
-                  </div>
-                </div>
-              ))
-            ) : !searching &&
-              hasSearched &&
-              teamSearch.trim() &&
-              teamMatches.length === 0 ? (
-              <div style={{ marginTop: ".75rem", fontStyle: "italic" }}>
-                No matches.
-              </div>
-            ) : searching ? (
-              <div style={{ marginTop: ".75rem", fontStyle: "italic" }}>
-                Searching…
-              </div>
-            ) : null}
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginTop: "0.75rem",
-              }}
-            >
               <button
                 onClick={() => setAddingTeam(false)}
                 style={{
-                  padding: ".5rem .75rem",
+                  padding: "0.5rem 0.75rem",
                   border: "1px solid #ccc",
                   background: "#f7f7f7",
                   borderRadius: "0.25rem",
@@ -1076,19 +1297,6 @@ export default function ScoringMode({
                 }}
               >
                 Cancel
-              </button>
-              <button
-                onClick={() => confirmTeam(null, true)}
-                style={{
-                  padding: ".5rem .75rem",
-                  border: `1px solid ${theme.accent}`,
-                  background: "#fff",
-                  color: theme.accent,
-                  borderRadius: "0.25rem",
-                  cursor: "pointer",
-                }}
-              >
-                Create new team with this name
               </button>
             </div>
           </div>

@@ -3,10 +3,18 @@ import React from "react";
 import AudioPlayer from "react-h5-audio-player";
 import Draggable from "react-draggable";
 import { marked } from "marked";
-import { Button, ButtonPrimary, overlayStyle, overlayImg } from "./styles";
+import {
+  Button,
+  ButtonPrimary,
+  overlayStyle,
+  overlayImg,
+  colors as theme,
+  tokens,
+} from "./styles";
 
 export default function ShowMode({
-  groupedQuestions,
+  rounds = [],
+  groupedQuestions: groupedQuestionsProp,
   showDetails,
   setshowDetails,
   questionRefs,
@@ -26,7 +34,77 @@ export default function ShowMode({
   timerPosition,
   setTimerPosition,
   getClosestQuestionKey,
+  numberToLetter,
 }) {
+  // --- Adapter: build groupedQuestions shape from bundle rounds ---
+  const groupedQuestionsFromRounds = React.useMemo(() => {
+    const grouped = {};
+    for (const r of rounds || []) {
+      const rNum = r?.round ?? 0;
+      for (const q of r?.questions || []) {
+        const catName = (q?.categoryName || "").trim();
+        const catDesc = (q?.categoryDescription || "").trim();
+        const catOrder = q?.categoryOrder ?? 999;
+        const key = `${rNum}::${catOrder}::${catName || "Uncategorized"}`;
+
+        if (!grouped[key]) {
+          grouped[key] = {
+            categoryInfo: {
+              "Category name": catName,
+              "Category description": catDesc,
+              "Category order": catOrder,
+              "Super secret": !!q?.superSecret,
+              "Category image": Array.isArray(q?.categoryImages)
+                ? q.categoryImages
+                : [],
+              // hold category-level audio
+              "Category audio": Array.isArray(q?.categoryAudio)
+                ? q.categoryAudio
+                : [],
+            },
+            questions: {},
+          };
+        }
+
+        grouped[key].questions[q.id] = {
+          "Question ID": q?.questionId?.[0] || q?.id,
+          "Question order": q?.questionOrder,
+          "Question text": q?.questionText || "",
+          "Flavor text": q?.flavorText || "",
+          Answer: q?.answer || "",
+          "Question type": q?.questionType || "",
+          Images: Array.isArray(q?.questionImages) ? q.questionImages : [],
+          Audio: Array.isArray(q?.questionAudio) ? q.questionAudio : [],
+        };
+
+        // Keep first non-empty category media we see
+        if (
+          Array.isArray(q?.categoryImages) &&
+          q.categoryImages.length > 0 &&
+          Array.isArray(grouped[key].categoryInfo["Category image"]) &&
+          grouped[key].categoryInfo["Category image"].length === 0
+        ) {
+          grouped[key].categoryInfo["Category image"] = q.categoryImages;
+        }
+        if (
+          Array.isArray(q?.categoryAudio) &&
+          q.categoryAudio.length > 0 &&
+          Array.isArray(grouped[key].categoryInfo["Category audio"]) &&
+          grouped[key].categoryInfo["Category audio"].length === 0
+        ) {
+          grouped[key].categoryInfo["Category audio"] = q.categoryAudio;
+        }
+      }
+    }
+    return grouped;
+  }, [rounds]);
+
+  // Prefer upstream if provided
+  const groupedQuestions =
+    groupedQuestionsProp && Object.keys(groupedQuestionsProp).length
+      ? groupedQuestionsProp
+      : groupedQuestionsFromRounds;
+
   const sortedGroupedEntries = React.useMemo(() => {
     const entries = Object.entries(groupedQuestions);
     const hasVisual = (cat) =>
@@ -81,7 +159,7 @@ export default function ShowMode({
           categoryInfo?.["Category description"]?.trim() || "";
         const isSuperSecret = !!categoryInfo?.["Super secret"];
 
-        // Unified key + image handling (works for single or array)
+        // Category images
         const groupKey = `${categoryName}|||${categoryDescription}`;
         const catImages = categoryInfo?.["Category image"];
         const catImagesArr = Array.isArray(catImages)
@@ -89,6 +167,156 @@ export default function ShowMode({
           : catImages
             ? [catImages]
             : [];
+
+        // Category audio
+        const catAudio = categoryInfo?.["Category audio"];
+        const catAudioArr = Array.isArray(catAudio)
+          ? catAudio
+          : catAudio
+            ? [catAudio]
+            : [];
+
+        const CategoryHeader = ({ secret }) => (
+          <div style={{ backgroundColor: theme.dark, padding: 0 }}>
+            <hr
+              style={{
+                border: "none",
+                borderTop: `2px solid ${theme.accent}`,
+                margin: "0 0 0.3rem 0",
+              }}
+            />
+            <h2
+              style={{
+                color: theme.accent,
+                fontFamily: tokens.font.display,
+                fontSize: "1.85rem",
+                margin: 0,
+                textAlign: "left",
+                letterSpacing: "0.015em",
+                textIndent: "0.5rem",
+              }}
+              dangerouslySetInnerHTML={{
+                __html: marked.parseInline(categoryName || ""),
+              }}
+            />
+            <p
+              style={{
+                color: "#fff",
+                fontStyle: "italic",
+                fontFamily: tokens.font.flavor,
+                margin: "0 0 0.5rem 0",
+                textAlign: "left",
+                textIndent: "1rem",
+              }}
+              dangerouslySetInnerHTML={{
+                __html: marked.parseInline(categoryDescription || ""),
+              }}
+            />
+
+            {/* Category images (optional) */}
+            {catImagesArr.length > 0 && (
+              <div style={{ marginTop: "0.25rem", marginLeft: "1rem" }}>
+                <Button
+                  onClick={() =>
+                    setVisibleCategoryImages((prev) => ({
+                      ...prev,
+                      [groupKey]: true,
+                    }))
+                  }
+                  style={{
+                    fontSize: tokens.font.size,
+                    fontFamily: tokens.font.body,
+                    marginBottom: "0.25rem",
+                  }}
+                >
+                  Show category image{catImagesArr.length > 1 ? "s" : ""}
+                </Button>
+
+                {visibleCategoryImages[groupKey] && (
+                  <div
+                    onClick={() =>
+                      setVisibleCategoryImages((prev) => ({
+                        ...prev,
+                        [groupKey]: false,
+                      }))
+                    }
+                    style={overlayStyle}
+                  >
+                    {catImagesArr.map((img, idx) => (
+                      <img
+                        key={idx}
+                        src={img.url}
+                        alt={img.filename || "Category image"}
+                        style={overlayImg}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Category audio (optional) */}
+            {catAudioArr.length > 0 && (
+              <div
+                style={{
+                  marginTop: "0.5rem",
+                  marginLeft: "1rem",
+                  marginRight: "1rem",
+                }}
+              >
+                {catAudioArr.map(
+                  (audioObj, i) =>
+                    audioObj?.url && (
+                      <div
+                        key={i}
+                        className="audio-player-wrapper"
+                        style={{
+                          marginTop: "0.5rem",
+                          maxWidth: "600px",
+                          border: "1px solid #ccc",
+                          borderRadius: "1.5rem",
+                          overflow: "hidden",
+                          backgroundColor: theme.bg,
+                          boxShadow: "0 0 10px rgba(0, 0, 0, 0.15)",
+                        }}
+                      >
+                        <AudioPlayer
+                          src={audioObj.url}
+                          showJumpControls={false}
+                          layout="horizontal"
+                          style={{
+                            borderRadius: "1.5rem 1.5rem 0 0",
+                            width: "100%",
+                          }}
+                        />
+                        <div
+                          style={{
+                            textAlign: "center",
+                            fontSize: ".9rem",
+                            fontFamily: tokens.font.body,
+                            padding: "0.4rem 0.6rem",
+                            backgroundColor: theme.bg,
+                            borderTop: "1px solid #ccc",
+                          }}
+                        >
+                          🎵{" "}
+                          {(audioObj.filename || "").replace(/\.[^/.]+$/, "")}
+                        </div>
+                      </div>
+                    )
+                )}
+              </div>
+            )}
+
+            <hr
+              style={{
+                border: "none",
+                borderTop: `2px solid ${theme.accent}`,
+                margin: "0.3rem 0 0 0",
+              }}
+            />
+          </div>
+        );
 
         return (
           <div
@@ -100,214 +328,45 @@ export default function ShowMode({
                 style={{
                   borderStyle: "dashed",
                   borderWidth: "3px",
-                  borderColor: "#DC6A24",
-                  backgroundColor: "#FFF2E6",
+                  borderColor: theme.accent,
+                  backgroundColor: theme.bg,
                   borderRadius: ".75rem",
                   padding: "0.5rem",
                 }}
               >
-                <div style={{ backgroundColor: "#2B394A", padding: 0 }}>
-                  <hr
-                    style={{
-                      border: "none",
-                      borderTop: "2px solid #DC6A24",
-                      margin: "0 0 0.3rem 0",
-                    }}
-                  />
-                  <h2
-                    style={{
-                      color: "#DC6A24",
-                      fontFamily: "Antonio",
-                      fontSize: "1.85rem",
-                      margin: 0,
-                      textAlign: "left",
-                      letterSpacing: "0.015em",
-                      textIndent: "0.5rem",
-                    }}
-                    dangerouslySetInnerHTML={{
-                      __html: marked.parseInline(categoryName || ""),
-                    }}
-                  />
-                  <p
-                    style={{
-                      color: "#ffffff",
-                      fontStyle: "italic",
-                      fontFamily: "Sanchez",
-                      margin: "0 0 0.5rem 0",
-                      textAlign: "left",
-                      textIndent: "1rem",
-                    }}
-                    dangerouslySetInnerHTML={{
-                      __html: marked.parseInline(categoryDescription || ""),
-                    }}
-                  />
-
-                  {/* Secret category explainer box */}
-                  <div
-                    style={{
-                      margin: "0.5rem 1rem",
-                      padding: "0.5rem 0.75rem",
-                      backgroundColor: "#FFF2E6",
-                      border: "1px solid  #DC6A24",
-                      borderRadius: "0.5rem",
-                      fontFamily: "Questrial, sans-serif",
-                      color: "#2B394A",
-                      fontSize: "1rem",
-                      textAlign: "center",
-                    }}
-                  >
-                    🔎{" "}
-                    <em>
-                      <strong>
-                        This is the Super secret category of the week!
-                      </strong>
-                    </em>
-                    <br />
-                    <div style={{ marginTop: "0.25rem" }}>
-                      If you follow us on Facebook, you'll see a post at the
-                      start of each week letting you know where around central
-                      Minnesota you can find us that week. That post also tells
-                      you the super secret category for the week, so that you
-                      can study up before the contest to have a leg up on the
-                      competition!
-                    </div>
+                <CategoryHeader secret />
+                {/* Secret category explainer box */}
+                <div
+                  style={{
+                    margin: "0.5rem 1rem",
+                    padding: "0.5rem 0.75rem",
+                    backgroundColor: theme.bg,
+                    border: `1px solid ${theme.accent}`,
+                    borderRadius: "0.5rem",
+                    fontFamily: tokens.font.body,
+                    color: theme.dark,
+                    fontSize: tokens.font.size,
+                    textAlign: "center",
+                  }}
+                >
+                  🔎{" "}
+                  <em>
+                    <strong>
+                      This is the Super secret category of the week!
+                    </strong>
+                  </em>
+                  <br />
+                  <div style={{ marginTop: "0.25rem" }}>
+                    If you follow us on Facebook, you'll see a post at the start
+                    of each week letting you know where around central Minnesota
+                    you can find us that week. That post also tells you the
+                    super secret category for the week, so that you can study up
+                    before the contest to have a leg up on the competition!
                   </div>
-
-                  {/* Category images (optional) */}
-                  {catImagesArr.length > 0 && (
-                    <div style={{ marginTop: "0.25rem", marginLeft: "1rem" }}>
-                      <Button
-                        onClick={() =>
-                          setVisibleCategoryImages((prev) => ({
-                            ...prev,
-                            [groupKey]: true,
-                          }))
-                        }
-                        style={{ marginTop: ".25rem", marginLeft: "1rem" }}
-                      >
-                        Show category image{catImagesArr.length > 1 ? "s" : ""}
-                      </Button>
-
-                      {visibleCategoryImages[groupKey] && (
-                        <div
-                          onClick={() =>
-                            setVisibleCategoryImages((prev) => ({
-                              ...prev,
-                              [groupKey]: false,
-                            }))
-                          }
-                          style={overlayStyle}
-                        >
-                          {catImagesArr.map((img, idx) => (
-                            <img
-                              key={idx}
-                              src={img.url}
-                              alt={img.filename || "Category image"}
-                              style={overlayImg}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <hr
-                    style={{
-                      border: "none",
-                      borderTop: "2px solid #DC6A24",
-                      margin: "0.3rem 0 0 0",
-                    }}
-                  />
                 </div>
               </div>
             ) : (
-              // Standard block for non-secret categories
-              <div style={{ backgroundColor: "#2B394A", padding: 0 }}>
-                <hr
-                  style={{
-                    border: "none",
-                    borderTop: "2px solid #DC6A24",
-                    margin: "0 0 0.3rem 0",
-                  }}
-                />
-                <h2
-                  style={{
-                    color: "#DC6A24",
-                    fontFamily: "Antonio",
-                    fontSize: "1.85rem",
-                    margin: 0,
-                    textAlign: "left",
-                    letterSpacing: "0.015em",
-                    textIndent: "0.5rem",
-                  }}
-                  dangerouslySetInnerHTML={{
-                    __html: marked.parseInline(categoryName || ""),
-                  }}
-                />
-                <p
-                  style={{
-                    color: "#ffffff",
-                    fontStyle: "italic",
-                    fontFamily: "Sanchez",
-                    margin: "0 0 0.5rem 0",
-                    textAlign: "left",
-                    textIndent: "1rem",
-                  }}
-                  dangerouslySetInnerHTML={{
-                    __html: marked.parseInline(categoryDescription || ""),
-                  }}
-                />
-
-                {/* Category images (optional) */}
-                {catImagesArr.length > 0 && (
-                  <div style={{ marginTop: "0.25rem", marginLeft: "1rem" }}>
-                    <Button
-                      onClick={() =>
-                        setVisibleCategoryImages((prev) => ({
-                          ...prev,
-                          [groupKey]: true,
-                        }))
-                      }
-                      style={{
-                        fontSize: "1rem",
-                        fontFamily: "Questrial, sans-serif",
-                        marginBottom: "0.25rem",
-                      }}
-                    >
-                      Show category image{catImagesArr.length > 1 ? "s" : ""}
-                    </Button>
-
-                    {visibleCategoryImages[groupKey] && (
-                      <div
-                        onClick={() =>
-                          setVisibleCategoryImages((prev) => ({
-                            ...prev,
-                            [groupKey]: false,
-                          }))
-                        }
-                        style={overlayStyle}
-                      >
-                        {catImagesArr.map((img, idx) => (
-                          <img
-                            key={idx}
-                            src={img.url}
-                            alt={img.filename || "Category image"}
-                            style={overlayImg}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <hr
-                  style={{
-                    border: "none",
-                    borderTop: "2px solid #DC6A24",
-                    margin: "0.3rem 0 0 0",
-                  }}
-                />
-              </div>
+              <CategoryHeader />
             )}
 
             {Object.values(questions)
@@ -336,7 +395,7 @@ export default function ShowMode({
                       {/* QUESTION TEXT */}
                       <p
                         style={{
-                          fontFamily: "Questrial, sans-serif",
+                          fontFamily: tokens.font.body,
                           fontSize: "1.125rem",
                           marginTop: "1.75rem",
                           marginBottom: 0,
@@ -361,7 +420,7 @@ export default function ShowMode({
                       {q["Flavor text"]?.trim() && showDetails && (
                         <p
                           style={{
-                            fontFamily: "Lora, serif",
+                            fontFamily: tokens.font.flavor,
                             fontSize: "1rem",
                             fontStyle: "italic",
                             display: "block",
@@ -434,7 +493,7 @@ export default function ShowMode({
                                     gap: "1rem",
                                     justifyContent: "center",
                                     alignItems: "center",
-                                    fontFamily: "Questrial, sans-serif",
+                                    fontFamily: tokens.font.body,
                                   }}
                                 >
                                   <Button
@@ -478,7 +537,7 @@ export default function ShowMode({
                         </div>
                       )}
 
-                      {/* AUDIO FILE – Always visible if present */}
+                      {/* QUESTION-LEVEL AUDIO */}
                       {Array.isArray(q.Audio) && q.Audio.length > 0 && (
                         <div
                           style={{
@@ -499,7 +558,7 @@ export default function ShowMode({
                                     border: "1px solid #ccc",
                                     borderRadius: "1.5rem",
                                     overflow: "hidden",
-                                    backgroundColor: "#f9f9f9",
+                                    backgroundColor: theme.bg,
                                     boxShadow: "0 0 10px rgba(0, 0, 0, 0.15)",
                                   }}
                                 >
@@ -515,10 +574,10 @@ export default function ShowMode({
                                   <div
                                     style={{
                                       textAlign: "center",
-                                      fontSize: "0.9rem",
-                                      fontFamily: "Questrial, sans-serif",
+                                      fontSize: ".9rem",
+                                      fontFamily: tokens.font.body,
                                       padding: "0.4rem 0.6rem",
-                                      backgroundColor: "#f9f9f9",
+                                      backgroundColor: theme.bg,
                                       borderTop: "1px solid #ccc",
                                     }}
                                   >
@@ -538,7 +597,7 @@ export default function ShowMode({
                       {showDetails && (
                         <p
                           style={{
-                            fontFamily: "Questrial, sans-serif",
+                            fontFamily: tokens.font.body,
                             fontSize: "1.125rem",
                             marginTop: "0.5rem",
                             marginBottom: "1rem",
@@ -575,13 +634,13 @@ export default function ShowMode({
           left: 0,
           width: "100%",
           height: "100%",
-          pointerEvents: "none", // allow dragging only on the timer itself
+          pointerEvents: "none",
           zIndex: 999,
         }}
       >
         <Draggable
           nodeRef={timerRef}
-          defaultPosition={timerPosition} // use defaultPosition for controlled-by-localStorage behavior
+          defaultPosition={timerPosition}
           onStop={(e, data) => {
             const newPos = { x: data.x, y: data.y };
             setTimerPosition(newPos);
@@ -592,13 +651,13 @@ export default function ShowMode({
             ref={timerRef}
             style={{
               position: "absolute",
-              backgroundColor: "#2B394A",
-              color: "white",
+              backgroundColor: theme.dark,
+              color: "#fff",
               padding: "1rem",
               borderRadius: "0.5rem",
-              border: "1px solid #DC6A24",
+              border: `1px solid ${theme.accent}`,
               boxShadow: "0 0 10px rgba(0,0,0,0.3)",
-              fontFamily: "Questrial, sans-serif",
+              fontFamily: tokens.font.body,
               width: "180px",
               textAlign: "center",
               pointerEvents: "auto",
@@ -607,7 +666,6 @@ export default function ShowMode({
               alignItems: "center",
             }}
           >
-            {/* Countdown display */}
             <div
               style={{
                 fontSize: "2rem",
@@ -618,7 +676,6 @@ export default function ShowMode({
               {timeLeft}s
             </div>
 
-            {/* Start / Reset buttons */}
             <div
               style={{
                 display: "flex",
@@ -638,7 +695,6 @@ export default function ShowMode({
               </Button>
             </div>
 
-            {/* Duration input */}
             <input
               type="number"
               value={timerDuration}

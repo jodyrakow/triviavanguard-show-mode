@@ -1,176 +1,145 @@
-// netlify/functions/fetchScores.js
-const Airtable = require("airtable");
-const base = new Airtable({ apiKey: process.env.AIRTABLE_TOKEN }).base(
-  "appnwzfwa2Bl6V2jX"
-);
+// netlify/functions/searchTeams.js
+import fetch from "node-fetch";
 
-async function all(table, opts) {
-  const out = [];
-  await base(table)
-    .select(opts || {})
-    .eachPage((recs, next) => {
-      out.push(...recs);
-      next();
+const AIRTABLE_BASE_ID = "appnwzfwa2Bl6V2jX";
+const AIRTABLE_API_URL = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}`;
+const AIRTABLE_TOKEN = process.env.AIRTABLE_TOKEN;
+
+// ---- Helpers
+const esc = (s = "") => String(s).replace(/'/g, "\\'");
+const buildUrl = (endpoint, params = {}) => {
+  const url = new URL(`${AIRTABLE_API_URL}/${endpoint}`);
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === null || v === "") continue;
+    url.searchParams.set(k, String(v));
+  }
+  return url;
+};
+
+async function fetchAll(endpoint, params = {}) {
+  let out = [];
+  let offset;
+  do {
+    const url = buildUrl(endpoint, { ...params, offset });
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}` },
     });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`Airtable ${res.status}: ${text}`);
+    const page = JSON.parse(text);
+    out = out.concat(page.records || []);
+    offset = page.offset;
+  } while (offset);
   return out;
 }
 
-// helper: sort letters (A..Z) first, then numbers (1..n), then missing
-function orderKey(v) {
-  if (v == null) return { kind: 2, num: Infinity, str: "" }; // missing -> last
-  const n = Number(v);
-  if (!isNaN(n)) return { kind: 1, num: n, str: "" }; // numeric -> after letters
-  return { kind: 0, num: Infinity, str: String(v).toUpperCase() }; // letters -> first
-}
+export async function handler(event) {
+  // CORS preflight
+  if (event.httpMethod === "OPTIONS") {
+    return {
+      statusCode: 204,
+      headers: {
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "GET, OPTIONS",
+        "access-control-allow-headers": "Content-Type, Authorization",
+      },
+      body: "",
+    };
+  }
 
-exports.handler = async (event) => {
   try {
-    const { showId, roundId } = event.queryStringParameters || {};
-    if (!showId || !roundId)
-      return { statusCode: 400, body: "Missing showId or roundId" };
+    if (!AIRTABLE_TOKEN) {
+      return {
+        statusCode: 500,
+        headers: { "access-control-allow-origin": "*" },
+        body: "AIRTABLE_TOKEN missing",
+      };
+    }
 
-    // 1) Questions for this round (record id is showQuestionId)
-    const sq = await all("ShowQuestions", {
-      filterByFormula: `AND({Show ID}='${showId}', {Round ID}='${roundId}')`,
-      fields: ["Question ID", "Question", "Question order"],
+    const q = (event.queryStringParameters?.q || "").trim();
+    if (q.length < 2) {
+      return {
+        statusCode: 200,
+        headers: {
+          "content-type": "application/json",
+          "access-control-allow-origin": "*",
+        },
+        body: JSON.stringify({ matches: [] }),
+      };
+    }
+
+    // ==== SINGLE TABLE ONLY: ShowTeams ====
+    // Your fields in ShowTeams:
+    // - Primary: "ShowTeam" (formula like "2025-08-22 Game 1 @ Tavern | Trivia Busters")
+    // - "Team name" (lookup from Teams)  <-- fuzzy search here
+    // - "Team ID" (formula you added)    <-- grouping key
+    // - "Date" (lookup from Shows)
+    // - "Team" (linked to Teams)         <-- NOT used for search
+
+    // Fuzzy-ish match against LOOKUP: wrap in ARRAYJOIN, LOWER, SEARCH
+    const stFilter = `SEARCH(LOWER('${esc(q)}'), LOWER(ARRAYJOIN({Team name})))`;
+
+    // Pull *all* matching ShowTeams; then we group by Team ID here.
+    const stRecords = await fetchAll("ShowTeams", {
+      filterByFormula: stFilter,
+      "sort[0][field]": "Date",
+      "sort[0][direction]": "desc",
     });
 
-    const questions = sq.map((r) => ({
-      showQuestionId: r.id,
-      questionId: r.get("Question ID") || null,
-      order: r.get("Question order"),
-      text: r.get("Question")?.[0]?.name || "",
-    }));
+    // Group by Team ID
+    const groups = new Map();
+    for (const r of stRecords) {
+      const f = r.fields || {};
+      const teamId = f["Team ID"] || ""; // REQUIRED for grouping
+      const teamName = f["Team name"] || ""; // display name
+      const showTeamLabel = f["ShowTeam"] || ""; // primary formula
+      const dateVal = Array.isArray(f["Date"]) ? f["Date"][0] : f["Date"] || "";
 
-    questions.sort((a, b) => {
-      const A = orderKey(a.order);
-      const B = orderKey(b.order);
-      if (A.kind !== B.kind) return A.kind - B.kind;
-      if (A.kind === 0) return A.str.localeCompare(B.str);
-      if (A.kind === 1) return A.num - B.num;
-      return 0;
-    });
+      if (!teamId) continue; // skip rows without Team ID
 
-    const showQuestionIdSet = new Set(questions.map((q) => q.showQuestionId));
+      if (!groups.has(teamId)) {
+        groups.set(teamId, {
+          teamId,
+          teamName,
+          recent: [],
+          _seen: new Set(), // to dedupe showTeamId if needed
+        });
+      }
+      const g = groups.get(teamId);
 
-    // 2) Teams for this show
-    const stAll = await all("ShowTeams", {
-      fields: ["Show", "Show bonus", "Team"],
-    });
-
-    const st = stAll.filter((r) => {
-      const linked = r.get("Show");
-      if (!Array.isArray(linked) || !linked.length) return false;
-      return linked.some((s) =>
-        typeof s === "string" ? s === showId : s?.id === showId
-      );
-    });
-
-    // Collect unique Team record IDs
-    const teamIds = [
-      ...new Set(
-        st
-          .map((r) => {
-            const link = r.get("Team");
-            if (!Array.isArray(link) || !link.length) return null;
-            const v = link[0];
-            return typeof v === "string" ? v : v?.id || null;
-          })
-          .filter(Boolean)
-      ),
-    ];
-
-    // Build a lookup of teamId -> primary name (canonical)
-    const teamNameById = {};
-    if (teamIds.length) {
-      const tf = `OR(${teamIds.map((id) => `RECORD_ID()='${id}'`).join(",")})`;
-      const teamRecs = await all("Teams", { filterByFormula: tf });
-      for (const tr of teamRecs) {
-        const fields = tr._rawJson?.fields || {};
-        const name =
-          tr.get("Team") ||
-          tr.get("Name") ||
-          tr.get("Team Name") ||
-          Object.values(fields)[0] ||
-          "(Unnamed team)";
-        teamNameById[tr.id] = name;
+      if (!g._seen.has(r.id)) {
+        g._seen.add(r.id);
+        g.recent.push({
+          showTeamId: r.id,
+          showTeamLabel,
+          date: dateVal,
+        });
       }
     }
 
-    const teams = st.map((r) => {
-      const link = r.get("Team");
-      let teamId = null;
-      let inlineName = null;
-
-      if (Array.isArray(link) && link.length) {
-        const v = link[0];
-        if (typeof v === "string") {
-          teamId = v;
-        } else if (v && typeof v === "object") {
-          teamId = v.id || null;
-          inlineName = v.name || null;
-        }
-      }
-
-      return {
-        showTeamId: r.id,
-        teamId,
-        teamName: teamNameById[teamId] || inlineName || "(Unnamed team)",
-        showBonus: Number(r.get("Show bonus") ?? 0),
-      };
-    });
-
-    // 3) Scores for this show (filter to current round via ShowQuestion membership)
-    const sc = await all("Scores", {
-      fields: [
-        "Is correct",
-        "Effective points",
-        "Points earned", // ✨ NEW: read Points earned
-        "Question bonus",
-        "ShowTeam",
-        "ShowQuestion",
-        "Show",
-      ],
-    });
-
-    // helper: normalize a link cell’s first value to a record id
-    const firstId = (link) => {
-      if (!Array.isArray(link) || !link.length) return null;
-      const v = link[0];
-      return typeof v === "string" ? v : v?.id || null;
-    };
-
-    // keep only scores that belong to this show
-    const scForShow = sc.filter((s) => firstId(s.get("Show")) === showId);
-
-    console.log(
-      "fetchScores → Scores raw:",
-      sc.length,
-      "forShow:",
-      scForShow.length,
-      "showId:",
-      showId
-    );
-
-    // then filter by current round's ShowQuestions
-    const scores = scForShow
-      .filter((s) => showQuestionIdSet.has(firstId(s.get("ShowQuestion"))))
-      .map((s) => ({
-        id: s.id,
-        showTeamId: firstId(s.get("ShowTeam")),
-        showQuestionId: firstId(s.get("ShowQuestion")),
-        isCorrect: !!s.get("Is correct"),
-        effectivePoints: Number(s.get("Effective points") ?? 0),
-        pointsEarned: Number(s.get("Points earned") ?? 0), // ✨ NEW: expose Points earned
-        questionBonus: Number(s.get("Question bonus") ?? 0),
-      }));
+    // Prepare final shape: limit to 3 most recent per team (already sorted by Date desc)
+    const matches = Array.from(groups.values()).map((g) => ({
+      teamId: g.teamId,
+      teamName: g.teamName,
+      recent: g.recent.slice(0, 3),
+    }));
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ teams, questions, scores }),
+      headers: {
+        "content-type": "application/json",
+        "access-control-allow-origin": "*",
+      },
+      body: JSON.stringify({ matches }),
     };
-  } catch (e) {
-    console.error("fetchScores error:", e);
-    return { statusCode: 500, body: JSON.stringify({ error: e.message }) };
+  } catch (err) {
+    return {
+      statusCode: 500,
+      headers: {
+        "content-type": "text/plain",
+        "access-control-allow-origin": "*",
+      },
+      body: String(err?.message || err),
+    };
   }
-};
+}

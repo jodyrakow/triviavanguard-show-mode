@@ -1,412 +1,204 @@
 // netlify/functions/fetchShowBundle.js
-const Airtable = require("airtable");
-const base = new Airtable({ apiKey: process.env.AIRTABLE_TOKEN }).base(
-  "appnwzfwa2Bl6V2jX"
-);
+import fetch from "node-fetch";
 
-// -------- helpers (unchanged patterns) ----------
-async function getAll(table, opts) {
-  const out = [];
-  await base(table)
-    .select(opts || {})
-    .eachPage((recs, next) => {
-      out.push(...recs);
-      next();
-    });
-  return out;
+const AIRTABLE_BASE_ID = "appnwzfwa2Bl6V2jX";
+const AIRTABLE_API_URL = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}`;
+const AIRTABLE_TOKEN = process.env.AIRTABLE_TOKEN;
+
+// Build Airtable URL (no fields[] to avoid 422 serialization issues)
+function buildUrl(
+  endpoint,
+  { filterByFormula, sort = [], pageSize = 100, offset } = {}
+) {
+  const url = new URL(`${AIRTABLE_API_URL}/${endpoint}`);
+  if (filterByFormula) url.searchParams.set("filterByFormula", filterByFormula);
+  if (pageSize) url.searchParams.set("pageSize", String(pageSize));
+  if (offset) url.searchParams.set("offset", offset);
+  sort.forEach((s, i) => {
+    if (s.field) url.searchParams.set(`sort[${i}][field]`, s.field);
+    if (s.direction) url.searchParams.set(`sort[${i}][direction]`, s.direction);
+  });
+  return url;
 }
 
-const firstId = (link) =>
-  Array.isArray(link) && link.length
-    ? typeof link[0] === "string"
-      ? link[0]
-      : link[0]?.id || null
-    : null;
-
-// helper: sort letters (A..Z) first, then numbers (1..n), then missing
-function orderKey(v) {
-  if (v == null) return { kind: 2, num: Infinity, str: "" };
-  const n = Number(v);
-  if (!isNaN(n)) return { kind: 1, num: n, str: "" };
-  return { kind: 0, num: Infinity, str: String(v).toUpperCase() };
-}
-
-// ------------------------------------------------
-
-exports.handler = async (event) => {
-  try {
-    const { showId, roundId } = event.queryStringParameters || {};
-    if (!showId) return { statusCode: 400, body: "Missing showId" };
-
-    // 0) Show (minimal header info; not strictly required by your current UI)
-    let show = null;
-    try {
-      const s = await base("Shows").find(showId);
-      show = {
-        id: s.id,
-        Show: s._rawJson.fields, // raw fields if you ever need them
-      };
-    } catch (e) {
-      return { statusCode: 404, body: "Show not found" };
-    }
-
-    // 1) Rounds list (same shape as before so existing UI filters work)
-    const roundsAll = await getAll("Rounds", {
-      fields: ["Round", "Show", "Round order"],
-      pageSize: 100,
+async function fetchAll(endpoint, opts) {
+  let all = [];
+  let offset;
+  do {
+    const url = buildUrl(endpoint, { ...opts, offset });
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}` },
     });
-    const Rounds = roundsAll.map((r) => ({
-      Round: r._rawJson.fields, // keep same nested fields shape
-      id: r.id,
-    }));
-
-    // Always include Rounds in the response
-    // The client can filter by r.Round?.Show?.[0] === selectedShowId like before.
-
-    // If no roundId yet, return rounds now (so UI can populate the dropdown)
-    if (!roundId) {
-      return {
-        statusCode: 200,
-        body: JSON.stringify({
-          show,
-          Rounds,
-          // placeholders so caller code won’t explode if it expects them
-          groupedQuestions: {},
-          teams: [],
-          questions: [],
-          scores: [],
-        }),
-      };
-    }
-
-    // 2) ---------- fetchShowData.js portion (exact same field references) ----------
-    // ShowQuestions for the selected show + round (using your Show ID / Round ID fields)
-    const showQuestions = await getAll("ShowQuestions", {
-      filterByFormula: `AND({Show ID}='${showId}', {Round ID}='${roundId}')`,
-      fields: [
-        "Question order",
-        "Category ID",
-        "Question",
-        "Question ID",
-        "Question type",
-      ],
-      pageSize: 100,
-    });
-
-    const questionIds = showQuestions
-      .map((rec) => rec.get("Question ID"))
-      .filter(Boolean);
-
-    const showCategories = await getAll("ShowCategories", {
-      filterByFormula: `AND({Show ID}='${showId}', {Round ID}='${roundId}')`,
-      fields: ["Super secret", "Category ID", "Category order"],
-      pageSize: 100,
-    });
-
-    const catIds = showCategories
-      .map((rec) => rec.get("Category ID"))
-      .filter(Boolean);
-
-    const showImages = await getAll("ShowImages", {
-      filterByFormula: `AND({Show ID}='${showId}', {Round ID}='${roundId}')`,
-      fields: ["Image attachment", "Image order", "Category ID", "Question ID"],
-      pageSize: 100,
-    });
-
-    const showAudio = await getAll("ShowAudio", {
-      filterByFormula: `AND({Show ID}='${showId}', {Round ID}='${roundId}')`,
-      fields: [
-        "Audio file attachment",
-        "Audio order",
-        "Category ID",
-        "Question ID",
-      ],
-      pageSize: 100,
-    });
-
-    const categoryImages = await getAll("ShowImages", {
-      filterByFormula: `AND({Show ID for category}='${showId}', {Round ID for category}='${roundId}')`,
-      fields: ["Image attachment", "ShowCategory ID"],
-      pageSize: 100,
-    });
-
-    // Questions table lookups (by "Question ID", not record id)
-    let allQuestions = [];
-    if (questionIds.length) {
-      const chunks = [];
-      for (let i = 0; i < questionIds.length; i += 50)
-        chunks.push(questionIds.slice(i, i + 50));
-      for (const chunk of chunks) {
-        const filterByFormula = `OR(${chunk
-          .map((id) => `{Question ID}='${id}'`)
-          .join(", ")})`;
-        allQuestions.push(
-          ...(await getAll("Questions", {
-            filterByFormula,
-            fields: ["Question text", "Answer", "Flavor text", "Question ID"],
-            pageSize: 100,
-          }))
-        );
-      }
-    }
-
-    const allCategories = catIds.length
-      ? await getAll("Categories", {
-          filterByFormula: `OR(${catIds
-            .map((id) => `{Category ID}='${id}'`)
-            .join(", ")})`,
-          fields: ["Category ID", "Category name", "Category description"],
-          pageSize: 100,
-        })
-      : [];
-
-    const questionContentMap = {};
-    for (const q of allQuestions) {
-      questionContentMap[q.get("Question ID")] = {
-        "Question text": q.get("Question text") || "",
-        Answer: q.get("Answer") || "",
-        "Flavor text": q.get("Flavor text") || "",
-      };
-    }
-
-    const categoryDetailsMap = {};
-    for (const cat of allCategories) {
-      const id = cat.get("Category ID");
-      categoryDetailsMap[id] = {
-        "Category name": cat.get("Category name") || "",
-        "Category description": cat.get("Category description") || "",
-      };
-    }
-
-    const dataByCategory = {};
-
-    for (const cat of showCategories) {
-      const catId = cat.get("Category ID");
-      dataByCategory[catId] = {
-        categoryInfo: {
-          "Category ID": catId,
-          "Category order": cat.get("Category order"),
-          "Super secret": cat.get("Super secret") || false,
-          ...(categoryDetailsMap[catId] || {}),
-          "Category image": null,
-        },
-        questions: {},
-      };
-    }
-
-    // Attach category-level images
-    for (const img of categoryImages) {
-      const catId = img.get("ShowCategory ID");
-      const attachment = img.get("Image attachment")?.[0];
-      if (catId && attachment && dataByCategory[catId]) {
-        dataByCategory[catId].categoryInfo["Category image"] = {
-          id: attachment.id,
-          url: attachment.url,
-          filename: attachment.filename,
-          size: attachment.size,
-          type: attachment.type,
-        };
-      }
-    }
-
-    // Seed questions
-    for (const sq of showQuestions) {
-      const catId = sq.get("Category ID");
-      const qId = sq.get("Question ID");
-
-      if (!dataByCategory[catId]) {
-        dataByCategory[catId] = { categoryInfo: {}, questions: {} };
-      }
-
-      dataByCategory[catId].questions[qId] = {
-        "Question ID": qId,
-        "Question order": sq.get("Question order"),
-        "Question type": sq.get("Question type") || "",
-        "Category ID": catId,
-        ...questionContentMap[qId],
-        Images: [],
-        Audio: [],
-      };
-    }
-
-    // Attach media
-    for (const img of showImages) {
-      const catId = img.get("Category ID");
-      const qId = img.get("Question ID");
-
-      const attachment = img.get("Image attachment")?.[0];
-      if (!attachment) continue;
-
-      const imageData = {
-        id: attachment.id,
-        url: attachment.url,
-        filename: attachment.filename,
-        size: attachment.size,
-        type: attachment.type,
-        imageOrder: img.get("Image order") ?? null,
-      };
-
-      if (qId && dataByCategory[catId]?.questions[qId]) {
-        dataByCategory[catId].questions[qId].Images.push(imageData);
-      }
-    }
-
-    for (const audio of showAudio) {
-      const catId = audio.get("Category ID");
-      const qId = audio.get("Question ID");
-
-      const attachment = audio.get("Audio file attachment")?.[0];
-      if (!attachment) continue;
-
-      const audioData = {
-        id: attachment.id,
-        url: attachment.url,
-        filename: attachment.filename,
-        size: attachment.size,
-        type: attachment.type,
-        audioOrder: audio.get("Audio order") ?? null,
-      };
-
-      if (qId && dataByCategory[catId]?.questions[qId]) {
-        dataByCategory[catId].questions[qId].Audio.push(audioData);
-      }
-    }
-
-    // Sort media attachments
-    for (const cat of Object.values(dataByCategory)) {
-      for (const q of Object.values(cat.questions)) {
-        if (q.Images?.length) {
-          q.Images.sort(
-            (a, b) => (a.imageOrder ?? Infinity) - (b.imageOrder ?? Infinity)
-          );
-        }
-        if (q.Audio?.length) {
-          q.Audio.sort(
-            (a, b) => (a.audioOrder ?? Infinity) - (b.audioOrder ?? Infinity)
-          );
-        }
-      }
-    }
-
-    // 3) ---------- fetchScores.js portion (same shapes) ----------
-    // Questions for this round (for sorting + id set)
-    const sqForRound = await getAll("ShowQuestions", {
-      filterByFormula: `AND({Show ID}='${showId}', {Round ID}='${roundId}')`,
-      fields: ["Question ID", "Question", "Question order"],
-      pageSize: 100,
-    });
-
-    const questions = sqForRound
-      .map((r) => ({
-        showQuestionId: r.id,
-        questionId: r.get("Question ID") || null,
-        order: r.get("Question order"),
-        text: r.get("Question")?.[0]?.name || "",
-      }))
-      .sort((a, b) => {
-        const A = orderKey(a.order);
-        const B = orderKey(b.order);
-        if (A.kind !== B.kind) return A.kind - B.kind;
-        if (A.kind === 0) return A.str.localeCompare(B.str);
-        if (A.kind === 1) return A.num - B.num;
-        return 0;
-      });
-
-    const showQuestionIdSet = new Set(questions.map((q) => q.showQuestionId));
-
-    // Teams for this show
-    const stAll = await getAll("ShowTeams", {
-      fields: ["Show", "Show bonus", "Team"],
-    });
-    const st = stAll.filter((r) => {
-      const linked = r.get("Show");
-      if (!Array.isArray(linked) || !linked.length) return false;
-      return linked.some((s) =>
-        typeof s === "string" ? s === showId : s?.id === showId
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(
+        `Airtable error ${res.status}: ${text}\nURL: ${url.toString()}`
       );
-    });
+    }
+    const json = JSON.parse(text);
+    all = all.concat(json.records || []);
+    offset = json.offset;
+  } while (offset);
+  return all;
+}
 
-    // Team names
-    const teamIds = [
-      ...new Set(
-        st
-          .map((r) => {
-            const link = r.get("Team");
-            if (!Array.isArray(link) || !link.length) return null;
-            const v = link[0];
-            return typeof v === "string" ? v : v?.id || null;
-          })
-          .filter(Boolean)
-      ),
+const toAttachmentArray = (val) =>
+  Array.isArray(val)
+    ? val
+        .filter((a) => a && a.url)
+        .map((a) => ({
+          url: a.url,
+          filename: a.filename || undefined,
+          type: a.type || undefined,
+          size: a.size || undefined,
+          id: a.id || undefined,
+        }))
+    : [];
+
+export async function handler(event) {
+  // Basic CORS support
+  if (event.httpMethod === "OPTIONS") {
+    return {
+      statusCode: 204,
+      headers: {
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "GET, OPTIONS",
+        "access-control-allow-headers": "Content-Type, Authorization",
+      },
+    };
+  }
+
+  try {
+    const showId = event.queryStringParameters?.showId;
+    if (!showId)
+      return { statusCode: 400, body: "Missing required query param: showId" };
+    if (!AIRTABLE_TOKEN)
+      return {
+        statusCode: 500,
+        body: "Server not configured: AIRTABLE_TOKEN is missing.",
+      };
+
+    // Pull questions for this show
+    const filterByFormula = `{Show ID} = '${showId}'`;
+    const sort = [
+      { field: "Round", direction: "asc" },
+      { field: "Sort order", direction: "asc" },
     ];
 
-    const teamNameById = {};
-    if (teamIds.length) {
-      const tf = `OR(${teamIds.map((id) => `RECORD_ID()='${id}'`).join(",")})`;
-      const teamRecs = await getAll("Teams", { filterByFormula: tf });
-      for (const tr of teamRecs) {
-        const fields = tr._rawJson?.fields || {};
-        const name =
-          tr.get("Team") ||
-          tr.get("Name") ||
-          tr.get("Team Name") ||
-          Object.values(fields)[0] ||
-          "(Unnamed team)";
-        teamNameById[tr.id] = name;
-      }
+    const records = await fetchAll("ShowQuestions", {
+      filterByFormula,
+      sort,
+      pageSize: 100,
+    });
+
+    // Normalize + group by numeric round
+    const byRound = new Map();
+    const scoreIdsSet = new Set();
+
+    for (const rec of records) {
+      const f = rec.fields || {};
+      const scoresLR = Array.isArray(f["Scores"]) ? f["Scores"] : [];
+      scoresLR.forEach((lr) => lr?.id && scoreIdsSet.add(lr.id));
+
+      const q = {
+        id: rec.id,
+
+        // Lookups
+        showId: f["Show ID"] || null,
+        questionId: f["Question ID"] || null,
+
+        // Ordering
+        round: typeof f["Round"] === "number" ? f["Round"] : null,
+        categoryOrder:
+          typeof f["Category order"] === "number" ? f["Category order"] : null,
+        questionOrder: f["Question order"] || "",
+        sortOrder: typeof f["Sort order"] === "number" ? f["Sort order"] : null,
+
+        // Flags / selects
+        superSecret: !!f["Super secret"],
+        questionType: f["Question type"]?.name || f["Question type"] || null,
+
+        // Text
+        categoryName: f["Category name"] || "",
+        categoryDescription: f["Category description"] || "",
+        questionText: f["Question text"] || "",
+        flavorText: f["Flavor text"] || "",
+        answer: f["Answer"] || "",
+
+        // Attachments
+        categoryImages: toAttachmentArray(f["Category image attachments"]),
+        categoryAudio: toAttachmentArray(f["Category audio attachments"]),
+        questionImages: toAttachmentArray(f["Question image attachments"]),
+        questionAudio: toAttachmentArray(f["Question audio attachments"]),
+
+        // Add this property (keep the rest of your object as-is)
+        pointsPerQuestion:
+          typeof f["Points per question"] === "number"
+            ? f["Points per question"]
+            : null,
+
+        // Linked score ids
+        scores: scoresLR.map((lr) => lr.id).filter(Boolean),
+      };
+
+      const r = q.round ?? 0;
+      if (!byRound.has(r)) byRound.set(r, []);
+      byRound.get(r).push(q);
     }
 
-    const teams = st.map((r) => {
-      const link = r.get("Team");
-      let teamId = null;
-      let inlineName = null;
+    const rounds = Array.from(byRound.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([round, questions]) => ({ round, questions }));
 
-      if (Array.isArray(link) && link.length) {
-        const v = link[0];
-        if (typeof v === "string") {
-          teamId = v;
-        } else if (v && typeof v === "object") {
-          teamId = v.id || null;
-          inlineName = v.name || null;
-        }
-      }
+    // Pull preloaded ShowTeams
+    const filterByFormulaTeams = `{Show ID} = '${showId}'`;
+    const teamRows = await fetchAll("ShowTeams", {
+      filterByFormula: filterByFormulaTeams,
+      pageSize: 100,
+    });
 
+    const teams = teamRows.map((r) => {
+      const f = r.fields || {};
+      const teamLinked = Array.isArray(f["Team"]) ? f["Team"][0] : null;
       return {
         showTeamId: r.id,
-        teamId,
-        teamName: teamNameById[teamId] || inlineName || "(Unnamed team)",
-        showBonus: Number(r.get("Show bonus") ?? 0),
+        teamId: teamLinked || null,
+        // Team name might be a lookup (array) or a text field (string)
+        teamName: f["Team name"] ?? "(Unnamed team)",
+        showBonus: Number(f["Show bonus"] || 0),
       };
     });
 
-    // Scores (just the links; same as your working fetchScores.js)
-    const sc = await getAll("Scores", {
-      fields: ["ShowTeam", "ShowQuestion", "Show"],
-    });
-
-    const scForShow = sc.filter((s) => firstId(s.get("Show")) === showId);
-
-    const scores = scForShow
-      .filter((s) => showQuestionIdSet.has(firstId(s.get("ShowQuestion"))))
-      .map((s) => ({
-        id: s.id,
-        showTeamId: firstId(s.get("ShowTeam")),
-        showQuestionId: firstId(s.get("ShowQuestion")),
-      }));
+    const bundle = {
+      showId,
+      totalQuestions: records.length,
+      rounds,
+      scoreIds: Array.from(scoreIdsSet),
+      teams,
+      meta: {
+        generatedAt: new Date().toISOString(),
+        sortedBy: ["Round asc", "Sort order asc"],
+        fieldsMode: ["all (no fields[] to avoid 422)"],
+      },
+    };
 
     return {
       statusCode: 200,
-      body: JSON.stringify({
-        show,
-        Rounds, // same shape: [{ Round: fields, id }]
-        groupedQuestions: dataByCategory, // EXACT shape from your working fetchShowData.js
-        teams, // EXACT shape from your working fetchScores.js
-        questions, // EXACT shape from your working fetchScores.js
-        scores, // EXACT shape from your working fetchScores.js
-      }),
+      headers: {
+        "content-type": "application/json",
+        "access-control-allow-origin": "*",
+        "x-function-version": "v1-consistent",
+      },
+      body: JSON.stringify(bundle),
     };
-  } catch (e) {
-    console.error("fetchShowBundle error:", e);
-    return { statusCode: 500, body: JSON.stringify({ error: e.message }) };
+  } catch (err) {
+    return {
+      statusCode: 500,
+      headers: {
+        "content-type": "text/plain",
+        "access-control-allow-origin": "*",
+      },
+      body: String(err?.message || err),
+    };
   }
-};
+}

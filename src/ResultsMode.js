@@ -1,180 +1,135 @@
 // src/ResultsMode.js
-import React, { useEffect, useMemo, useState, useRef } from "react";
-import axios from "axios";
-import AudioPlayer from "react-h5-audio-player";
-import { marked } from "marked";
+import React, { useMemo, useRef, useState } from "react";
 import {
-  Button,
   ButtonPrimary,
-  colors as theme,
+  Button,
+  tokens,
   overlayStyle,
   overlayImg,
+  colors as theme,
 } from "./styles/index.js";
-import "react-h5-audio-player/lib/styles.css";
+
+// Normalize team shapes coming from cache (same as ScoringMode)
+const normalizeTeam = (t) => ({
+  showTeamId: t.showTeamId,
+  teamId: t.teamId ?? null,
+  teamName: Array.isArray(t.teamName)
+    ? t.teamName[0]
+    : t.teamName || "(Unnamed team)",
+  showBonus: Number(t.showBonus || 0),
+});
+
+const ordinal = (n) => {
+  const s = ["th", "st", "nd", "rd"],
+    v = n % 100;
+  return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
+};
 
 export default function ResultsMode({
-  selectedShowId,
-  selectedRoundId,
-  scoringMode,
+  showBundle, // { rounds:[{round, questions:[...] }], teams:[...] }
+  selectedRoundId, // round number or string (e.g. "1")
+  cachedState, // { teams, grid, entryOrder }
+  scoringMode, // "pub" | "pooled"
   setScoringMode,
   pubPoints,
   setPubPoints,
   poolPerQuestion,
   setPoolPerQuestion,
 }) {
-  const [grouped, setGrouped] = useState({});
-  const [teams, setTeams] = useState([]); // [{showTeamId, teamId, teamName, showBonus}]
-  const [scores, setScores] = useState([]); // [{id, showTeamId, showQuestionId, isCorrect, questionBonus}]
-  const [questions, setQuestions] = useState([]); // [{showQuestionId, questionId, order, text}]
-  const [visibleImages, setVisibleImages] = useState({});
-  const [currentImageIndex, setCurrentImageIndex] = useState({});
-  const [visibleCategoryImages, setVisibleCategoryImages] = useState({});
+  // --------- derive round + questions (needed for scoring math) ---------
+  const roundNumber = Number(selectedRoundId);
+  const roundObj = useMemo(() => {
+    if (!Array.isArray(showBundle?.rounds)) return null;
+    return (
+      showBundle.rounds.find((r) => Number(r.round) === roundNumber) || null
+    );
+  }, [showBundle, roundNumber]);
 
-  // Prize editor (brand-styled modal)
-  const [prizeEditorOpen, setPrizeEditorOpen] = useState(false);
-  const [prizeCount, setPrizeCount] = useState(0); // how many places get prizes
-  const [prizes, setPrizes] = useState([]); // array of strings (index 0 = 1st place)
-  const showPrizeCol = prizeCount > 0 && prizes.some((p) => p && p.length);
+  const questions = useMemo(() => {
+    const raw = roundObj?.questions || [];
+    // Same sort as ScoringMode (Sort order, then Question order alpha/num)
+    const bySort = [...raw].sort((a, b) => {
+      const sa = Number(a.sortOrder ?? 9999);
+      const sb = Number(b.sortOrder ?? 9999);
+      if (sa !== sb) return sa - sb;
+      const cvt = (val) => {
+        if (typeof val === "string" && /^[A-Z]$/i.test(val)) {
+          return val.toUpperCase().charCodeAt(0) - 64; // A=1
+        }
+        const n = parseInt(val, 10);
+        return isNaN(n) ? 9999 : 100 + n;
+      };
+      return cvt(a.questionOrder) - cvt(b.questionOrder);
+    });
 
-  // temp editing buffers
-  const [draftCount, setDraftCount] = useState(prizeCount);
-  const [draftPrizes, setDraftPrizes] = useState(prizes);
+    return bySort.map((q) => ({
+      showQuestionId: q.id,
+      // scoring parity (per-question pub points)
+      pubPerQuestion:
+        typeof q.pointsPerQuestion === "number" ? q.pointsPerQuestion : null,
+    }));
+  }, [roundObj]);
+
+  // --------- teams + grid (from cache) ---------
+  const teams = useMemo(() => {
+    const incoming = cachedState?.teams || [];
+    return incoming.map(normalizeTeam);
+  }, [cachedState]);
+
+  const grid = cachedState?.grid || {}; // {[showTeamId]: {[showQuestionId]: {isCorrect, questionBonus, overridePoints}}}
 
   const finalStandingsRef = useRef(null);
 
-  const openPrizeEditor = () => {
-    setDraftCount(prizeCount || 0);
-    setDraftPrizes(prizes.length ? [...prizes] : []);
-    setPrizeEditorOpen(true);
-  };
-
-  const closePrizeEditor = () => setPrizeEditorOpen(false);
-
-  const applyPrizeEdits = () => {
-    setPrizeCount(draftCount);
-    setPrizes(draftPrizes.slice(0, draftCount));
-    setPrizeEditorOpen(false);
-  };
-
-  const clearPrizes = () => {
-    setDraftCount(0);
-    setDraftPrizes([]);
-  };
-
-  const ensureDraftLen = (n) => {
-    const arr = draftPrizes.slice();
-    while (arr.length < n) arr.push("");
-    return arr.slice(0, n);
-  };
-
-  // ------- fetch data -------
-  useEffect(() => {
-    if (!selectedShowId || !selectedRoundId) return;
-
-    // grouped questions (question text/media)
-    axios
-      .post("/.netlify/functions/fetchShowData", {
-        showId: selectedShowId,
-        roundId: selectedRoundId,
-      })
-      .then((res) => setGrouped(res.data || {}))
-      .catch((e) => console.error("ResultsMode fetchShowData error:", e));
-
-    // teams + show-questions + scores for this show/round
-    axios
-      .get("/.netlify/functions/fetchScores", {
-        params: { showId: selectedShowId, roundId: selectedRoundId },
-      })
-      .then((res) => {
-        setTeams(res.data.teams || []);
-        setQuestions(res.data.questions || []);
-        setScores(res.data.scores || []);
-      })
-      .catch((e) => console.error("ResultsMode fetchScores error:", e));
-  }, [selectedShowId, selectedRoundId]);
-
-  // Map: showTeamId -> teamName (for SOLO labels etc.)
-  const teamNameByShowTeamId = useMemo(() => {
-    const m = new Map();
-    for (const t of teams) m.set(t.showTeamId, t.teamName || "(Unnamed team)");
-    return m;
-  }, [teams]);
-
-  // Map: showQuestionId -> Question ID (align scores with grouped)
-  const showQIdToQuestionId = useMemo(() => {
-    const m = new Map();
-    for (const q of questions) {
-      if (q.showQuestionId && q.questionId) {
-        m.set(q.showQuestionId, q.questionId);
-      }
-    }
-    return m;
-  }, [questions]);
-
-  // ordinal labels
-  const ordinal = (n) => {
-    const s = ["th", "st", "nd", "rd"],
-      v = n % 100;
-    return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
-  };
-
-  // Per-question stats keyed by **Question ID**
-  const statsByQuestionId = useMemo(() => {
-    const teamsThatScored = new Set(scores.map((s) => s.showTeamId));
-    const totalTeamsForThisRound = teamsThatScored.size;
-
-    const acc = {}; // questionId -> { totalTeams, correctCount, correctTeams[] }
-    for (const s of scores) {
-      const qId = showQIdToQuestionId.get(s.showQuestionId);
-      if (!qId) continue;
-      if (!acc[qId]) {
-        acc[qId] = {
-          totalTeams: totalTeamsForThisRound,
-          correctCount: 0,
-          correctTeams: [],
-        };
-      }
-      if (s.isCorrect) {
-        const name = teamNameByShowTeamId.get(s.showTeamId);
-        if (name) acc[qId].correctTeams.push(name);
-        acc[qId].correctCount += 1;
-      }
-    }
-    return acc;
-  }, [scores, showQIdToQuestionId, teamNameByShowTeamId]);
-
-  // Standings (Pub / Pooled)
+  // --------- Standings (match ScoringMode math exactly) ---------
   const standings = useMemo(() => {
-    if (!teams.length) return [];
+    if (!teams.length || !questions.length) return [];
 
-    const correctByShowQuestion = new Map(); // showQuestionId -> Set(showTeamId)
-    if (scoringMode === "pooled") {
-      for (const s of scores) {
-        if (!s.isCorrect) continue;
-        const set = correctByShowQuestion.get(s.showQuestionId) || new Set();
-        set.add(s.showTeamId);
-        correctByShowQuestion.set(s.showQuestionId, set);
+    // precompute nCorrect per question (for pooled)
+    const nCorrectByQ = {};
+    for (const q of questions) {
+      let n = 0;
+      for (const t of teams) {
+        if (grid[t.showTeamId]?.[q.showQuestionId]?.isCorrect) n++;
       }
+      nCorrectByQ[q.showQuestionId] = n;
     }
 
-    const totalByTeam = new Map();
-    for (const t of teams)
-      totalByTeam.set(t.showTeamId, Number(t.showBonus || 0));
+    // start totals with show bonus
+    const totalByTeam = new Map(
+      teams.map((t) => [t.showTeamId, Number(t.showBonus || 0)])
+    );
 
-    for (const s of scores) {
-      const base = totalByTeam.get(s.showTeamId) ?? 0;
-      const qb = Number(s.questionBonus || 0);
+    for (const t of teams) {
+      for (const q of questions) {
+        const cell = grid[t.showTeamId]?.[q.showQuestionId];
+        if (!cell) continue;
 
-      if (scoringMode === "pub") {
-        const earned = s.isCorrect ? Number(pubPoints) : 0;
-        totalByTeam.set(s.showTeamId, base + earned + qb);
-      } else {
-        const correctSet =
-          correctByShowQuestion.get(s.showQuestionId) || new Set();
-        const n = correctSet.size;
-        const shareRaw = s.isCorrect && n > 0 ? Number(poolPerQuestion) / n : 0;
-        const share = Math.round(shareRaw);
-        totalByTeam.set(s.showTeamId, base + share + qb);
+        const isCorrect = !!cell.isCorrect;
+        const qb = Number(cell.questionBonus || 0);
+        const override =
+          cell.overridePoints === null || cell.overridePoints === undefined
+            ? null
+            : Number(cell.overridePoints);
+
+        let base = 0;
+        if (isCorrect) {
+          if (scoringMode === "pub") {
+            const perQ =
+              q.pubPerQuestion !== null && q.pubPerQuestion !== undefined
+                ? Number(q.pubPerQuestion)
+                : Number(pubPoints);
+            base = perQ;
+          } else {
+            const n = Math.max(1, nCorrectByQ[q.showQuestionId] || 0);
+            base = Math.round(Number(poolPerQuestion) / n);
+          }
+        }
+
+        const earned = override !== null ? override : base;
+        totalByTeam.set(
+          t.showTeamId,
+          (totalByTeam.get(t.showTeamId) || 0) + earned + (isCorrect ? qb : 0)
+        );
       }
     }
 
@@ -190,6 +145,7 @@ export default function ResultsMode({
         a.teamName.localeCompare(b.teamName, "en", { sensitivity: "base" })
     );
 
+    // Assign places with ties
     let place = 0;
     let prevTotal = null;
     let count = 0;
@@ -203,25 +159,41 @@ export default function ResultsMode({
     }
 
     return rows;
-  }, [teams, scores, scoringMode, pubPoints, poolPerQuestion]);
+  }, [teams, questions, grid, scoringMode, pubPoints, poolPerQuestion]);
 
-  // Sort categories (visuals first, then by Category order) — matches ShowMode
-  const sortedGrouped = useMemo(() => {
-    const entries = Object.entries(grouped);
-    const hasVisual = (cat) =>
-      Object.values(cat.questions || {}).some((q) =>
-        (q["Question type"] || "").includes("Visual")
-      );
+  // --------- Prize editor ---------
+  const [prizeEditorOpen, setPrizeEditorOpen] = useState(false);
+  const [prizeCount, setPrizeCount] = useState(0);
+  const [prizes, setPrizes] = useState([]);
+  const showPrizeCol = prizeCount > 0 && prizes.some((p) => p && p.length);
 
-    return entries.sort(([, a], [, b]) => {
-      const av = hasVisual(a) ? 1 : 0;
-      const bv = hasVisual(b) ? 1 : 0;
-      if (av !== bv) return bv - av; // visuals first
-      const ao = a.categoryInfo?.["Category order"] ?? 999;
-      const bo = b.categoryInfo?.["Category order"] ?? 999;
-      return ao - bo;
-    });
-  }, [grouped]);
+  const [draftCount, setDraftCount] = useState(prizeCount);
+  const [draftPrizes, setDraftPrizes] = useState(prizes);
+
+  const openPrizeEditor = () => {
+    setDraftCount(prizeCount || 0);
+    setDraftPrizes(prizes.length ? [...prizes] : []);
+    setPrizeEditorOpen(true);
+  };
+  const closePrizeEditor = () => setPrizeEditorOpen(false);
+  const applyPrizeEdits = () => {
+    setPrizeCount(draftCount);
+    setPrizes(draftPrizes.slice(0, draftCount));
+    setPrizeEditorOpen(false);
+  };
+  const clearPrizes = () => {
+    setDraftCount(0);
+    setDraftPrizes([]);
+  };
+  const ensureDraftLen = (n) => {
+    const arr = draftPrizes.slice();
+    while (arr.length < n) arr.push("");
+    return arr.slice(0, n);
+  };
+
+  // --------- Guard rails ---------
+  const noRound = !roundObj;
+  const noData = !teams.length && !questions.length;
 
   return (
     <div style={{ fontFamily: "Questrial, sans-serif", color: theme.dark }}>
@@ -249,392 +221,23 @@ export default function ResultsMode({
         </h2>
       </div>
 
-      <ButtonPrimary
-        onClick={() => {
-          finalStandingsRef.current?.scrollIntoView({ behavior: "smooth" });
-        }}
-        style={{ marginBottom: ".75rem" }}
-        aria-label="Jump to Final Standings"
-      >
-        Jump to Final Standings
-      </ButtonPrimary>
+      {noRound ? (
+        <div
+          style={{ opacity: 0.8, fontStyle: "italic", margin: "0 12px 1rem" }}
+        >
+          Select a round to see results.
+        </div>
+      ) : null}
 
-      {/* Categories / Questions with answer + stats */}
-      {sortedGrouped.map(([categoryId, cat], idx) => {
-        const categoryName =
-          cat.categoryInfo?.["Category name"]?.trim() || "Uncategorized";
-        const categoryDescription =
-          cat.categoryInfo?.["Category description"]?.trim() || "";
+      {noData ? (
+        <div
+          style={{ opacity: 0.8, fontStyle: "italic", margin: "0 12px 1rem" }}
+        >
+          No teams or questions yet for this round.
+        </div>
+      ) : null}
 
-        // Unified key + image handling (single or array), matches ShowMode
-        const groupKey = `${categoryName}|||${categoryDescription}`;
-        const catImages = cat.categoryInfo?.["Category image"];
-        const catImagesArr = Array.isArray(catImages)
-          ? catImages
-          : catImages
-            ? [catImages]
-            : [];
-
-        return (
-          <div
-            key={categoryId}
-            style={{ marginTop: idx === 0 ? "1rem" : "3rem" }}
-          >
-            <div style={{ background: "#2B394A", padding: 0 }}>
-              <hr
-                style={{
-                  border: "none",
-                  borderTop: `2px solid ${theme.accent}`,
-                  margin: "0 0 .3rem 0",
-                }}
-              />
-              <h3
-                style={{
-                  color: theme.accent,
-                  fontFamily: "Antonio",
-                  fontSize: "1.4rem",
-                  margin: 0,
-                  textIndent: "0.5rem",
-                  letterSpacing: "0.015em",
-                }}
-                dangerouslySetInnerHTML={{
-                  __html: marked.parseInline(categoryName),
-                }}
-              />
-              {categoryDescription && (
-                <p
-                  style={{
-                    color: "#fff",
-                    fontStyle: "italic",
-                    fontFamily: "Sanchez",
-                    margin: "0 0 .5rem 0",
-                    textIndent: "1rem",
-                  }}
-                  dangerouslySetInnerHTML={{
-                    __html: marked.parseInline(categoryDescription),
-                  }}
-                />
-              )}
-
-              {/* Category images (optional) */}
-              {catImagesArr.length > 0 && (
-                <div style={{ margin: ".25rem 0 0 1rem" }}>
-                  <Button
-                    onClick={() =>
-                      setVisibleCategoryImages((p) => ({
-                        ...p,
-                        [groupKey]: true,
-                      }))
-                    }
-                  >
-                    Show category image{catImagesArr.length > 1 ? "s" : ""}
-                  </Button>
-                  {visibleCategoryImages[groupKey] && (
-                    <div
-                      onClick={() =>
-                        setVisibleCategoryImages((p) => ({
-                          ...p,
-                          [groupKey]: false,
-                        }))
-                      }
-                      style={overlayStyle}
-                    >
-                      {catImagesArr.map((img, i) => (
-                        <img
-                          key={i}
-                          src={img.url}
-                          alt={img.filename || "Category image"}
-                          style={overlayImg}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <hr
-                style={{
-                  border: "none",
-                  borderTop: `2px solid ${theme.accent}`,
-                  margin: ".3rem 0 0 0",
-                }}
-              />
-            </div>
-
-            {/* Questions in this category */}
-            {Object.values(cat.questions || {})
-              .sort((a, b) => {
-                const conv = (v) =>
-                  typeof v === "string" && /^[A-Za-z]$/.test(v)
-                    ? v.toUpperCase().charCodeAt(0) - 64
-                    : isNaN(parseInt(v, 10))
-                      ? 999
-                      : parseInt(v, 10);
-                return conv(a["Question order"]) - conv(b["Question order"]);
-              })
-              .map((q) => {
-                const stats = statsByQuestionId[q["Question ID"]] || null;
-
-                return (
-                  <div key={q["Question ID"]} style={{ marginTop: "1rem" }}>
-                    {/* Question text */}
-                    <p style={{ fontSize: "1.05rem", margin: "0 0 .25rem 0" }}>
-                      <strong>Question {q["Question order"]}:</strong>
-                      <br />
-                      <span
-                        style={{
-                          display: "block",
-                          paddingLeft: "1.5rem",
-                          paddingTop: ".25rem",
-                        }}
-                        dangerouslySetInnerHTML={{
-                          __html: marked.parseInline(q["Question text"] || ""),
-                        }}
-                      />
-                    </p>
-
-                    {/* Flavor (always shown in results) */}
-                    {q["Flavor text"]?.trim() && (
-                      <p
-                        style={{
-                          fontFamily: "Lora, serif",
-                          fontSize: "1rem",
-                          fontStyle: "italic",
-                          margin: ".15rem 0 .25rem 0",
-                          paddingLeft: "1.5rem",
-                        }}
-                        dangerouslySetInnerHTML={{
-                          __html: marked.parseInline(
-                            `<span style="font-size:1em; position: relative; top: 1px; margin-right:-1px;">💭</span> ${q["Flavor text"]}`
-                          ),
-                        }}
-                      />
-                    )}
-
-                    {/* Media (image/audio) — same behavior as ShowMode */}
-                    {Array.isArray(q.Images) && q.Images.length > 0 && (
-                      <div style={{ marginTop: ".25rem" }}>
-                        <Button
-                          onClick={() => {
-                            setVisibleImages((prev) => ({
-                              ...prev,
-                              [q["Question ID"]]: true,
-                            }));
-                            setCurrentImageIndex((prev) => ({
-                              ...prev,
-                              [q["Question ID"]]: 0,
-                            }));
-                          }}
-                          style={{
-                            marginLeft: "1.5rem",
-                            marginBottom: ".25rem",
-                          }}
-                        >
-                          Show image
-                        </Button>
-                        {visibleImages[q["Question ID"]] && (
-                          <div
-                            onClick={() =>
-                              setVisibleImages((prev) => ({
-                                ...prev,
-                                [q["Question ID"]]: false,
-                              }))
-                            }
-                            style={overlayStyle}
-                          >
-                            <img
-                              src={
-                                q.Images[
-                                  currentImageIndex[q["Question ID"]] || 0
-                                ]?.url
-                              }
-                              alt={
-                                q.Images[
-                                  currentImageIndex[q["Question ID"]] || 0
-                                ]?.Name || "Attached image"
-                              }
-                              style={overlayImg}
-                            />
-                            {q.Images.length > 1 && (
-                              <div style={{ display: "flex", gap: "1rem" }}>
-                                <Button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setCurrentImageIndex((prev) => {
-                                      const curr = prev[q["Question ID"]] || 0;
-                                      return {
-                                        ...prev,
-                                        [q["Question ID"]]:
-                                          (curr - 1 + q.Images.length) %
-                                          q.Images.length,
-                                      };
-                                    });
-                                  }}
-                                >
-                                  Previous
-                                </Button>
-                                <Button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setCurrentImageIndex((prev) => {
-                                      const curr = prev[q["Question ID"]] || 0;
-                                      return {
-                                        ...prev,
-                                        [q["Question ID"]]:
-                                          (curr + 1) % q.Images.length,
-                                      };
-                                    });
-                                  }}
-                                >
-                                  Next
-                                </Button>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {Array.isArray(q.Audio) && q.Audio.length > 0 && (
-                      <div
-                        style={{
-                          marginTop: ".5rem",
-                          marginLeft: "1.5rem",
-                          marginRight: "1.5rem",
-                          maxWidth: 600,
-                        }}
-                      >
-                        {q.Audio.map(
-                          (audioObj, i) =>
-                            audioObj.url && (
-                              <div
-                                key={i}
-                                style={{
-                                  marginTop: ".5rem",
-                                  border: "1px solid #ccc",
-                                  borderRadius: "1.5rem",
-                                  overflow: "hidden",
-                                  background: "#f9f9f9",
-                                  boxShadow: "0 0 10px rgba(0,0,0,0.15)",
-                                }}
-                              >
-                                <AudioPlayer
-                                  src={audioObj.url}
-                                  showJumpControls={false}
-                                />
-                                <div
-                                  style={{
-                                    textAlign: "center",
-                                    fontSize: ".9rem",
-                                    padding: ".4rem .6rem",
-                                    background: "#f9f9f9",
-                                    borderTop: "1px solid #ccc",
-                                  }}
-                                >
-                                  🎵{" "}
-                                  {(audioObj.filename || "").replace(
-                                    /\.[^/.]+$/,
-                                    ""
-                                  )}
-                                </div>
-                              </div>
-                            )
-                        )}
-                      </div>
-                    )}
-
-                    {/* Answer */}
-                    <p
-                      style={{
-                        fontSize: "1.05rem",
-                        marginTop: ".4rem",
-                        marginBottom: ".25rem",
-                        marginLeft: "1.5rem",
-                        marginRight: "1.5rem",
-                      }}
-                    >
-                      <span
-                        dangerouslySetInnerHTML={{
-                          __html: marked.parseInline(
-                            `<span style="font-size:.7em; position: relative; top:-1px;">🟢</span> **Answer:** ${q["Answer"] || ""}`
-                          ),
-                        }}
-                      />
-                    </p>
-
-                    {/* Stats pill + pooled share + SOLO */}
-                    <div
-                      style={{ marginLeft: "1.5rem", marginBottom: ".75rem" }}
-                    >
-                      {stats ? (
-                        <>
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "0.2rem 0.75rem",
-                              borderRadius: 999,
-                              background: "#fff",
-                              fontSize: "1.05rem",
-                              border: `2px solid ${theme.accent}`,
-                            }}
-                          >
-                            {stats.correctCount} / {stats.totalTeams} teams
-                            correct
-                          </span>
-
-                          {scoringMode === "pooled" &&
-                            stats.correctCount > 0 && (
-                              <span
-                                style={{
-                                  marginLeft: ".6rem",
-                                  fontSize: "1rem",
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    color: theme.accent,
-                                    fontWeight: 700,
-                                  }}
-                                >
-                                  {Math.round(
-                                    Number(poolPerQuestion) / stats.correctCount
-                                  )}
-                                </span>{" "}
-                                points per team
-                              </span>
-                            )}
-
-                          {stats.correctCount === 1 &&
-                            stats.correctTeams[0] && (
-                              <span style={{ marginLeft: ".6rem" }}>
-                                <span
-                                  style={{
-                                    color: theme.accent,
-                                    fontWeight: 700,
-                                  }}
-                                >
-                                  SOLO:
-                                </span>{" "}
-                                <strong>{stats.correctTeams[0]}</strong>
-                              </span>
-                            )}
-                        </>
-                      ) : (
-                        <span style={{ opacity: 0.6, fontStyle: "italic" }}>
-                          (no stats found for this question)
-                        </span>
-                      )}
-                    </div>
-
-                    <hr className="question-divider" />
-                  </div>
-                );
-              })}
-          </div>
-        );
-      })}
-
-      {/* Controls + live standings */}
+      {/* Controls */}
       <div
         style={{
           display: "grid",
@@ -735,7 +338,7 @@ export default function ResultsMode({
         </div>
       </div>
 
-      {/* Prizes control (brand-styled) */}
+      {/* Prizes control */}
       <div
         style={{
           margin: "0 12px .5rem",
@@ -963,53 +566,57 @@ export default function ResultsMode({
         </div>
       )}
 
-      {/* ===== Final standings (after Q&A) — compact, left-hugging ===== */}
+      {/* ===== Final standings (big + tokens) ===== */}
       <div
         ref={finalStandingsRef}
         style={{
-          margin: "1.5rem 12px 2rem",
-          display: "inline-block",
+          margin: `${tokens.spacing.md} 12px 2rem`,
           background: "#fff",
           border: "1px solid #ddd",
-          borderRadius: ".5rem",
+          borderRadius: tokens.radius.md,
           overflow: "hidden",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
         }}
       >
         <div
           style={{
             background: theme.bg,
             borderBottom: "1px solid #ddd",
-            padding: ".6rem .75rem",
+            padding: `${tokens.spacing.sm} ${tokens.spacing.md}`,
             fontWeight: 700,
             letterSpacing: ".01em",
+            fontSize: "1.6rem",
+            fontFamily: tokens.font.display,
           }}
         >
           Final standings
         </div>
 
-        <div style={{ padding: ".4rem .6rem" }}>
+        <div style={{ padding: tokens.spacing.md }}>
           {standings.length === 0 ? (
-            <div style={{ opacity: 0.7, fontStyle: "italic" }}>
+            <div
+              style={{ opacity: 0.7, fontStyle: "italic", fontSize: "1.1rem" }}
+            >
               No teams yet.
             </div>
           ) : (
             <table
               style={{
-                display: "inline-table",
-                width: "auto",
-                borderCollapse: "separate",
-                borderSpacing: 0,
+                width: "100%",
+                borderCollapse: "collapse",
+                fontFamily: tokens.font.body,
+                fontSize: "1.05rem",
               }}
             >
               <thead>
-                <tr>
+                <tr style={{ background: theme.dark, color: "#fff" }}>
                   {showPrizeCol && (
                     <th
                       style={{
+                        padding: tokens.spacing.sm,
+                        fontSize: "1.1rem",
                         textAlign: "center",
-                        padding: ".15rem .1rem",
                         whiteSpace: "nowrap",
-                        fontSize: ".9rem",
                       }}
                     >
                       Prize
@@ -1017,40 +624,27 @@ export default function ResultsMode({
                   )}
                   <th
                     style={{
+                      padding: tokens.spacing.sm,
+                      fontSize: "1.1rem",
                       textAlign: "center",
-                      padding: ".15rem .1rem",
-                      whiteSpace: "nowrap",
-                      fontSize: ".9rem",
                     }}
                   >
                     Place
                   </th>
                   <th
                     style={{
-                      textAlign: "right",
-                      padding: ".15rem .1rem",
-                      whiteSpace: "nowrap",
-                      fontSize: ".9rem",
-                      width: 1,
-                    }}
-                  />
-                  <th
-                    style={{
+                      padding: tokens.spacing.sm,
+                      fontSize: "1.1rem",
                       textAlign: "center",
-                      padding: ".15rem .1rem",
-                      paddingRight: ".5rem",
-                      whiteSpace: "nowrap",
-                      fontSize: ".9rem",
                     }}
                   >
                     Points
                   </th>
                   <th
                     style={{
+                      padding: tokens.spacing.sm,
+                      fontSize: "1.1rem",
                       textAlign: "left",
-                      padding: ".15rem .1rem",
-                      whiteSpace: "nowrap",
-                      fontSize: ".9rem",
                     }}
                   >
                     Team
@@ -1073,10 +667,7 @@ export default function ResultsMode({
                       isEndOfTieGroup && next ? r.total - next.total : 0;
 
                     const bgColor =
-                      tieGroupIndex % 2 === 0
-                        ? "#fff"
-                        : "rgba(255, 165, 0, 0.07)";
-
+                      tieGroupIndex % 2 === 0 ? "#fff" : "rgba(255,165,0,0.07)";
                     const prizeText =
                       showPrizeCol && r.place <= prizeCount
                         ? prizes[r.place - 1] || ""
@@ -1085,23 +676,15 @@ export default function ResultsMode({
                     return (
                       <tr
                         key={r.showTeamId}
-                        style={{
-                          borderTop: "1px solid #eee",
-                          backgroundColor: bgColor,
-                        }}
+                        style={{ backgroundColor: bgColor }}
                       >
                         {showPrizeCol && (
                           <td
                             style={{
+                              padding: tokens.spacing.sm,
+                              fontSize: "1.1rem",
                               textAlign: "center",
-                              whiteSpace: "nowrap",
-                              paddingRight: ".1rem",
-                              fontSize: "1.05rem",
-                              maxWidth: "18ch",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
                             }}
-                            title={prizeText}
                           >
                             {prizeText}
                           </td>
@@ -1109,11 +692,13 @@ export default function ResultsMode({
 
                         <td
                           style={{
+                            padding: tokens.spacing.sm,
                             textAlign: "center",
+                            fontSize: "1.5rem",
+                            fontWeight: 800,
+                            color: theme.accent,
+                            fontFamily: tokens.font.display,
                             whiteSpace: "nowrap",
-                            fontWeight: 700,
-                            fontSize: "1.25rem",
-                            padding: ".15rem .1rem",
                           }}
                         >
                           {ordinal(r.place)}
@@ -1121,48 +706,37 @@ export default function ResultsMode({
 
                         <td
                           style={{
-                            textAlign: "right",
+                            padding: tokens.spacing.sm,
+                            textAlign: "center",
+                            fontSize: "1.35rem",
+                            fontWeight: 700,
                             whiteSpace: "nowrap",
-                            width: "2.5rem",
-                            paddingLeft: ".75rem",
                           }}
                         >
-                          {gapToNext > 0 ? (
+                          {Number.isInteger(r.total)
+                            ? r.total
+                            : r.total.toFixed(2)}
+                          {gapToNext > 0 && (
                             <span
                               style={{
-                                fontSize: ".85rem",
+                                marginLeft: tokens.spacing.sm,
+                                fontSize: "0.95rem",
                                 color: theme.accent,
                                 fontWeight: 700,
                               }}
                             >
                               +{gapToNext}
                             </span>
-                          ) : (
-                            ""
                           )}
                         </td>
 
                         <td
                           style={{
-                            textAlign: "center",
-                            whiteSpace: "nowrap",
-                            fontSize: "1.25rem",
-                            padding: ".15rem .1rem",
-                            paddingRight: ".5rem",
-                          }}
-                        >
-                          <strong>
-                            {Number.isInteger(r.total)
-                              ? r.total
-                              : r.total.toFixed(2)}
-                          </strong>
-                        </td>
-
-                        <td
-                          style={{
-                            fontSize: "1.25rem",
+                            padding: tokens.spacing.sm,
                             textAlign: "left",
-                            padding: ".15rem .1rem",
+                            fontSize: "1.35rem",
+                            fontWeight: 700,
+                            whiteSpace: "nowrap",
                           }}
                         >
                           {r.teamName}
