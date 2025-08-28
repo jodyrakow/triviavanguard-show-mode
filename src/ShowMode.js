@@ -371,9 +371,14 @@ export default function ShowMode({
 
             {Object.values(questions)
               .sort((a, b) => {
+                const isTB = (q) => (q["Question type"] || "") === "Tiebreaker";
+                // Always put the tiebreaker last
+                if (isTB(a) && !isTB(b)) return 1;
+                if (!isTB(a) && isTB(b)) return -1;
+
                 const convert = (val) => {
                   if (typeof val === "string" && /^[A-Z]$/i.test(val)) {
-                    return val.toUpperCase().charCodeAt(0) - 64;
+                    return val.toUpperCase().charCodeAt(0) - 64; // A=1, B=2...
                   }
                   const num = parseInt(val, 10);
                   return isNaN(num) ? 999 : num;
@@ -401,7 +406,25 @@ export default function ShowMode({
                           marginBottom: 0,
                         }}
                       >
-                        <strong>Question {q["Question order"]}:</strong> <br />
+                        <strong>
+                          {(q["Question type"] || "") === "Tiebreaker" ? (
+                            <>
+                              <span
+                                aria-hidden="true"
+                                style={{
+                                  display: "inline-block",
+                                  transform: "translateY(-2px)",
+                                }}
+                              >
+                                🎯
+                              </span>{" "}
+                              Tiebreaker question:
+                            </>
+                          ) : (
+                            <>Question {q["Question order"]}:</>
+                          )}
+                        </strong>
+                        <br />
                         <span
                           style={{
                             display: "block",

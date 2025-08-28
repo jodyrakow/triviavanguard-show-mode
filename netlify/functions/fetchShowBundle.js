@@ -93,12 +93,9 @@ export async function handler(event) {
 
     // Normalize + group by numeric round
     const byRound = new Map();
-    const scoreIdsSet = new Set();
 
     for (const rec of records) {
       const f = rec.fields || {};
-      const scoresLR = Array.isArray(f["Scores"]) ? f["Scores"] : [];
-      scoresLR.forEach((lr) => lr?.id && scoreIdsSet.add(lr.id));
 
       const q = {
         id: rec.id,
@@ -136,9 +133,6 @@ export async function handler(event) {
           typeof f["Points per question"] === "number"
             ? f["Points per question"]
             : null,
-
-        // Linked score ids
-        scores: scoresLR.map((lr) => lr.id).filter(Boolean),
       };
 
       const r = q.round ?? 0;
@@ -149,6 +143,50 @@ export async function handler(event) {
     const rounds = Array.from(byRound.entries())
       .sort((a, b) => a[0] - b[0])
       .map(([round, questions]) => ({ round, questions }));
+
+    // ---- Attach the show's tiebreaker (if any) to the final round ----
+    let tbRecord = null;
+    try {
+      const tbRows = await fetchAll("Tiebreakers", {
+        filterByFormula: `{Show ID} = '${showId}'`,
+        pageSize: 1,
+      });
+      tbRecord = tbRows?.[0] || null;
+    } catch (_) {
+      // Non-fatal: if Airtable Tiebreakers table isn't ready, we still return the bundle.
+    }
+
+    if (tbRecord?.fields && Array.isArray(rounds) && rounds.length > 0) {
+      const finalRound = rounds[rounds.length - 1];
+
+      finalRound.questions.push({
+        id: `tb-${tbRecord.id}`,
+        showId,
+        questionId: null,
+
+        round: finalRound.round,
+        categoryOrder: 9999,
+        questionOrder: "TB",
+        sortOrder: 999999,
+
+        questionType: "Tiebreaker",
+        categoryName: "Tiebreaker",
+        categoryDescription: "",
+        questionText: tbRecord.fields["Tiebreaker question"] || "",
+        flavorText: "",
+        answer: tbRecord.fields["Tiebreaker answer"] || "",
+
+        tiebreakerNumber:
+          typeof tbRecord.fields["Tiebreaker number"] === "number"
+            ? tbRecord.fields["Tiebreaker number"]
+            : null,
+
+        categoryImages: [],
+        categoryAudio: [],
+        questionImages: [],
+        questionAudio: [],
+      });
+    }
 
     // Pull preloaded ShowTeams
     const filterByFormulaTeams = `{Show ID} = '${showId}'`;
@@ -163,7 +201,6 @@ export async function handler(event) {
       return {
         showTeamId: r.id,
         teamId: teamLinked || null,
-        // Team name might be a lookup (array) or a text field (string)
         teamName: f["Team name"] ?? "(Unnamed team)",
         showBonus: Number(f["Show bonus"] || 0),
       };
@@ -173,7 +210,6 @@ export async function handler(event) {
       showId,
       totalQuestions: records.length,
       rounds,
-      scoreIds: Array.from(scoreIdsSet),
       teams,
       meta: {
         generatedAt: new Date().toISOString(),
@@ -187,7 +223,7 @@ export async function handler(event) {
       headers: {
         "content-type": "application/json",
         "access-control-allow-origin": "*",
-        "x-function-version": "v1-consistent",
+        "x-function-version": "v1-clean",
       },
       body: JSON.stringify(bundle),
     };

@@ -11,6 +11,7 @@ import {
   ButtonPrimary,
   ButtonTab,
   colors as theme,
+  tokens,
 } from "./styles/index.js";
 
 // Small helper to make local IDs for teams added during the show
@@ -45,15 +46,28 @@ export default function ScoringMode({
 
   const questions = useMemo(() => {
     const raw = roundObj?.questions || [];
-    const bySort = [...raw].sort((a, b) => {
+
+    // Find the single tiebreaker question (if present)
+    const tbQ =
+      raw.find((q) => (q.questionType || "").toLowerCase() === "tiebreaker") ||
+      raw.find((q) => String(q.questionOrder).toUpperCase() === "TB") ||
+      raw.find((q) => String(q.id || "").startsWith("tb-")) ||
+      null;
+
+    // Exclude tiebreaker from the regular grid
+    const rawNonTB = tbQ ? raw.filter((q) => q !== tbQ) : raw;
+
+    // Same sort as before (letters first, then numbers)
+    const bySort = [...rawNonTB].sort((a, b) => {
       const sa = Number(a.sortOrder ?? 9999);
       const sb = Number(b.sortOrder ?? 9999);
       if (sa !== sb) return sa - sb;
       const cvt = (val) => {
-        if (typeof val === "string" && /^[A-Z]$/i.test(val))
+        if (typeof val === "string" && /^[A-Z]$/i.test(val)) {
           return val.toUpperCase().charCodeAt(0) - 64; // A=1
+        }
         const n = parseInt(val, 10);
-        return isNaN(n) ? 9999 : 100 + n; // letters first, then numbers
+        return isNaN(n) ? 9999 : 100 + n;
       };
       return cvt(a.questionOrder) - cvt(b.questionOrder);
     });
@@ -68,6 +82,18 @@ export default function ScoringMode({
       pubPerQuestion:
         typeof q.pointsPerQuestion === "number" ? q.pointsPerQuestion : null,
     }));
+  }, [roundObj]);
+
+  // --- Tiebreaker detection (one per show) ---
+  const tiebreaker = React.useMemo(() => {
+    const list = roundObj?.questions || [];
+    // prefer explicit type, else "TB" order, else id that starts with tb-
+    return (
+      list.find((q) => (q.questionType || "").toLowerCase() === "tiebreaker") ||
+      list.find((q) => String(q.questionOrder).toUpperCase() === "TB") ||
+      list.find((q) => String(q.id || "").startsWith("tb-")) ||
+      null
+    );
   }, [roundObj]);
 
   // ---------------- Local state (seeded from cachedState OR preloadedTeams) ----------------
@@ -321,7 +347,7 @@ export default function ScoringMode({
     return () => window.removeEventListener("keydown", onKey);
   }, [renderTeams, questions, focus, teamMode, teamIdxSolo]); // toggleCell stable via useCallback
 
-  // 👉 Add this just after the keydown useEffect
+  // 👉 Auto-scroll focused cell into view
   useEffect(() => {
     if (!renderTeams.length || !questions.length) return;
 
@@ -342,6 +368,7 @@ export default function ScoringMode({
       });
     }
   }, [focus, renderTeams, questions, teamMode, teamIdxSolo]);
+
   // ---------------- Derived scoring helpers ----------------
   const correctCountByShowQuestionId = useMemo(() => {
     const out = {};
@@ -463,6 +490,79 @@ export default function ScoringMode({
     setTeams((prev) => [...prev, newTeam]);
     setEntryOrder((prev) => [...prev, newTeam.showTeamId]);
   };
+
+  // --- TB ADD: helpers to read/write tiebreaker guesses in local grid -------
+  // --- TB ADD: helpers to read/write tiebreaker guesses in local grid -------
+  const getTBGuess = (showTeamId) => {
+    if (!tiebreaker) return "";
+    const cell = grid[showTeamId]?.[tiebreaker.id] || {};
+    if (typeof cell.tiebreakerGuessRaw === "string")
+      return cell.tiebreakerGuessRaw;
+    if (
+      typeof cell.tiebreakerGuess === "number" &&
+      Number.isFinite(cell.tiebreakerGuess)
+    ) {
+      return String(cell.tiebreakerGuess);
+    }
+    return "";
+  };
+
+  // Allow partial numerics while typing (e.g., "-", ".", "12.", "0.").
+  const setTBGuess = (showTeamId, nextStr) => {
+    if (!tiebreaker) return;
+    const raw = String(nextStr ?? "");
+
+    // Accept empty or partial numeric inputs
+    const partialOk = /^-?\d*\.?\d*$/.test(raw);
+    if (!partialOk) return; // ignore disallowed characters
+
+    setGrid((prev) => {
+      const byTeam = prev[showTeamId] ? { ...prev[showTeamId] } : {};
+      const cell = byTeam[tiebreaker.id] || {
+        isCorrect: false,
+        questionBonus: 0,
+        overridePoints: null,
+      };
+      byTeam[tiebreaker.id] = { ...cell, tiebreakerGuessRaw: raw };
+      return { ...prev, [showTeamId]: byTeam };
+    });
+  };
+
+  // Commit on blur: coerce to number if valid, else clear
+  const commitTBGuess = (showTeamId) => {
+    if (!tiebreaker) return;
+    const raw = getTBGuess(showTeamId).trim();
+    const num = raw === "" ? null : Number(raw);
+
+    setGrid((prev) => {
+      const byTeam = prev[showTeamId] ? { ...prev[showTeamId] } : {};
+      const cell = byTeam[tiebreaker.id] || {
+        isCorrect: false,
+        questionBonus: 0,
+        overridePoints: null,
+      };
+
+      if (raw === "" || Number.isNaN(num)) {
+        byTeam[tiebreaker.id] = {
+          ...cell,
+          tiebreakerGuess: null,
+          tiebreakerGuessRaw: "",
+        };
+      } else {
+        // normalize stored raw to canonical string
+        const normalized = String(num);
+        byTeam[tiebreaker.id] = {
+          ...cell,
+          tiebreakerGuess: num,
+          tiebreakerGuessRaw: normalized,
+        };
+      }
+
+      return { ...prev, [showTeamId]: byTeam };
+    });
+  };
+  // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
 
   // ---------------- Sticky & tile styles ----------------
   const COL_Q_WIDTH = 60;
@@ -963,6 +1063,70 @@ export default function ScoringMode({
                 })}
               </tr>
             ))}
+
+            {/* --- TB ADD: Tiebreaker capture row (final in grid) ---------------- */}
+            {tiebreaker && (
+              <tr>
+                <td
+                  style={{
+                    padding: "0.35rem",
+                    ...sticky.qNumTd,
+                    borderTop: thinRowBorder,
+                    borderBottom: thinRowBorder,
+                    fontWeight: 700,
+                    color: theme.accent,
+                    verticalAlign: "middle",
+                  }}
+                  title="Tiebreaker — closest to the number wins"
+                >
+                  <span
+                    aria-hidden
+                    style={{
+                      display: "inline-block",
+                      transform: "translateY(2px)",
+                      marginRight: "0.25rem",
+                    }}
+                  >
+                    🎯
+                  </span>
+                  TB
+                </td>
+
+                {renderTeams.map((t) => (
+                  <td
+                    key={t.showTeamId}
+                    style={{
+                      textAlign: "center",
+                      padding: "0.25rem",
+                      borderTop: thinRowBorder,
+                      borderBottom: thinRowBorder,
+                    }}
+                  >
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="—"
+                      value={getTBGuess(t.showTeamId)}
+                      onChange={(e) => setTBGuess(t.showTeamId, e.target.value)}
+                      onBlur={() => commitTBGuess(t.showTeamId)}
+                      style={{
+                        width: 60,
+                        textAlign: "center",
+                        padding: ".2rem .3rem",
+                        border: `1px solid ${theme.accent}`,
+                        borderRadius: tokens.radius.sm,
+                        fontFamily: tokens.font.body,
+                        fontSize: tokens.font.size,
+                        color: theme.accent,
+                        outlineColor: theme.accent,
+                      }}
+                      aria-label={`Tiebreaker guess for ${t.teamName}`}
+                    />
+                  </td>
+                ))}
+              </tr>
+            )}
+            {/* ------------------------------------------------------------------- */}
           </tbody>
         </table>
       </div>
