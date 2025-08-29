@@ -1,13 +1,6 @@
 // src/ResultsMode.js
 import React, { useMemo, useRef, useState, useCallback } from "react";
-import {
-  ButtonPrimary,
-  Button,
-  tokens,
-  overlayStyle,
-  overlayImg,
-  colors as theme,
-} from "./styles/index.js";
+import { tokens, colors as theme } from "./styles/index.js";
 
 // Normalize team shapes coming from cache (same as ScoringMode)
 const normalizeTeam = (t) => ({
@@ -35,6 +28,7 @@ export default function ResultsMode({
   setPubPoints,
   poolPerQuestion,
   setPoolPerQuestion,
+  selectedShowId,
 }) {
   // --------- derive round + questions (needed for scoring math) ---------
   const roundNumber = Number(selectedRoundId);
@@ -47,7 +41,7 @@ export default function ResultsMode({
 
   const questions = useMemo(() => {
     const raw = roundObj?.questions || [];
-    // Same sort as ScoringMode (Sort order, then Question order alpha/num)
+    // Sort: Sort order, then Question order alpha/num
     const bySort = [...raw].sort((a, b) => {
       const sa = Number(a.sortOrder ?? 9999);
       const sb = Number(b.sortOrder ?? 9999);
@@ -64,9 +58,12 @@ export default function ResultsMode({
 
     return bySort.map((q) => ({
       showQuestionId: q.id,
-      // scoring parity (per-question pub points)
+      questionId: Array.isArray(q.questionId)
+        ? q.questionId[0]
+        : (q.questionId ?? null),
       pubPerQuestion:
         typeof q.pointsPerQuestion === "number" ? q.pointsPerQuestion : null,
+      questionType: q.questionType || null,
     }));
   }, [roundObj]);
 
@@ -77,10 +74,9 @@ export default function ResultsMode({
   }, [cachedState]);
 
   const grid = cachedState?.grid || {}; // {[showTeamId]: {[showQuestionId]: {isCorrect, questionBonus, overridePoints}}}
-
   const finalStandingsRef = useRef(null);
 
-  // --- TieBreaker detection from the round (same rules as ScoringMode) ---
+  // --- TieBreaker detection from the round ----
   const tbQ = useMemo(() => {
     const all = roundObj?.questions || [];
     return (
@@ -105,35 +101,43 @@ export default function ResultsMode({
     [grid, tbQ]
   );
 
-  // --------- Prize editor ---------
+  // --------- Prize editor state (restored) ---------
   const [prizeEditorOpen, setPrizeEditorOpen] = useState(false);
   const [prizeCount, setPrizeCount] = useState(0);
   const [prizes, setPrizes] = useState([]);
   const showPrizeCol = prizeCount > 0 && prizes.some((p) => p && p.length);
 
+  // Draft state for the modal
   const [draftCount, setDraftCount] = useState(prizeCount);
   const [draftPrizes, setDraftPrizes] = useState(prizes);
 
-  const openPrizeEditor = () => {
-    setDraftCount(prizeCount || 0);
-    setDraftPrizes(prizes.length ? [...prizes] : []);
+  const openPrizeEditor = useCallback(() => {
+    setDraftCount((c) => c || prizeCount || 0);
+    setDraftPrizes((_) => (prizes.length ? [...prizes] : []));
     setPrizeEditorOpen(true);
-  };
-  const closePrizeEditor = () => setPrizeEditorOpen(false);
-  const applyPrizeEdits = () => {
+  }, [prizeCount, prizes]);
+
+  const closePrizeEditor = useCallback(() => setPrizeEditorOpen(false), []);
+  const applyPrizeEdits = useCallback(() => {
     setPrizeCount(draftCount);
     setPrizes(draftPrizes.slice(0, draftCount));
     setPrizeEditorOpen(false);
-  };
-  const clearPrizes = () => {
+  }, [draftCount, draftPrizes]);
+
+  const clearPrizes = useCallback(() => {
     setDraftCount(0);
     setDraftPrizes([]);
-  };
-  const ensureDraftLen = (n) => {
-    const arr = draftPrizes.slice();
-    while (arr.length < n) arr.push("");
-    return arr.slice(0, n);
-  };
+  }, []);
+
+  const ensureDraftLen = useCallback(
+    (n, base) => {
+      // use functional base when possible to avoid stale closures
+      const src = Array.isArray(base) ? base.slice() : draftPrizes.slice();
+      while (src.length < n) src.push("");
+      return src.slice(0, n);
+    },
+    [draftPrizes]
+  );
 
   // --------- Standings (match ScoringMode math exactly) ---------
   const standings = useMemo(() => {
@@ -154,9 +158,12 @@ export default function ResultsMode({
       teams.map((t) => [t.showTeamId, Number(t.showBonus || 0)])
     );
 
-    // Earned per cell (pub/pooled math identical to your current code)
+    // Earned per cell
     for (const t of teams) {
       for (const q of questions) {
+        // skip TB question for points accrual (it’s only for tie-break)
+        if (tbQ && q.showQuestionId === tbQ.id) continue;
+
         const cell = grid[t.showTeamId]?.[q.showQuestionId];
         if (!cell) continue;
 
@@ -196,15 +203,15 @@ export default function ResultsMode({
       const delta =
         tbNumber !== null && guess !== null
           ? Math.abs(guess - tbNumber)
-          : Infinity; // Infinity = no guess / no TB
+          : Infinity;
       return {
         showTeamId: t.showTeamId,
         teamName: t.teamName || "(Unnamed team)",
         total,
         tbGuess: guess,
         tbDelta: delta,
-        tieBroken: false, // will set later if used to break a tie
-        unbreakableTie: false, // will set later if same delta
+        tieBroken: false,
+        unbreakableTie: false,
       };
     });
 
@@ -248,18 +255,12 @@ export default function ResultsMode({
     // Reorder only tie-groups that intersect the prize band using TB
     for (let gi = 0; gi < groups.length; gi++) {
       const [gStart, gEnd] = groups[gi];
-
-      // Intersects prize band if the group's first index is within top N rows
       const groupInsidePrizeBand = gStart < prizeCount && gStart >= 0;
       if (!groupInsidePrizeBand) continue;
 
       const slice = rows.slice(gStart, gEnd);
       const usedTBInSlice = slice.some((r) => Number.isFinite(r.tbDelta));
-
-      if (!usedTBInSlice) {
-        // No numeric TB guesses in this tie-group; do nothing
-        continue;
-      }
+      if (!usedTBInSlice) continue;
 
       // Sort by closeness (smaller tbDelta is better), stable by teamName
       slice.sort((a, b) => {
@@ -280,9 +281,9 @@ export default function ResultsMode({
         best !== second;
 
       slice.forEach((r, k) => {
-        r.tieBroken = true; // TB was consulted
-        r._tbGroupBroken = !!groupBroken; // TB actually separated places?
-        r._tbRank = k; // order within this TB group
+        r.tieBroken = true;
+        r._tbGroupBroken = !!groupBroken;
+        r._tbRank = k;
       });
 
       // If the top tbDelta ties, mark unbreakable on those rows
@@ -302,14 +303,10 @@ export default function ResultsMode({
     let prevKey = null;
     place = 0;
     cnt = 0;
-
     for (const r of rows) {
       cnt++;
       const tieKey =
-        r && r._tbGroupBroken
-          ? `${r.total}|${r._tbRank}` // unique per TB order inside the group
-          : `${r.total}|`; // same key => shared place
-
+        r && r._tbGroupBroken ? `${r.total}|${r._tbRank}` : `${r.total}|`;
       if (prevKey === null || tieKey !== prevKey) {
         place = cnt;
         prevKey = tieKey;
@@ -331,7 +328,7 @@ export default function ResultsMode({
     tbGuessFor,
   ]);
 
-  // Helper number formatter (top-level, not a hook)
+  // Helper number formatter
   const fmtNum = (n) =>
     Number.isFinite(n) ? (Number.isInteger(n) ? String(n) : n.toFixed(2)) : "—";
 
@@ -340,6 +337,145 @@ export default function ResultsMode({
     () => standings.some((r) => r.tieBroken && r.place <= prizeCount),
     [standings, prizeCount]
   );
+
+  // Re-derive places exactly like the table does: unique inside TB-broken groups
+  function computePlacesForPublish(rows) {
+    let place = 0,
+      prevKey = null,
+      cnt = 0;
+    const out = rows.map((r) => ({ ...r }));
+    for (const r of out) {
+      cnt++;
+      const tieKey =
+        r && r._tbGroupBroken ? `${r.total}|${r._tbRank}` : `${r.total}|`;
+      if (prevKey === null || tieKey !== prevKey) {
+        place = cnt;
+        prevKey = tieKey;
+      }
+      r.place = place;
+    }
+    return out;
+  }
+
+  // ---------- Publish to Airtable ----------
+  const publishResults = async () => {
+    const ok = window.confirm(
+      "Publish final results to Airtable?\n\nThis will (1) create ShowTeams as needed and (2) replace any existing Scores for this show."
+    );
+    if (!ok) return;
+
+    try {
+      // Build payload from current state
+      const nonTBQuestions = questions.filter(
+        (q) => !(tbQ && q.showQuestionId === tbQ.id)
+      );
+
+      // Validate every non-TB question has a Questions record id
+      const missingQids = nonTBQuestions
+        .filter((q) => !q.questionId)
+        .map((q) => q.showQuestionId);
+      if (missingQids.length) {
+        throw new Error(
+          `Some ShowQuestions are missing a linked Questions record (questionId).\n` +
+            `Please open Airtable and link these ShowQuestions to a Question:\n` +
+            missingQids.join(", ")
+        );
+      }
+
+      // Precompute nCorrect per Q for pooled
+      const nCorrectByQ = {};
+      for (const q of nonTBQuestions) {
+        let n = 0;
+        for (const t of teams) {
+          if (grid[t.showTeamId]?.[q.showQuestionId]?.isCorrect) n++;
+        }
+        nCorrectByQ[q.showQuestionId] = n;
+      }
+
+      // Freeze ordering and recompute places
+      const publishRows = computePlacesForPublish(standings);
+
+      const teamsById = new Map(teams.map((t) => [t.showTeamId, t]));
+      const teamsPayload = publishRows.map((r) => {
+        const t = teamsById.get(r.showTeamId);
+        return {
+          showTeamId: r.showTeamId,
+          teamId: t?.teamId || null,
+          teamName: r.teamName,
+          finalTotal: r.total,
+          finalPlace: r.place,
+        };
+      });
+
+      const scoresPayload = [];
+      for (const t of teams) {
+        for (const q of nonTBQuestions) {
+          const cell = grid[t.showTeamId]?.[q.showQuestionId];
+          const isCorrect = !!cell?.isCorrect;
+          const qb = Number(cell?.questionBonus || 0);
+          const override =
+            cell?.overridePoints === null || cell?.overridePoints === undefined
+              ? null
+              : Number(cell?.overridePoints);
+
+          let base = 0;
+          if (isCorrect) {
+            if (scoringMode === "pub") {
+              const perQ =
+                typeof q.pubPerQuestion === "number"
+                  ? q.pubPerQuestion
+                  : Number(pubPoints);
+              base = perQ;
+            } else {
+              const n = Math.max(1, nCorrectByQ[q.showQuestionId] || 0);
+              base = Math.round(Number(poolPerQuestion) / n);
+            }
+          }
+
+          const earned = override !== null ? override : base;
+          const pointsEarned = isCorrect ? earned + qb : earned; // bonus only if correct
+
+          scoresPayload.push({
+            showTeamId: t.showTeamId,
+            questionId: q.questionId,
+            showQuestionId: q.showQuestionId,
+            isCorrect,
+            pointsEarned: Number(pointsEarned || 0),
+          });
+        }
+      }
+
+      const body = {
+        showId: String(selectedShowId || showBundle?.showId || "").trim(),
+        teams: teamsPayload,
+        scores: scoresPayload,
+      };
+
+      if (!body.showId) {
+        alert("Error: missing showId (Shows recordId).");
+        return;
+      }
+
+      const res = await fetch("/.netlify/functions/writeShowResults", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || `HTTP ${res.status}`);
+      }
+      const json = await res.json();
+      console.log("Publish OK:", json);
+      alert(
+        `Published!\nUpserted ${json.teamsUpserted} ShowTeams and created ${json.scoresCreated} Scores rows.`
+      );
+    } catch (err) {
+      console.error("Publish error:", err);
+      alert(`Publish failed:\n${err.message}`);
+    }
+  };
 
   // --------- Guard rails ---------
   const noRound = !roundObj;
@@ -409,6 +545,7 @@ export default function ResultsMode({
             }}
           >
             <button
+              type="button"
               onClick={() => setScoringMode("pub")}
               style={{
                 padding: ".35rem .6rem",
@@ -422,6 +559,7 @@ export default function ResultsMode({
               Pub scoring
             </button>
             <button
+              type="button"
               onClick={() => setScoringMode("pooled")}
               style={{
                 padding: ".35rem .6rem",
@@ -498,6 +636,7 @@ export default function ResultsMode({
         }}
       >
         <button
+          type="button"
           onClick={openPrizeEditor}
           style={{
             padding: ".45rem .7rem",
@@ -513,6 +652,23 @@ export default function ResultsMode({
           {showPrizeCol ? "Edit prizes" : "Set prizes"}
         </button>
 
+        <button
+          type="button"
+          onClick={publishResults}
+          style={{
+            padding: ".5rem .8rem",
+            border: `1px solid ${theme.accent}`,
+            background: theme.accent,
+            color: "#fff",
+            borderRadius: ".35rem",
+            cursor: "pointer",
+            fontFamily: "Questrial, sans-serif",
+          }}
+          title="Create ShowTeams as needed and write all Scores for this show"
+        >
+          Publish results to Airtable
+        </button>
+
         {showPrizeCol && (
           <span
             style={{
@@ -524,12 +680,202 @@ export default function ResultsMode({
               background: "rgba(220,106,36,0.06)",
               color: theme.accent,
               fontFamily: "Questrial, sans-serif",
+              marginLeft: 8,
             }}
           >
             Showing prizes for {prizeCount} place{prizeCount > 1 ? "s" : ""}
           </span>
         )}
       </div>
+
+      {/* ----- Prize Editor Modal (inline; stable; no remount while typing) ----- */}
+      {prizeEditorOpen && (
+        <div
+          onMouseDown={closePrizeEditor}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(43,57,74,.65)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem",
+          }}
+        >
+          <div
+            onMouseDown={(e) => e.stopPropagation()} // keep focus inside
+            style={{
+              width: "min(92vw, 560px)",
+              background: "#fff",
+              borderRadius: ".6rem",
+              border: `1px solid ${theme.accent}`,
+              overflow: "hidden",
+              boxShadow: "0 10px 30px rgba(0,0,0,.25)",
+              fontFamily: "Questrial, sans-serif",
+            }}
+          >
+            {/* Header */}
+            <div
+              style={{
+                background: theme.dark,
+                color: "#fff",
+                padding: ".6rem .8rem",
+                borderBottom: `2px solid ${theme.accent}`,
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: "Antonio, sans-serif",
+                  fontSize: "1.25rem",
+                  letterSpacing: ".01em",
+                }}
+              >
+                Configure Prizes
+              </div>
+              <div
+                style={{ fontSize: ".9rem", opacity: 0.9, marginTop: ".15rem" }}
+              >
+                Add prize labels for top finishers (optional)
+              </div>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: ".9rem .9rem 0" }}>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: ".5rem",
+                  marginBottom: ".75rem",
+                }}
+              >
+                <span style={{ minWidth: 160 }}>Number of prize places:</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={20}
+                  value={draftCount}
+                  onChange={(e) => {
+                    const next = Math.max(
+                      0,
+                      Math.min(20, parseInt(e.target.value || "0", 10))
+                    );
+                    setDraftCount(next);
+                    setDraftPrizes((prev) => ensureDraftLen(next, prev));
+                  }}
+                  style={{
+                    width: 90,
+                    padding: ".45rem .55rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                  }}
+                />
+                {draftCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearPrizes}
+                    style={{
+                      marginLeft: "auto",
+                      padding: ".35rem .6rem",
+                      border: "1px solid #ccc",
+                      background: "#f7f7f7",
+                      borderRadius: ".35rem",
+                      cursor: "pointer",
+                    }}
+                    title="Clear all prizes"
+                  >
+                    Clear
+                  </button>
+                )}
+              </label>
+
+              {Array.from({ length: draftCount }).map((_, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: ".5rem",
+                    marginBottom: ".55rem",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 92,
+                      textAlign: "right",
+                      paddingRight: ".25rem",
+                      color: theme.accent,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {ordinal(i + 1)}:
+                  </div>
+                  <input
+                    type="text"
+                    value={draftPrizes[i] || ""}
+                    placeholder={`Prize for ${ordinal(i + 1)} place (e.g., $25 gift card)`}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setDraftPrizes((prev) => {
+                        const arr = ensureDraftLen(draftCount, prev);
+                        arr[i] = val;
+                        return arr;
+                      });
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: ".45rem .55rem",
+                      border: "1px solid #ccc",
+                      borderRadius: ".35rem",
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* Footer */}
+            <div
+              style={{
+                display: "flex",
+                gap: ".5rem",
+                justifyContent: "flex-end",
+                padding: ".8rem .9rem .9rem",
+                borderTop: "1px solid #eee",
+              }}
+            >
+              <button
+                type="button"
+                onClick={closePrizeEditor}
+                style={{
+                  padding: ".5rem .75rem",
+                  border: "1px solid #ccc",
+                  background: "#f7f7f7",
+                  borderRadius: ".35rem",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={applyPrizeEdits}
+                style={{
+                  padding: ".5rem .8rem",
+                  border: `1px solid ${theme.accent}`,
+                  background: theme.accent,
+                  color: "#fff",
+                  borderRadius: ".35rem",
+                  cursor: "pointer",
+                  fontWeight: 700,
+                }}
+              >
+                Save prizes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===== Final standings ===== */}
       <div
@@ -611,7 +957,6 @@ export default function ResultsMode({
                     </th>
                   )}
 
-                  {/* NEW: Tiebreaker column between Prize and Place */}
                   {tbUsedInPrizeBand && (
                     <th
                       style={{
@@ -693,14 +1038,12 @@ export default function ResultsMode({
                           </td>
                         )}
 
-                        {/* NEW: TB column cell (only if TB used) */}
                         {tbUsedInPrizeBand && (
                           <td
                             style={{
                               padding: tokens.spacing.sm,
                               textAlign: "center",
                               whiteSpace: "nowrap",
-
                               fontSize: "1.0rem",
                             }}
                           >
@@ -722,7 +1065,6 @@ export default function ResultsMode({
                                 </span>
                               </div>
                             ) : (
-                              // blank cell for non-tied teams (no dash)
                               <span
                                 style={{
                                   display: "inline-block",
