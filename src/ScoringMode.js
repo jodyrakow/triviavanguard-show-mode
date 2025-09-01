@@ -115,6 +115,7 @@ export default function ScoringMode({
   const [teamInput, setTeamInput] = useState("");
   // Keep refs to each cell <div> for scrolling into view
   const cellRefs = useRef({});
+  const tbRefs = useRef({});
 
   // Remove a team and all their cells
   const removeTeam = (showTeamId) => {
@@ -303,6 +304,26 @@ export default function ScoringMode({
     }));
   }, [renderTeams, questions.length]);
 
+  const toggleCell = useCallback(
+    (renderTeamIdx, qIdx) => {
+      const t = renderTeams[renderTeamIdx];
+      const q = questions[qIdx];
+      if (!t || !q) return;
+      setGrid((prev) => {
+        const byTeam = prev[t.showTeamId] ? { ...prev[t.showTeamId] } : {};
+        const cell = byTeam[q.showQuestionId] || {
+          isCorrect: false,
+          questionBonus: 0,
+          overridePoints: null,
+        };
+        byTeam[q.showQuestionId] = { ...cell, isCorrect: !cell.isCorrect };
+        return { ...prev, [t.showTeamId]: byTeam };
+      });
+      setFocus({ teamIdx: teamMode ? 0 : renderTeamIdx, qIdx });
+    },
+    [renderTeams, questions, teamMode]
+  );
+
   useEffect(() => {
     const onKey = (e) => {
       const el = e.target;
@@ -322,9 +343,27 @@ export default function ScoringMode({
         toggleCell(teamMode ? 0 : teamIdx, qIdx);
       } else if (e.key === "Tab" && !e.shiftKey) {
         e.preventDefault();
+        // If we're on the last grid row and there's a TB row, focus its input
+        if (focus.qIdx === questions.length - 1 && tiebreaker) {
+          const colTeam = teamMode
+            ? visibleTeams[teamIdxSolo]
+            : renderTeams[teamIdx];
+          const input = colTeam ? tbRefs.current?.[colTeam.showTeamId] : null;
+          if (input && typeof input.focus === "function") {
+            input.focus();
+            // make it obvious + bring it onscreen
+            input.select?.();
+            input.scrollIntoView?.({ block: "center", behavior: "smooth" });
+            // brief highlight so you can SEE it moved
+            input.style.outline = "2px solid #DC6A24";
+            setTimeout(() => (input.style.outline = ""), 600);
+            return; // stop here so we don't advance to next column
+          }
+        }
+        // otherwise: advance to next question in this column
         setFocus(({ teamIdx: t, qIdx }) => ({
           teamIdx: teamMode ? teamIdxSolo : t,
-          qIdx: (qIdx + 1) % questions.length,
+          qIdx: Math.min(qIdx + 1, questions.length - 1),
         }));
       } else if (e.key === "Tab" && e.shiftKey) {
         e.preventDefault();
@@ -356,6 +395,19 @@ export default function ScoringMode({
         }
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
+        // If we're on the last grid row and there's a TB row, focus its input
+        if (focus.qIdx === questions.length - 1 && tiebreaker) {
+          const colTeam = teamMode
+            ? visibleTeams[teamIdxSolo]
+            : renderTeams[teamIdx];
+          const input = colTeam ? tbRefs.current?.[colTeam.showTeamId] : null;
+          if (input && typeof input.focus === "function") {
+            input.focus();
+            return; // stop here so we don't advance to next question
+          }
+        }
+
+        // otherwise: advance down in the grid as usual
         setFocus(({ teamIdx: t, qIdx }) => ({
           teamIdx: teamMode ? teamIdxSolo : t,
           qIdx: Math.min(qIdx + 1, questions.length - 1),
@@ -377,9 +429,9 @@ export default function ScoringMode({
     focus,
     teamMode,
     teamIdxSolo,
-    toggleCell,
     nextTeam,
     prevTeam,
+    toggleCell,
   ]); // 👈 include next/prev
 
   // 👉 Auto-scroll focused cell into view
@@ -406,14 +458,14 @@ export default function ScoringMode({
     requestAnimationFrame(() => {
       const r = el.getBoundingClientRect();
 
-      const baseTopGuard = TOP_GUARD;
+      const baseTopGuard = 76; // header + padding you already tuned for grid mode
       const extraTeamBar =
         teamMode && teamBarRef.current
           ? teamBarRef.current.getBoundingClientRect().height || 0
           : 0;
 
       const topLimit = baseTopGuard + extraTeamBar;
-      const bottomLimit = window.innerHeight - BOTTOM_GUARD;
+      const bottomLimit = window.innerHeight - 56; // your BOTTOM_GUARD
 
       let dy = 0;
       if (r.top < topLimit) dy = r.top - topLimit;
@@ -498,25 +550,19 @@ export default function ScoringMode({
     );
   };
 
-  const toggleCell = useCallback(
-    (renderTeamIdx, qIdx) => {
-      const t = renderTeams[renderTeamIdx];
-      const q = questions[qIdx];
-      if (!t || !q) return;
-      setGrid((prev) => {
-        const byTeam = prev[t.showTeamId] ? { ...prev[t.showTeamId] } : {};
-        const cell = byTeam[q.showQuestionId] || {
-          isCorrect: false,
-          questionBonus: 0,
-          overridePoints: null,
-        };
-        byTeam[q.showQuestionId] = { ...cell, isCorrect: !cell.isCorrect };
-        return { ...prev, [t.showTeamId]: byTeam };
-      });
-      setFocus({ teamIdx: teamMode ? teamIdxSolo : renderTeamIdx, qIdx });
-    },
-    [renderTeams, questions, teamMode, teamIdxSolo]
-  );
+  const setQuestionBonus = (showTeamId, showQuestionId, value) => {
+    const v = Number(value) || 0;
+    setGrid((prev) => {
+      const byTeam = prev[showTeamId] ? { ...prev[showTeamId] } : {};
+      const cell = byTeam[showQuestionId] || {
+        isCorrect: false,
+        questionBonus: 0,
+        overridePoints: null,
+      };
+      byTeam[showQuestionId] = { ...cell, questionBonus: v };
+      return { ...prev, [showTeamId]: byTeam };
+    });
+  };
 
   const addTeamLocal = (teamName, airtableId = null) => {
     const trimmed = (teamName || "").trim();
@@ -1068,11 +1114,17 @@ export default function ScoringMode({
                 </td>
 
                 {renderTeams.map((t, ti) => {
-                  const logicalTi = teamMode ? teamIdxSolo : ti;
+                  // 👇 use 0 when teamMode renders a single column
+                  const renderIndex = teamMode ? 0 : ti;
+
                   const cell = grid[t.showTeamId]?.[q.showQuestionId];
                   const on = !!cell?.isCorrect;
+                  // normalize focus to the single rendered column in team mode
+                  const focusTeamIdx = teamMode ? 0 : focus.teamIdx;
+
+                  // highlight should compare against the rendered index (0 in team mode)
                   const isFocused =
-                    focus.teamIdx === logicalTi && focus.qIdx === qi;
+                    focusTeamIdx === renderIndex && focus.qIdx === qi;
 
                   const pts = earnedFor(cell, q.showQuestionId);
 
@@ -1080,8 +1132,8 @@ export default function ScoringMode({
                     ...tileBase,
                     ...(on ? tileStates.correct : tileStates.wrong),
                     ...(isFocused ? tileFocus : null),
-                    scrollMarginTop: +8,
-                    scrollMarginBottom: +8,
+                    scrollMarginTop: 8,
+                    scrollMarginBottom: 8,
                   };
 
                   return (
@@ -1101,7 +1153,8 @@ export default function ScoringMode({
                         }}
                         role="button"
                         aria-pressed={!!cell?.isCorrect}
-                        onClick={() => toggleCell(ti, qi)}
+                        // 👇 use renderIndex here too so clicks match the rendered column
+                        onClick={() => toggleCell(renderIndex, qi)}
                         onDoubleClick={(e) => {
                           e.preventDefault();
                           openCellEditor(t.showTeamId, q.showQuestionId);
@@ -1164,6 +1217,9 @@ export default function ScoringMode({
                     }}
                   >
                     <input
+                      ref={(el) => {
+                        tbRefs.current[t.showTeamId] = el;
+                      }}
                       type="text"
                       inputMode="decimal"
                       placeholder="—"
@@ -1180,6 +1236,33 @@ export default function ScoringMode({
                         fontSize: tokens.font.size,
                         color: theme.accent,
                         outlineColor: theme.accent,
+                      }}
+                      onKeyDown={(e) => {
+                        const goTopOfSameTeam = () => {
+                          e.preventDefault();
+                          setFocus({ teamIdx: 0, qIdx: 0 });
+                          e.currentTarget.blur(); // leave the TB field so focus returns to grid
+                        };
+
+                        const goNextColumnToRow0 = () => {
+                          e.preventDefault();
+                          setFocus(({ teamIdx }) => ({
+                            teamIdx: Math.min(
+                              teamIdx + 1,
+                              renderTeams.length - 1
+                            ),
+                            qIdx: 0,
+                          }));
+                          e.currentTarget.blur();
+                        };
+
+                        if (e.key === "Tab" && !e.shiftKey) {
+                          if (teamMode) goTopOfSameTeam();
+                          else goNextColumnToRow0();
+                        } else if (e.key === "ArrowDown") {
+                          if (teamMode) goTopOfSameTeam();
+                          else goNextColumnToRow0();
+                        }
                       }}
                       aria-label={`Tiebreaker guess for ${t.teamName}`}
                     />

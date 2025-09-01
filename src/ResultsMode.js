@@ -172,10 +172,36 @@ export default function ResultsMode({
     return null;
   }, [showBundle]);
 
-  const tbNumber =
-    tbQ && typeof tbQ.tiebreakerNumber === "number"
-      ? tbQ.tiebreakerNumber
-      : null;
+  const tbNumber = React.useMemo(() => {
+    if (!tbQ) return null;
+
+    // 1) explicit numeric wins
+    if (
+      typeof tbQ.tiebreakerNumber === "number" &&
+      Number.isFinite(tbQ.tiebreakerNumber)
+    ) {
+      return tbQ.tiebreakerNumber;
+    }
+
+    // 2) try common string-ish fields (handle arrays too)
+    const pick = (v) => (Array.isArray(v) ? v[0] : v);
+    const raw =
+      pick(tbQ.tiebreakerNumber) ??
+      pick(tbQ.answer) ??
+      tbQ.answerText ??
+      tbQ.correctAnswer ??
+      null;
+
+    if (raw == null) return null;
+
+    // 💡 key fix: remove thousands separators/spaces before matching the number
+    const cleaned = String(raw).replace(/[\s,]/g, "");
+    const m = cleaned.match(/-?\d+(?:\.\d+)?/);
+    if (!m) return null;
+
+    const n = Number(m[0]);
+    return Number.isFinite(n) ? n : null;
+  }, [tbQ]);
 
   const tbGuessFor = useCallback(
     (showTeamId) => {
@@ -206,6 +232,15 @@ export default function ResultsMode({
   const applyPrizeEdits = useCallback(() => {
     setPrizeCount(draftCount);
     setPrizes(draftPrizes.slice(0, draftCount));
+    // persist to localStorage per show
+    const showKey = String(selectedShowId || showBundle?.showId || "").trim();
+    if (showKey) {
+      localStorage.setItem(`tv_prizeCount_${showKey}`, String(draftCount));
+      localStorage.setItem(
+        `tv_prizes_${showKey}`,
+        JSON.stringify(draftPrizes.slice(0, draftCount))
+      );
+    }
     setPrizeEditorOpen(false);
   }, [draftCount, draftPrizes]);
 
@@ -222,6 +257,41 @@ export default function ResultsMode({
     },
     [draftPrizes]
   );
+
+  // Load persisted prizes when ResultsMode opens or show changes
+  React.useEffect(() => {
+    const showKey = String(selectedShowId || showBundle?.showId || "").trim();
+    if (!showKey) return;
+
+    const rawCount = localStorage.getItem(`tv_prizeCount_${showKey}`);
+    const rawPrizes = localStorage.getItem(`tv_prizes_${showKey}`);
+
+    console.log("LOAD prizes", { showKey, rawCount, rawPrizes });
+
+    if (rawCount !== null) {
+      const n = Math.max(0, parseInt(rawCount, 10) || 0);
+      setPrizeCount(n);
+    }
+    if (rawPrizes !== null) {
+      try {
+        const arr = JSON.parse(rawPrizes);
+        if (Array.isArray(arr)) setPrizes(arr);
+      } catch {}
+    }
+  }, [selectedShowId, showBundle?.showId]);
+
+  // Persist prizes whenever they change (per show)
+  // Persist prizes whenever they change (per show)
+  React.useEffect(() => {
+    const showKey = String(selectedShowId || showBundle?.showId || "").trim();
+    if (!showKey) return;
+
+    // don’t persist if still initial empty/default
+    if (prizeCount === 0 && prizes.length === 0) return;
+
+    localStorage.setItem(`tv_prizeCount_${showKey}`, String(prizeCount));
+    localStorage.setItem(`tv_prizes_${showKey}`, JSON.stringify(prizes));
+  }, [prizeCount, prizes, selectedShowId, showBundle?.showId]);
 
   // ----------------------- Standings (cumulative-aware) -----------------------
   const standings = useMemo(() => {
@@ -404,9 +474,28 @@ export default function ResultsMode({
     tbGuessFor,
   ]);
 
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishStatus, setPublishStatus] = useState(null); // 'ok' | 'error' | null
+  const [publishDetail, setPublishDetail] = useState(""); // human text
+
+  const hideTimerRef = React.useRef(null);
+  React.useEffect(() => () => clearTimeout(hideTimerRef.current), []);
+
+  const clearBannerSoon = () => {
+    clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => {
+      setPublishStatus(null);
+      setPublishDetail("");
+    }, 4000);
+  };
+
   // Formats
   const fmtNum = (n) =>
-    Number.isFinite(n) ? (Number.isInteger(n) ? String(n) : n.toFixed(2)) : "—";
+    Number.isFinite(n)
+      ? Number.isInteger(n)
+        ? Math.round(n).toLocaleString("en-US")
+        : Number(n).toLocaleString("en-US")
+      : "—";
 
   const tbUsedInPrizeBand = useMemo(
     () => standings.some((r) => r.tieBroken && r.place <= prizeCount),
@@ -438,6 +527,10 @@ export default function ResultsMode({
     );
     if (!ok) return;
 
+    setIsPublishing(true);
+    setPublishStatus(null);
+    setPublishDetail("Starting…");
+
     try {
       // exclude TB from scores
       const nonTBQuestions = questions.filter(
@@ -466,8 +559,9 @@ export default function ResultsMode({
         nCorrectByQ[q.showQuestionId] = n;
       }
 
-      const publishRows = computePlacesForPublish(standings);
+      setPublishDetail("Preparing payload…");
 
+      const publishRows = computePlacesForPublish(standings);
       const teamsById = new Map(teams.map((t) => [t.showTeamId, t]));
       const teamsPayload = publishRows.map((r) => {
         const t = teamsById.get(r.showTeamId);
@@ -525,9 +619,10 @@ export default function ResultsMode({
       };
 
       if (!body.showId) {
-        alert("Error: missing showId (Shows recordId).");
-        return;
+        throw new Error("Missing showId (Shows recordId).");
       }
+
+      setPublishDetail("Sending to Airtable…");
 
       const res = await fetch("/.netlify/functions/writeShowResults", {
         method: "POST",
@@ -539,14 +634,23 @@ export default function ResultsMode({
         const txt = await res.text();
         throw new Error(txt || `HTTP ${res.status}`);
       }
+
       const json = await res.json();
       console.log("Publish OK:", json);
-      alert(
-        `Published!\nUpserted ${json.teamsUpserted} ShowTeams and created ${json.scoresCreated} Scores rows.`
+
+      setPublishStatus("ok");
+      setPublishDetail(
+        `Published! Upserted ${json.teamsUpserted} ShowTeams and created ${json.scoresCreated} Scores rows.`
       );
+      clearBannerSoon();
     } catch (err) {
       console.error("Publish error:", err);
-      alert(`Publish failed:\n${err.message}`);
+      setPublishStatus("error");
+      setPublishDetail(err.message || "Publish failed.");
+      // leave the error banner up (no auto-hide), or uncomment the next line:
+      // clearBannerSoon();
+    } finally {
+      setIsPublishing(false);
     }
   };
 
@@ -557,7 +661,7 @@ export default function ResultsMode({
   const finalStandingsRef = useRef(null);
 
   return (
-    <div style={{ fontFamily: "Questrial, sans-serif", color: theme.dark }}>
+    <div style={{ fontFamily: tokens.font.body, color: theme.dark }}>
       {/* Header */}
       <div
         style={{
@@ -571,7 +675,7 @@ export default function ResultsMode({
         <h2
           style={{
             color: theme.accent,
-            fontFamily: "Antonio",
+            fontFamily: tokens.font.display,
             fontSize: "1.6rem",
             margin: 0,
             textIndent: "0.5rem",
@@ -581,6 +685,51 @@ export default function ResultsMode({
           Results {usingCumulative ? "— Show Total" : ""}
         </h2>
       </div>
+
+      {(isPublishing || publishStatus) && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 100,
+            background:
+              publishStatus === "ok"
+                ? "rgba(28, 164, 109, 0.10)"
+                : publishStatus === "error"
+                  ? "rgba(220, 53, 69, 0.10)"
+                  : "rgba(220,106,36,0.10)",
+            color:
+              publishStatus === "ok"
+                ? "#1ca46d"
+                : publishStatus === "error"
+                  ? "#dc3545"
+                  : theme.accent,
+            border: `1px solid ${
+              publishStatus === "ok"
+                ? "#1ca46d"
+                : publishStatus === "error"
+                  ? "#dc3545"
+                  : theme.accent
+            }`,
+            borderLeft: "none",
+            borderRight: "none",
+            padding: ".6rem .9rem",
+            marginBottom: "0.5rem",
+            textAlign: "center",
+            fontFamily: tokens.font.body,
+          }}
+        >
+          {isPublishing ? "⏳ Publishing results to Airtable…" : null}
+          {!isPublishing && publishStatus === "ok"
+            ? `✅ ${publishDetail}`
+            : null}
+          {!isPublishing && publishStatus === "error"
+            ? `❌ ${publishDetail}`
+            : null}
+        </div>
+      )}
 
       {noRound ? (
         <div
@@ -722,7 +871,7 @@ export default function ResultsMode({
             color: theme.accent,
             borderRadius: ".35rem",
             cursor: "pointer",
-            fontFamily: "Questrial, sans-serif",
+            fontFamily: tokens.font.body,
           }}
           title="Configure prize text shown in the standings table"
         >
@@ -732,18 +881,24 @@ export default function ResultsMode({
         <button
           type="button"
           onClick={publishResults}
+          disabled={isPublishing}
           style={{
             padding: ".5rem .8rem",
             border: `1px solid ${theme.accent}`,
-            background: theme.accent,
-            color: "#fff",
+            background: isPublishing ? "#ffe8d8" : theme.accent,
+            color: isPublishing ? theme.accent : "#fff",
             borderRadius: ".35rem",
-            cursor: "pointer",
-            fontFamily: "Questrial, sans-serif",
+            cursor: isPublishing ? "not-allowed" : "pointer",
+            fontFamily: tokens.font.body,
+            opacity: isPublishing ? 0.9 : 1,
           }}
-          title="Create ShowTeams as needed and write all Scores for this show"
+          title={
+            isPublishing
+              ? "Publishing in progress… please wait"
+              : "Create ShowTeams as needed and write all Scores for this show"
+          }
         >
-          Publish results to Airtable
+          {isPublishing ? "⏳ Publishing…" : "Publish results to Airtable"}
         </button>
 
         {showPrizeCol && (
@@ -756,7 +911,7 @@ export default function ResultsMode({
               border: `1px solid ${theme.accent}`,
               background: "rgba(220,106,36,0.06)",
               color: theme.accent,
-              fontFamily: "Questrial, sans-serif",
+              fontFamily: tokens.font.body,
               marginLeft: 8,
             }}
           >
@@ -789,7 +944,7 @@ export default function ResultsMode({
               border: `1px solid ${theme.accent}`,
               overflow: "hidden",
               boxShadow: "0 10px 30px rgba(0,0,0,.25)",
-              fontFamily: "Questrial, sans-serif",
+              fontFamily: tokens.font.body,
             }}
           >
             {/* Header */}
@@ -803,7 +958,7 @@ export default function ResultsMode({
             >
               <div
                 style={{
-                  fontFamily: "Antonio, sans-serif",
+                  fontFamily: tokens.font.display,
                   fontSize: "1.25rem",
                   letterSpacing: ".01em",
                 }}
@@ -1171,9 +1326,7 @@ export default function ResultsMode({
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {Number.isInteger(r.total)
-                            ? r.total
-                            : r.total.toFixed(2)}
+                          {fmtNum(r.total)}
                           {gapToNext > 0 && (
                             <span
                               style={{
@@ -1183,7 +1336,7 @@ export default function ResultsMode({
                                 fontWeight: 700,
                               }}
                             >
-                              +{gapToNext}
+                              +{fmtNum(gapToNext)}
                             </span>
                           )}
                         </td>

@@ -36,12 +36,11 @@ export default function App() {
   const [activeMode, setActiveMode] = useState("show");
   const [currentImageIndex, setCurrentImageIndex] = useState({});
   const timerRef = useRef(null);
-  const setGroupedQuestions = useState({});
 
   // Bundle (rounds+questions+teams)
   const [showBundle, setShowBundle] = useState(null);
-  const setBundleLoading = useState(false);
-  const setBundleError = useState("");
+  const [bundleLoading, setBundleLoading] = React.useState(false);
+  const [bundleError, setBundleError] = React.useState(null);
 
   // Scoring cache across mode switches
   const [scoringCache, setScoringCache] = useState({});
@@ -168,6 +167,7 @@ export default function App() {
       setSelectedRoundId("");
       return;
     }
+
     let cancelled = false;
     (async () => {
       try {
@@ -176,27 +176,22 @@ export default function App() {
         const res = await axios.get("/.netlify/functions/fetchShowBundle", {
           params: { showId: selectedShowId },
         });
-
         if (cancelled) return;
 
         const bundle = res.data || null;
         setShowBundle(bundle);
 
-        // Set default round if needed (pick smallest round number)
+        // set default round if needed
         const roundNums = (bundle?.rounds || [])
           .map((r) => Number(r.round))
           .filter((n) => Number.isFinite(n));
         const uniqueSorted = Array.from(new Set(roundNums)).sort(
           (a, b) => a - b
         );
-        if (!selectedRoundId && uniqueSorted.length) {
-          setSelectedRoundId(String(uniqueSorted[0]));
-        } else if (
-          selectedRoundId &&
-          uniqueSorted.length &&
-          !uniqueSorted.includes(Number(selectedRoundId))
-        ) {
-          // if current selection isn't present, reset to first
+
+        if (!uniqueSorted.length) {
+          setSelectedRoundId("");
+        } else if (!uniqueSorted.includes(Number(selectedRoundId))) {
           setSelectedRoundId(String(uniqueSorted[0]));
         }
       } catch (e) {
@@ -212,7 +207,9 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [selectedShowId, selectedRoundId]);
+    // 👇 only depend on selectedShowId
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedShowId]);
 
   // Round numbers for dropdown (from bundle)
   const roundNumbers = useMemo(() => {
@@ -321,7 +318,6 @@ export default function App() {
 
               // Clear in-memory, per-show UI bits
               setSelectedRoundId("");
-              setGroupedQuestions({});
               setVisibleImages({});
               setVisibleCategoryImages({});
               setCurrentImageIndex({});
@@ -376,6 +372,13 @@ export default function App() {
               ))}
             </select>
           </label>
+        </div>
+      )}
+
+      {bundleLoading && <div style={{ padding: "1rem" }}>Loading show…</div>}
+      {bundleError && (
+        <div style={{ padding: "1rem", color: "red" }}>
+          Error loading show: {String(bundleError)}
         </div>
       )}
 
