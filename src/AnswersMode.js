@@ -81,7 +81,7 @@ export default function AnswersMode({
     return incoming.map(normalizeTeam);
   }, [cachedState]);
 
-  const grid = cachedState?.grid || {}; // {[showTeamId]: {[showQuestionId]: {isCorrect, questionBonus, overridePoints}}}
+  const grid = useMemo(() => cachedState?.grid ?? {}, [cachedState]); // {[showTeamId]: {[showQuestionId]: {isCorrect, questionBonus, overridePoints}}}
 
   // --------- UI state for images (overlay) ---------
   const [visibleImages, setVisibleImages] = useState({}); // keyed by showQuestionId

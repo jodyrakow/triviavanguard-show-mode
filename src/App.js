@@ -7,14 +7,7 @@ import ShowMode from "./ShowMode";
 import ScoringMode from "./ScoringMode";
 import ResultsMode from "./ResultsMode";
 import AnswersMode from "./AnswersMode";
-import {
-  ui,
-  Button,
-  ButtonTab,
-  ButtonPrimary,
-  colors,
-  tokens,
-} from "./styles/index.js";
+import { ButtonTab, colors, tokens } from "./styles/index.js";
 
 // 🔐 PASSWORD PROTECTION
 const allowedPassword = "tv2025";
@@ -43,12 +36,12 @@ export default function App() {
   const [activeMode, setActiveMode] = useState("show");
   const [currentImageIndex, setCurrentImageIndex] = useState({});
   const timerRef = useRef(null);
-  const [groupedQuestions, setGroupedQuestions] = useState({});
+  const setGroupedQuestions = useState({});
 
   // Bundle (rounds+questions+teams)
   const [showBundle, setShowBundle] = useState(null);
-  const [bundleLoading, setBundleLoading] = useState(false);
-  const [bundleError, setBundleError] = useState("");
+  const setBundleLoading = useState(false);
+  const setBundleError = useState("");
 
   // Scoring cache across mode switches
   const [scoringCache, setScoringCache] = useState({});

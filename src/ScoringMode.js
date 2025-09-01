@@ -377,6 +377,7 @@ export default function ScoringMode({
     focus,
     teamMode,
     teamIdxSolo,
+    toggleCell,
     nextTeam,
     prevTeam,
   ]); // 👈 include next/prev
@@ -405,14 +406,14 @@ export default function ScoringMode({
     requestAnimationFrame(() => {
       const r = el.getBoundingClientRect();
 
-      const baseTopGuard = 76; // header + padding you already tuned for grid mode
+      const baseTopGuard = TOP_GUARD;
       const extraTeamBar =
         teamMode && teamBarRef.current
           ? teamBarRef.current.getBoundingClientRect().height || 0
           : 0;
 
       const topLimit = baseTopGuard + extraTeamBar;
-      const bottomLimit = window.innerHeight - 56; // your BOTTOM_GUARD
+      const bottomLimit = window.innerHeight - BOTTOM_GUARD;
 
       let dy = 0;
       if (r.top < topLimit) dy = r.top - topLimit;
@@ -516,20 +517,6 @@ export default function ScoringMode({
     },
     [renderTeams, questions, teamMode, teamIdxSolo]
   );
-
-  const setQuestionBonus = (showTeamId, showQuestionId, value) => {
-    const v = Number(value) || 0;
-    setGrid((prev) => {
-      const byTeam = prev[showTeamId] ? { ...prev[showTeamId] } : {};
-      const cell = byTeam[showQuestionId] || {
-        isCorrect: false,
-        questionBonus: 0,
-        overridePoints: null,
-      };
-      byTeam[showQuestionId] = { ...cell, questionBonus: v };
-      return { ...prev, [showTeamId]: byTeam };
-    });
-  };
 
   const addTeamLocal = (teamName, airtableId = null) => {
     const trimmed = (teamName || "").trim();
@@ -1113,7 +1100,7 @@ export default function ScoringMode({
                           ] = el;
                         }}
                         role="button"
-                        aria-selected={isFocused}
+                        aria-pressed={!!cell?.isCorrect}
                         onClick={() => toggleCell(ti, qi)}
                         onDoubleClick={(e) => {
                           e.preventDefault();
