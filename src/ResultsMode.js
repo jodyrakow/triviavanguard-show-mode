@@ -229,11 +229,15 @@ export default function ResultsMode({
   }, [prizeCount, prizes]);
 
   const closePrizeEditor = useCallback(() => setPrizeEditorOpen(false), []);
+
+  const showKey = React.useMemo(
+    () => String(selectedShowId || showBundle?.showId || "").trim(),
+    [selectedShowId, showBundle?.showId]
+  );
+
   const applyPrizeEdits = useCallback(() => {
     setPrizeCount(draftCount);
     setPrizes(draftPrizes.slice(0, draftCount));
-    // persist to localStorage per show
-    const showKey = String(selectedShowId || showBundle?.showId || "").trim();
     if (showKey) {
       localStorage.setItem(`tv_prizeCount_${showKey}`, String(draftCount));
       localStorage.setItem(
@@ -242,7 +246,7 @@ export default function ResultsMode({
       );
     }
     setPrizeEditorOpen(false);
-  }, [draftCount, draftPrizes]);
+  }, [draftCount, draftPrizes, showKey]);
 
   const clearPrizes = useCallback(() => {
     setDraftCount(0);

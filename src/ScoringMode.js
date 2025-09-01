@@ -44,9 +44,6 @@ export default function ScoringMode({
     );
   }, [showBundle, roundNumber]);
 
-  // how much space to keep above/below the focused cell
-  const TOP_GUARD = 76; // sticky header height + a little padding
-  const BOTTOM_GUARD = 56; // bottom breathing room
   const teamBarRef = useRef(null);
 
   const questions = useMemo(() => {
@@ -432,6 +429,8 @@ export default function ScoringMode({
     nextTeam,
     prevTeam,
     toggleCell,
+    tiebreaker,
+    visibleTeams,
   ]); // 👈 include next/prev
 
   // 👉 Auto-scroll focused cell into view
@@ -548,20 +547,6 @@ export default function ScoringMode({
         t.showTeamId === showTeamId ? { ...t, showBonus: v } : t
       )
     );
-  };
-
-  const setQuestionBonus = (showTeamId, showQuestionId, value) => {
-    const v = Number(value) || 0;
-    setGrid((prev) => {
-      const byTeam = prev[showTeamId] ? { ...prev[showTeamId] } : {};
-      const cell = byTeam[showQuestionId] || {
-        isCorrect: false,
-        questionBonus: 0,
-        overridePoints: null,
-      };
-      byTeam[showQuestionId] = { ...cell, questionBonus: v };
-      return { ...prev, [showTeamId]: byTeam };
-    });
   };
 
   const addTeamLocal = (teamName, airtableId = null) => {
