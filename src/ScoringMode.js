@@ -44,6 +44,11 @@ export default function ScoringMode({
     );
   }, [showBundle, roundNumber]);
 
+  // how much space to keep above/below the focused cell
+  const TOP_GUARD = 76; // sticky header height + a little padding
+  const BOTTOM_GUARD = 56; // bottom breathing room
+  const teamBarRef = useRef(null);
+
   const questions = useMemo(() => {
     const raw = roundObj?.questions || [];
 
@@ -278,6 +283,17 @@ export default function ScoringMode({
     return one ? [one] : [];
   }, [teamMode, visibleTeams, teamIdxSolo]);
 
+  // after renderTeams/useState etc., put these at top level:
+  const nextTeam = useCallback(() => {
+    if (!visibleTeams.length) return;
+    setTeamIdxSolo((i) => (i + 1) % visibleTeams.length);
+  }, [visibleTeams.length]);
+
+  const prevTeam = useCallback(() => {
+    if (!visibleTeams.length) return;
+    setTeamIdxSolo((i) => (i - 1 + visibleTeams.length) % visibleTeams.length);
+  }, [visibleTeams.length]);
+
   // ---------------- Focus + keyboard nav ----------------
   const [focus, setFocus] = useState({ teamIdx: 0, qIdx: 0 });
   useEffect(() => {
@@ -297,8 +313,8 @@ export default function ScoringMode({
           el.isContentEditable)
       )
         return;
-
       if (!renderTeams.length || !questions.length) return;
+
       const { teamIdx, qIdx } = focus;
 
       if (e.key === "1" || e.key === " ") {
@@ -316,18 +332,28 @@ export default function ScoringMode({
           teamIdx: teamMode ? teamIdxSolo : t,
           qIdx: (qIdx - 1 + questions.length) % questions.length,
         }));
-      } else if (!teamMode && e.key === "ArrowRight") {
+      } else if (e.key === "ArrowRight") {
         e.preventDefault();
-        setFocus(({ teamIdx, qIdx }) => ({
-          teamIdx: Math.min(teamIdx + 1, renderTeams.length - 1),
-          qIdx,
-        }));
-      } else if (!teamMode && e.key === "ArrowLeft") {
+        if (teamMode) {
+          nextTeam(); // 👈 cycle to next team
+          setFocus((f) => ({ teamIdx: 0, qIdx: f.qIdx })); // single column
+        } else {
+          setFocus(({ teamIdx, qIdx }) => ({
+            teamIdx: Math.min(teamIdx + 1, renderTeams.length - 1),
+            qIdx,
+          }));
+        }
+      } else if (e.key === "ArrowLeft") {
         e.preventDefault();
-        setFocus(({ teamIdx, qIdx }) => ({
-          teamIdx: Math.max(teamIdx - 1, 0),
-          qIdx,
-        }));
+        if (teamMode) {
+          prevTeam(); // 👈 cycle to previous team
+          setFocus((f) => ({ teamIdx: 0, qIdx: f.qIdx }));
+        } else {
+          setFocus(({ teamIdx, qIdx }) => ({
+            teamIdx: Math.max(teamIdx - 1, 0),
+            qIdx,
+          }));
+        }
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
         setFocus(({ teamIdx: t, qIdx }) => ({
@@ -345,28 +371,55 @@ export default function ScoringMode({
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [renderTeams, questions, focus, teamMode, teamIdxSolo]); // toggleCell stable via useCallback
+  }, [
+    renderTeams,
+    questions,
+    focus,
+    teamMode,
+    teamIdxSolo,
+    nextTeam,
+    prevTeam,
+  ]); // 👈 include next/prev
 
   // 👉 Auto-scroll focused cell into view
   useEffect(() => {
     if (!renderTeams.length || !questions.length) return;
 
-    // Which team column is logically focused?
-    const logicalTeamIdx = teamMode ? teamIdxSolo : focus.teamIdx;
-
+    const logicalTeamIdx = teamMode ? 0 : focus.teamIdx;
     const t = renderTeams[logicalTeamIdx];
     const q = questions[focus.qIdx];
     if (!t || !q) return;
 
     const key = `${t.showTeamId}:${q.showQuestionId}`;
     const el = cellRefs.current[key];
-    if (el && typeof el.scrollIntoView === "function") {
-      el.scrollIntoView({
-        block: "nearest",
-        inline: "nearest",
-        behavior: "smooth",
-      });
-    }
+    if (!el || typeof el.getBoundingClientRect !== "function") return;
+
+    // 1) center it (good for large jumps)
+    el.scrollIntoView({
+      block: "center",
+      inline: "nearest",
+      behavior: "smooth",
+    });
+
+    // 2) then correct for sticky chrome (table header + optional team bar)
+    requestAnimationFrame(() => {
+      const r = el.getBoundingClientRect();
+
+      const baseTopGuard = 76; // header + padding you already tuned for grid mode
+      const extraTeamBar =
+        teamMode && teamBarRef.current
+          ? teamBarRef.current.getBoundingClientRect().height || 0
+          : 0;
+
+      const topLimit = baseTopGuard + extraTeamBar;
+      const bottomLimit = window.innerHeight - 56; // your BOTTOM_GUARD
+
+      let dy = 0;
+      if (r.top < topLimit) dy = r.top - topLimit;
+      else if (r.bottom > bottomLimit) dy = r.bottom - bottomLimit;
+
+      if (dy !== 0) window.scrollBy({ top: dy, behavior: "smooth" });
+    });
   }, [focus, renderTeams, questions, teamMode, teamIdxSolo]);
 
   // ---------------- Derived scoring helpers ----------------
@@ -648,7 +701,7 @@ export default function ScoringMode({
             letterSpacing: "0.015em",
           }}
         >
-          Live Scoring (local)
+          Scores
         </h2>
       </div>
 
@@ -811,6 +864,7 @@ export default function ScoringMode({
       >
         {teamMode && (
           <div
+            ref={teamBarRef}
             style={{
               display: "flex",
               alignItems: "center",
@@ -832,6 +886,26 @@ export default function ScoringMode({
             >
               Scoring team:
             </div>
+
+            <ui.Segmented style={{ flexShrink: 0 }}>
+              <button
+                style={ui.segBtn(false)}
+                onClick={prevTeam}
+                title="Previous team"
+              >
+                ◀
+              </button>
+              <button
+                style={{
+                  ...ui.segBtn(false),
+                  borderLeft: "1px solid rgba(220,106,36,0.35)", // thin light orange divider
+                }}
+                onClick={nextTeam}
+                title="Next team"
+              >
+                ▶
+              </button>
+            </ui.Segmented>
 
             <select
               value={teamIdxSolo}
@@ -1019,8 +1093,8 @@ export default function ScoringMode({
                     ...tileBase,
                     ...(on ? tileStates.correct : tileStates.wrong),
                     ...(isFocused ? tileFocus : null),
-                    scrollMarginTop: 56,
-                    scrollMarginBottom: 56,
+                    scrollMarginTop: +8,
+                    scrollMarginBottom: +8,
                   };
 
                   return (

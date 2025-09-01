@@ -19,9 +19,10 @@ const ordinal = (n) => {
 };
 
 export default function ResultsMode({
-  showBundle, // { rounds:[{round, questions:[...] }], teams:[...] }
-  selectedRoundId, // round number or string (e.g. "1")
-  cachedState, // { teams, grid, entryOrder }
+  showBundle, // { rounds:[{round, questions:[...] }], showId? }
+  selectedRoundId, // e.g. "1" (still used for UI text & fallback mode)
+  cachedState, // { teams, grid, entryOrder } for current round (fallback)
+  cachedByRound = null, // NEW: { [roundId]: {teams, grid, entryOrder} } for all rounds (enables cumulative)
   scoringMode, // "pub" | "pooled"
   setScoringMode,
   pubPoints,
@@ -30,32 +31,70 @@ export default function ResultsMode({
   setPoolPerQuestion,
   selectedShowId,
 }) {
-  // --------- derive round + questions (needed for scoring math) ---------
   const roundNumber = Number(selectedRoundId);
-  const roundObj = useMemo(() => {
-    if (!Array.isArray(showBundle?.rounds)) return null;
-    return (
-      showBundle.rounds.find((r) => Number(r.round) === roundNumber) || null
+  const usingCumulative =
+    !!cachedByRound && Object.keys(cachedByRound).length > 0;
+
+  // ---- Build ALL questions across the whole show (used in cumulative mode) ----
+  const allQuestions = useMemo(() => {
+    const rounds = Array.isArray(showBundle?.rounds) ? showBundle.rounds : [];
+    const flat = [];
+    for (const r of rounds) {
+      for (const q of r?.questions || []) {
+        flat.push({
+          round: r.round,
+          showQuestionId: q.id,
+          questionId: Array.isArray(q.questionId)
+            ? q.questionId[0]
+            : (q.questionId ?? null),
+          pubPerQuestion:
+            typeof q.pointsPerQuestion === "number"
+              ? q.pointsPerQuestion
+              : null,
+          questionType: q.questionType || null,
+          sortOrder: Number(q.sortOrder ?? 9999),
+          questionOrder: q.questionOrder,
+        });
+      }
+    }
+    // same sort you use elsewhere: Sort Order, then alpha/num Question Order
+    const cvt = (val) => {
+      if (typeof val === "string" && /^[A-Z]$/i.test(val)) {
+        return val.toUpperCase().charCodeAt(0) - 64; // A=1
+      }
+      const n = parseInt(val, 10);
+      return Number.isNaN(n) ? 9999 : 100 + n;
+    };
+    flat.sort(
+      (a, b) =>
+        a.sortOrder - b.sortOrder || cvt(a.questionOrder) - cvt(b.questionOrder)
     );
-  }, [showBundle, roundNumber]);
+    return flat;
+  }, [showBundle]);
+
+  // ---- Fallback: current round only (when not cumulative) ----
+  const roundObj = useMemo(() => {
+    if (usingCumulative) return null;
+    const rounds = Array.isArray(showBundle?.rounds) ? showBundle.rounds : [];
+    return rounds.find((r) => Number(r.round) === roundNumber) || null;
+  }, [usingCumulative, showBundle, roundNumber]);
 
   const questions = useMemo(() => {
+    if (usingCumulative) return allQuestions; // we’ll skip TBs in scoring below
     const raw = roundObj?.questions || [];
-    // Sort: Sort order, then Question order alpha/num
     const bySort = [...raw].sort((a, b) => {
       const sa = Number(a.sortOrder ?? 9999);
       const sb = Number(b.sortOrder ?? 9999);
       if (sa !== sb) return sa - sb;
       const cvt = (val) => {
         if (typeof val === "string" && /^[A-Z]$/i.test(val)) {
-          return val.toUpperCase().charCodeAt(0) - 64; // A=1
+          return val.toUpperCase().charCodeAt(0) - 64;
         }
         const n = parseInt(val, 10);
         return isNaN(n) ? 9999 : 100 + n;
       };
       return cvt(a.questionOrder) - cvt(b.questionOrder);
     });
-
     return bySort.map((q) => ({
       showQuestionId: q.id,
       questionId: Array.isArray(q.questionId)
@@ -65,27 +104,73 @@ export default function ResultsMode({
         typeof q.pointsPerQuestion === "number" ? q.pointsPerQuestion : null,
       questionType: q.questionType || null,
     }));
-  }, [roundObj]);
+  }, [usingCumulative, allQuestions, roundObj]);
 
-  // --------- teams + grid (from cache) ---------
+  // ---- Teams (merge across rounds in cumulative mode; otherwise just current) ----
   const teams = useMemo(() => {
-    const incoming = cachedState?.teams || [];
-    return incoming.map(normalizeTeam);
-  }, [cachedState]);
+    if (!usingCumulative) {
+      const incoming = cachedState?.teams || [];
+      return incoming.map(normalizeTeam);
+    }
+    const byId = new Map();
+    for (const rid of Object.keys(cachedByRound)) {
+      const arr = cachedByRound[rid]?.teams || [];
+      for (const t of arr) {
+        const norm = normalizeTeam(t);
+        const prev = byId.get(norm.showTeamId);
+        if (!prev) {
+          byId.set(norm.showTeamId, norm);
+        } else {
+          // keep latest non-null bonus, name, and teamId
+          byId.set(norm.showTeamId, {
+            ...prev,
+            teamName: norm.teamName || prev.teamName,
+            teamId: norm.teamId ?? prev.teamId,
+            showBonus:
+              typeof norm.showBonus === "number"
+                ? norm.showBonus
+                : prev.showBonus,
+          });
+        }
+      }
+    }
+    return [...byId.values()];
+  }, [usingCumulative, cachedState, cachedByRound]);
 
-  const grid = cachedState?.grid || {}; // {[showTeamId]: {[showQuestionId]: {isCorrect, questionBonus, overridePoints}}}
-  const finalStandingsRef = useRef(null);
+  // ---- Cell accessor: reads from one grid (fallback) or all grids (cumulative) ----
+  const getCell = useCallback(
+    (showTeamId, showQuestionId) => {
+      if (!usingCumulative) {
+        return cachedState?.grid?.[showTeamId]?.[showQuestionId] || null;
+      }
+      for (const rid of Object.keys(cachedByRound)) {
+        const cell = cachedByRound[rid]?.grid?.[showTeamId]?.[showQuestionId];
+        if (cell) return cell;
+      }
+      return null;
+    },
+    [usingCumulative, cachedState, cachedByRound]
+  );
 
-  // --- TieBreaker detection from the round ----
+  // ---- Show-wide TB detection (one per show) ----
   const tbQ = useMemo(() => {
-    const all = roundObj?.questions || [];
-    return (
-      all.find((q) => (q.questionType || "").toLowerCase() === "tiebreaker") ||
-      all.find((q) => String(q.questionOrder).toUpperCase() === "TB") ||
-      all.find((q) => String(q.id || "").startsWith("tb-")) ||
-      null
-    );
-  }, [roundObj]);
+    const allRounds = Array.isArray(showBundle?.rounds)
+      ? showBundle.rounds
+      : [];
+    for (const r of allRounds) {
+      for (const q of r?.questions || []) {
+        const type = (q.questionType || "").toLowerCase();
+        if (
+          type === "tiebreaker" ||
+          String(q.questionOrder).toUpperCase() === "TB" ||
+          String(q.id || "").startsWith("tb-")
+        ) {
+          return q;
+        }
+      }
+    }
+    return null;
+  }, [showBundle]);
 
   const tbNumber =
     tbQ && typeof tbQ.tiebreakerNumber === "number"
@@ -95,19 +180,19 @@ export default function ResultsMode({
   const tbGuessFor = useCallback(
     (showTeamId) => {
       if (!tbQ) return null;
-      const v = grid?.[showTeamId]?.[tbQ.id]?.tiebreakerGuess;
+      const cell = getCell(showTeamId, tbQ.id);
+      const v = cell?.tiebreakerGuess;
       return typeof v === "number" && Number.isFinite(v) ? v : null;
     },
-    [grid, tbQ]
+    [getCell, tbQ]
   );
 
-  // --------- Prize editor state (restored) ---------
+  // ----------------------- Prize editor state -----------------------
   const [prizeEditorOpen, setPrizeEditorOpen] = useState(false);
   const [prizeCount, setPrizeCount] = useState(0);
   const [prizes, setPrizes] = useState([]);
   const showPrizeCol = prizeCount > 0 && prizes.some((p) => p && p.length);
 
-  // Draft state for the modal
   const [draftCount, setDraftCount] = useState(prizeCount);
   const [draftPrizes, setDraftPrizes] = useState(prizes);
 
@@ -131,7 +216,6 @@ export default function ResultsMode({
 
   const ensureDraftLen = useCallback(
     (n, base) => {
-      // use functional base when possible to avoid stale closures
       const src = Array.isArray(base) ? base.slice() : draftPrizes.slice();
       while (src.length < n) src.push("");
       return src.slice(0, n);
@@ -139,7 +223,7 @@ export default function ResultsMode({
     [draftPrizes]
   );
 
-  // --------- Standings (match ScoringMode math exactly) ---------
+  // ----------------------- Standings (cumulative-aware) -----------------------
   const standings = useMemo(() => {
     if (!teams.length || !questions.length) return [];
 
@@ -148,7 +232,8 @@ export default function ResultsMode({
     for (const q of questions) {
       let n = 0;
       for (const t of teams) {
-        if (grid[t.showTeamId]?.[q.showQuestionId]?.isCorrect) n++;
+        const cell = getCell(t.showTeamId, q.showQuestionId);
+        if (cell?.isCorrect) n++;
       }
       nCorrectByQ[q.showQuestionId] = n;
     }
@@ -158,13 +243,12 @@ export default function ResultsMode({
       teams.map((t) => [t.showTeamId, Number(t.showBonus || 0)])
     );
 
-    // Earned per cell
+    // Earn points per cell (skip TB for scoring)
     for (const t of teams) {
       for (const q of questions) {
-        // skip TB question for points accrual (it’s only for tie-break)
-        if (tbQ && q.showQuestionId === tbQ.id) continue;
+        if (tbQ && q.showQuestionId === tbQ.id) continue; // TB never gives points
 
-        const cell = grid[t.showTeamId]?.[q.showQuestionId];
+        const cell = getCell(t.showTeamId, q.showQuestionId);
         if (!cell) continue;
 
         const isCorrect = !!cell.isCorrect;
@@ -215,14 +299,14 @@ export default function ResultsMode({
       };
     });
 
-    // Primary sort by total desc (no TB yet)
+    // Sort by total desc, then name
     rows.sort(
       (a, b) =>
         b.total - a.total ||
         a.teamName.localeCompare(b.teamName, "en", { sensitivity: "base" })
     );
 
-    // Assign provisional places (with ties)
+    // Provisional places with ties
     let place = 0,
       prevTotal = null,
       cnt = 0;
@@ -235,12 +319,12 @@ export default function ResultsMode({
       r.place = place;
     }
 
-    // If no prizes or no TB number, we’re done
+    // TB only affects ordering inside prize band (optional)
     if (!prizeCount || prizeCount <= 0 || tbNumber === null || !tbQ) {
       return rows;
     }
 
-    // Identify contiguous tie groups by total
+    // Identify tie groups (same total)
     const groups = [];
     let idx = 0;
     while (idx < rows.length) {
@@ -248,13 +332,11 @@ export default function ResultsMode({
       const tot = rows[idx].total;
       idx++;
       while (idx < rows.length && rows[idx].total === tot) idx++;
-      const gEnd = idx; // exclusive
-      groups.push([gStart, gEnd]);
+      groups.push([gStart, idx]); // [start, end)
     }
 
-    // Reorder only tie-groups that intersect the prize band using TB
-    for (let gi = 0; gi < groups.length; gi++) {
-      const [gStart, gEnd] = groups[gi];
+    // Reorder tie groups intersecting the prize band by tbDelta
+    for (const [gStart, gEnd] of groups) {
       const groupInsidePrizeBand = gStart < prizeCount && gStart >= 0;
       if (!groupInsidePrizeBand) continue;
 
@@ -262,16 +344,14 @@ export default function ResultsMode({
       const usedTBInSlice = slice.some((r) => Number.isFinite(r.tbDelta));
       if (!usedTBInSlice) continue;
 
-      // Sort by closeness (smaller tbDelta is better), stable by teamName
       slice.sort((a, b) => {
-        if (a.total !== b.total) return 0; // safety; same-total group
+        if (a.total !== b.total) return 0;
         if (a.tbDelta !== b.tbDelta) return a.tbDelta - b.tbDelta;
         return a.teamName.localeCompare(b.teamName, "en", {
           sensitivity: "base",
         });
       });
 
-      // Flags + rank within this tie group
       const best = slice[0]?.tbDelta;
       const second = slice[1]?.tbDelta;
       const groupBroken =
@@ -286,20 +366,16 @@ export default function ResultsMode({
         r._tbRank = k;
       });
 
-      // If the top tbDelta ties, mark unbreakable on those rows
       if (slice.length > 1 && Number.isFinite(best)) {
         const topTied = slice.filter((r) => r.tbDelta === best);
         if (topTied.length > 1)
           topTied.forEach((r) => (r.unbreakableTie = true));
       }
 
-      // Write back the reordered group
       for (let k = 0; k < slice.length; k++) rows[gStart + k] = slice[k];
     }
 
-    // Re-assign places after potential TB reorders.
-    // Same-total rows normally share a place, but if a prize-band tie-group was
-    // TB-broken, we give unique places inside that group using _tbRank.
+    // Re-assign places (unique inside TB-broken groups)
     let prevKey = null;
     place = 0;
     cnt = 0;
@@ -318,7 +394,7 @@ export default function ResultsMode({
   }, [
     teams,
     questions,
-    grid,
+    getCell,
     scoringMode,
     pubPoints,
     poolPerQuestion,
@@ -328,17 +404,15 @@ export default function ResultsMode({
     tbGuessFor,
   ]);
 
-  // Helper number formatter
+  // Formats
   const fmtNum = (n) =>
     Number.isFinite(n) ? (Number.isInteger(n) ? String(n) : n.toFixed(2)) : "—";
 
-  // Whether the tiebreaker affected any prize places
   const tbUsedInPrizeBand = useMemo(
     () => standings.some((r) => r.tieBroken && r.place <= prizeCount),
     [standings, prizeCount]
   );
 
-  // Re-derive places exactly like the table does: unique inside TB-broken groups
   function computePlacesForPublish(rows) {
     let place = 0,
       prevKey = null,
@@ -357,7 +431,7 @@ export default function ResultsMode({
     return out;
   }
 
-  // ---------- Publish to Airtable ----------
+  // ---------- Publish to Airtable (cumulative-aware) ----------
   const publishResults = async () => {
     const ok = window.confirm(
       "Publish final results to Airtable?\n\nThis will (1) create ShowTeams as needed and (2) replace any existing Scores for this show."
@@ -365,7 +439,7 @@ export default function ResultsMode({
     if (!ok) return;
 
     try {
-      // Build payload from current state
+      // exclude TB from scores
       const nonTBQuestions = questions.filter(
         (q) => !(tbQ && q.showQuestionId === tbQ.id)
       );
@@ -387,12 +461,11 @@ export default function ResultsMode({
       for (const q of nonTBQuestions) {
         let n = 0;
         for (const t of teams) {
-          if (grid[t.showTeamId]?.[q.showQuestionId]?.isCorrect) n++;
+          if (getCell(t.showTeamId, q.showQuestionId)?.isCorrect) n++;
         }
         nCorrectByQ[q.showQuestionId] = n;
       }
 
-      // Freeze ordering and recompute places
       const publishRows = computePlacesForPublish(standings);
 
       const teamsById = new Map(teams.map((t) => [t.showTeamId, t]));
@@ -410,7 +483,7 @@ export default function ResultsMode({
       const scoresPayload = [];
       for (const t of teams) {
         for (const q of nonTBQuestions) {
-          const cell = grid[t.showTeamId]?.[q.showQuestionId];
+          const cell = getCell(t.showTeamId, q.showQuestionId);
           const isCorrect = !!cell?.isCorrect;
           const qb = Number(cell?.questionBonus || 0);
           const override =
@@ -433,7 +506,7 @@ export default function ResultsMode({
           }
 
           const earned = override !== null ? override : base;
-          const pointsEarned = isCorrect ? earned + qb : earned; // bonus only if correct
+          const pointsEarned = isCorrect ? earned + qb : earned;
 
           scoresPayload.push({
             showTeamId: t.showTeamId,
@@ -477,9 +550,11 @@ export default function ResultsMode({
     }
   };
 
-  // --------- Guard rails ---------
-  const noRound = !roundObj;
+  // --------- Guard rails (per-round only shows guidance; cumulative ignores it) ---------
+  const noRound = !usingCumulative && !roundObj;
   const noData = !teams.length && !questions.length;
+
+  const finalStandingsRef = useRef(null);
 
   return (
     <div style={{ fontFamily: "Questrial, sans-serif", color: theme.dark }}>
@@ -503,7 +578,7 @@ export default function ResultsMode({
             letterSpacing: "0.015em",
           }}
         >
-          Results
+          Results {usingCumulative ? "— Show Total" : ""}
         </h2>
       </div>
 
@@ -519,7 +594,8 @@ export default function ResultsMode({
         <div
           style={{ opacity: 0.8, fontStyle: "italic", margin: "0 12px 1rem" }}
         >
-          No teams or questions yet for this round.
+          No teams or questions yet for this{" "}
+          {usingCumulative ? "show" : "round"}.
         </div>
       ) : null}
 
@@ -543,6 +619,7 @@ export default function ResultsMode({
               overflow: "hidden",
               background: "#fff",
             }}
+            title="Choose scoring type"
           >
             <button
               type="button"
@@ -688,7 +765,7 @@ export default function ResultsMode({
         )}
       </div>
 
-      {/* ----- Prize Editor Modal (inline; stable; no remount while typing) ----- */}
+      {/* ----- Prize Editor Modal (inline; stable) ----- */}
       {prizeEditorOpen && (
         <div
           onMouseDown={closePrizeEditor}
@@ -704,7 +781,7 @@ export default function ResultsMode({
           }}
         >
           <div
-            onMouseDown={(e) => e.stopPropagation()} // keep focus inside
+            onMouseDown={(e) => e.stopPropagation()}
             style={{
               width: "min(92vw, 560px)",
               background: "#fff",
@@ -903,7 +980,6 @@ export default function ResultsMode({
           Final standings
         </div>
 
-        {/* TB banner (only if TB used for prize places) */}
         {tbUsedInPrizeBand && tbQ && tbNumber !== null && (
           <div
             style={{
@@ -956,7 +1032,6 @@ export default function ResultsMode({
                       Prize
                     </th>
                   )}
-
                   {tbUsedInPrizeBand && (
                     <th
                       style={{
@@ -969,7 +1044,6 @@ export default function ResultsMode({
                       Tiebreaker
                     </th>
                   )}
-
                   <th
                     style={{
                       padding: tokens.spacing.sm,
@@ -999,7 +1073,6 @@ export default function ResultsMode({
                   </th>
                 </tr>
               </thead>
-
               <tbody>
                 {(() => {
                   let tieGroupIndex = 0;

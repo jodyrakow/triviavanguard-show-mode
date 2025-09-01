@@ -388,7 +388,9 @@ export default function App() {
 
       {activeMode === "show" && (
         <ShowMode
-          rounds={showBundle?.rounds || []}
+          rounds={(showBundle?.rounds || []).filter(
+            (r) => Number(r.round) === Number(selectedRoundId)
+          )}
           showDetails={showDetails}
           setshowDetails={setshowDetails}
           questionRefs={questionRefs}
@@ -414,7 +416,16 @@ export default function App() {
 
       {activeMode === "score" && (
         <ScoringMode
-          showBundle={showBundle}
+          showBundle={
+            showBundle
+              ? {
+                  ...showBundle,
+                  rounds: (showBundle.rounds || []).filter(
+                    (r) => Number(r.round) === Number(selectedRoundId)
+                  ),
+                }
+              : { rounds: [], teams: [] }
+          }
           selectedShowId={selectedShowId}
           selectedRoundId={selectedRoundId}
           preloadedTeams={showBundle?.teams ?? []}
@@ -450,7 +461,16 @@ export default function App() {
 
       {activeMode === "answers" && (
         <AnswersMode
-          showBundle={showBundle}
+          showBundle={
+            showBundle
+              ? {
+                  ...showBundle,
+                  rounds: (showBundle.rounds || []).filter(
+                    (r) => Number(r.round) === Number(selectedRoundId)
+                  ),
+                }
+              : { rounds: [], teams: [] }
+          }
           selectedShowId={selectedShowId}
           selectedRoundId={selectedRoundId}
           cachedState={scoringCache[selectedShowId]?.[selectedRoundId] ?? null}
@@ -462,10 +482,11 @@ export default function App() {
 
       {activeMode === "results" && (
         <ResultsMode
-          showBundle={showBundle}
+          showBundle={showBundle || { rounds: [], teams: [] }}
           selectedShowId={selectedShowId}
           selectedRoundId={selectedRoundId}
           cachedState={scoringCache[selectedShowId]?.[selectedRoundId] ?? null}
+          cachedByRound={scoringCache[selectedShowId] ?? {}}
           scoringMode={scoringMode}
           setScoringMode={setScoringMode}
           pubPoints={pubPoints}
