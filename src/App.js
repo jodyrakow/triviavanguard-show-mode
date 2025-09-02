@@ -153,6 +153,7 @@ export default function App() {
     (async () => {
       try {
         const res = await axios.get("/.netlify/functions/fetchShows");
+        console.log("fetchShows response (prod):", res.data);
         setShows(res.data?.Shows || []);
       } catch (err) {
         console.error("Error fetching shows:", err);
