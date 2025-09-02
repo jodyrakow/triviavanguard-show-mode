@@ -1339,6 +1339,7 @@ export default function ScoringMode({
                   Bonus points
                 </div>
                 <input
+                  autoFocus
                   type="number"
                   value={editingCell.draftBonus}
                   onChange={(e) =>
@@ -1464,6 +1465,7 @@ export default function ScoringMode({
 
             {/* Search field */}
             <input
+              autoFocus
               value={teamInput}
               onChange={async (e) => {
                 const val = e.target.value;
