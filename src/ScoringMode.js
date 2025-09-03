@@ -113,6 +113,20 @@ export default function ScoringMode({
   // Keep refs to each cell <div> for scrolling into view
   const cellRefs = useRef({});
   const tbRefs = useRef({});
+  const onEnter = (fn) => (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      fn();
+    }
+  };
+  const onEnterBlur = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.currentTarget.blur();
+    }
+  };
+  const lastScrollYRef = useRef(0);
+  const lastFocusKeyRef = useRef(null);
 
   // Remove a team and all their cells
   const removeTeam = (showTeamId) => {
@@ -166,6 +180,10 @@ export default function ScoringMode({
   }, [questions]);
 
   const openCellEditor = (showTeamId, showQuestionId) => {
+    // remember where we were
+    lastScrollYRef.current = window.scrollY;
+    lastFocusKeyRef.current = `${showTeamId}:${showQuestionId}`;
+
     const cell = grid[showTeamId]?.[showQuestionId] || {};
     setEditingCell({
       showTeamId,
@@ -178,7 +196,19 @@ export default function ScoringMode({
     });
   };
 
-  const closeCellEditor = () => setEditingCell(null);
+  const restoreAfterModal = () => {
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: lastScrollYRef.current });
+      const el = cellRefs.current[lastFocusKeyRef.current];
+      el?.focus?.();
+      el?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    });
+  };
+
+  const closeCellEditor = () => {
+    setEditingCell(null);
+    restoreAfterModal();
+  };
 
   const applyCellEditor = () => {
     if (!editingCell) return;
@@ -202,6 +232,7 @@ export default function ScoringMode({
       return { ...prev, [showTeamId]: byTeam };
     });
     setEditingCell(null);
+    restoreAfterModal();
   };
 
   // helper: coerce Airtable-ish shapes into what the grid expects
@@ -820,6 +851,7 @@ export default function ScoringMode({
                     border: "1px solid #ccc",
                     borderRadius: ".35rem",
                   }}
+                  onKeyDown={onEnterBlur}
                 />
               </label>
             ) : (
@@ -839,6 +871,7 @@ export default function ScoringMode({
                   onChange={(e) =>
                     setPoolPerQuestion(Number(e.target.value || 0))
                   }
+                  onKeyDown={onEnterBlur}
                   style={{
                     width: 110,
                     padding: ".3rem .4rem",
@@ -1070,6 +1103,7 @@ export default function ScoringMode({
                     onChange={(e) =>
                       updateShowBonus(t.showTeamId, e.target.value)
                     }
+                    onKeyDown={onEnterBlur}
                     style={{
                       width: 40,
                       textAlign: "center",
@@ -1131,6 +1165,7 @@ export default function ScoringMode({
                       }}
                     >
                       <div
+                        tabIndex={-1}
                         ref={(el) => {
                           cellRefs.current[
                             `${t.showTeamId}:${q.showQuestionId}`
@@ -1240,7 +1275,12 @@ export default function ScoringMode({
                           }));
                           e.currentTarget.blur();
                         };
-
+                        if (e.key === "Enter") {
+                          commitTBGuess(t.showTeamId);
+                          if (teamMode) goTopOfSameTeam();
+                          else goNextColumnToRow0();
+                          return;
+                        }
                         if (e.key === "Tab" && !e.shiftKey) {
                           if (teamMode) goTopOfSameTeam();
                           else goNextColumnToRow0();
@@ -1348,6 +1388,7 @@ export default function ScoringMode({
                       draftBonus: Number(e.target.value || 0),
                     }))
                   }
+                  onKeyDown={onEnter(applyCellEditor)}
                   style={{
                     width: 120,
                     padding: ".45rem .55rem",
@@ -1384,6 +1425,7 @@ export default function ScoringMode({
                       draftOverride: e.target.value, // keep "" if blank
                     }))
                   }
+                  onKeyDown={onEnter(applyCellEditor)}
                   style={{
                     width: 160,
                     padding: ".45rem .55rem",
@@ -1506,6 +1548,23 @@ export default function ScoringMode({
                   }
                 } else {
                   setSearchResults([]);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (searchResults.length > 0) {
+                    const t = searchResults[0];
+                    addTeamLocal(t.name, t.id);
+                  } else if (teamInput.trim()) {
+                    addTeamLocal(teamInput.trim());
+                  }
+                  setTeamInput("");
+                  setAddingTeam(false);
+                  setSearchResults([]);
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setAddingTeam(false);
                 }
               }}
               placeholder="Enter team name"
