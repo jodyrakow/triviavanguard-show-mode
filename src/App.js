@@ -220,6 +220,65 @@ export default function App() {
     return Array.from(new Set(arr)).sort((a, b) => a - b);
   }, [showBundle]);
 
+  // Somewhere in App.js (or ShowMode) — add this helper:
+  function downloadAnswerKey(showBundle) {
+    if (!Array.isArray(showBundle?.rounds) || !showBundle.rounds.length) return;
+
+    const isTB = (q) =>
+      (q.questionType || "").toLowerCase() === "tiebreaker" ||
+      String(q.questionOrder).toUpperCase() === "TB" ||
+      String(q.id || "").startsWith("tb-");
+
+    const cvt = (val) => {
+      if (typeof val === "string" && /^[A-Z]$/i.test(val)) {
+        return val.toUpperCase().charCodeAt(0) - 64; // A=1
+      }
+      const n = parseInt(val, 10);
+      return Number.isNaN(n) ? 9999 : 100 + n;
+    };
+
+    const lines = [];
+    const rounds = [...(showBundle.rounds || [])].sort(
+      (a, b) => Number(a.round) - Number(b.round)
+    );
+
+    for (const r of rounds) {
+      const qs = [...(r.questions || [])]
+        .filter((q) => !isTB(q))
+        .sort(
+          (a, b) =>
+            Number(a.sortOrder ?? 9999) - Number(b.sortOrder ?? 9999) ||
+            cvt(a.questionOrder) - cvt(b.questionOrder)
+        );
+
+      if (!qs.length) continue;
+
+      lines.push(`Round ${r.round}`);
+      for (const q of qs) {
+        const num = q.questionOrder ?? "";
+        const ans =
+          (Array.isArray(q.answer) ? q.answer[0] : q.answer) ??
+          q.answerText ??
+          q.correctAnswer ??
+          "";
+        lines.push(`${num}) ${ans}`);
+      }
+      lines.push(""); // blank line between rounds
+    }
+
+    const blob = new Blob([lines.join("\n")], {
+      type: "text/plain;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "answer-key.txt";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   // UI
   return (
     <div
@@ -289,6 +348,10 @@ export default function App() {
           onClick={() => setActiveMode("results")}
         >
           Results mode
+        </ButtonTab>
+
+        <ButtonTab onClick={() => downloadAnswerKey(showBundle)}>
+          Create printable answer key
         </ButtonTab>
       </div>
 
