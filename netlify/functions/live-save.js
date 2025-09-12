@@ -1,7 +1,7 @@
-// netlify/functions/live-save.js
-import { getStore } from "@netlify/blobs";
+// CommonJS + Netlify Lambda style
+const { getStore } = require("@netlify/blobs");
 
-export const handler = async (event) => {
+exports.handler = async (event) => {
   try {
     if (event.httpMethod !== "POST") {
       return { statusCode: 405, body: JSON.stringify({ error: "POST only" }) };
@@ -13,23 +13,21 @@ export const handler = async (event) => {
       state,
       by = null,
     } = JSON.parse(event.body || "{}");
-    if (!showId) {
+    if (!showId)
       return {
         statusCode: 400,
         body: JSON.stringify({ error: "Missing showId" }),
       };
-    }
 
     const store = getStore({ name: "live-state", consistency: "strong" });
     const key = `live/${showId}.json`;
+
     const currentText = await store.get(key);
     const current = currentText ? JSON.parse(currentText) : null;
 
-    // reject stale writes
     if (current && Number(version) !== Number(current.version)) {
       return {
         statusCode: 409,
-        headers: { "Cache-Control": "no-store" },
         body: JSON.stringify({ error: "Version conflict", latest: current }),
       };
     }
@@ -45,11 +43,7 @@ export const handler = async (event) => {
 
     return {
       statusCode: 200,
-      headers: {
-        ETag: `W/"${next.version}"`,
-        "Cache-Control": "no-store",
-        "Content-Type": "application/json",
-      },
+      headers: { ETag: `W/"${next.version}"`, "Cache-Control": "no-store" },
       body: JSON.stringify({ ok: true, version: next.version }),
     };
   } catch (e) {

@@ -1,13 +1,9 @@
-// netlify/functions/live-load.js
-import { getStore } from "@netlify/blobs";
+// CommonJS + Netlify Lambda style
+const { getStore } = require("@netlify/blobs");
 
-export const handler = async (event) => {
+exports.handler = async (event) => {
   try {
-    const url = new URL(
-      event.rawUrl ||
-        `https://x${event.path}${event.rawQuery ? "?" + event.rawQuery : ""}`
-    );
-    const showId = url.searchParams.get("showId")?.trim();
+    const showId = (event.queryStringParameters?.showId || "").trim();
     if (!showId) {
       return {
         statusCode: 400,
@@ -29,9 +25,7 @@ export const handler = async (event) => {
         };
 
     const etag = `W/"${doc.version}"`;
-    const inm =
-      event.headers?.["if-none-match"] || event.headers?.["If-None-Match"];
-    if (inm === etag) {
+    if (event.headers && event.headers["if-none-match"] === etag) {
       return {
         statusCode: 304,
         headers: { ETag: etag, "Cache-Control": "no-store" },
@@ -41,11 +35,7 @@ export const handler = async (event) => {
 
     return {
       statusCode: 200,
-      headers: {
-        ETag: etag,
-        "Cache-Control": "no-store",
-        "Content-Type": "application/json",
-      },
+      headers: { ETag: etag, "Cache-Control": "no-store" },
       body: JSON.stringify(doc),
     };
   } catch (e) {
