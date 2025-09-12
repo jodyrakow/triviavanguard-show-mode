@@ -8,6 +8,7 @@ import ScoringMode from "./ScoringMode";
 import ResultsMode from "./ResultsMode";
 import AnswersMode from "./AnswersMode";
 import { ButtonTab, colors, tokens } from "./styles/index.js";
+import { useLiveShowSync } from "./liveSync.js";
 
 // 🔐 PASSWORD PROTECTION
 const allowedPassword = "tv2025";
@@ -58,6 +59,18 @@ export default function App() {
       console.warn("Failed to load scoring backup:", err);
     }
   }, []);
+
+  const { queueSave } = useLiveShowSync({
+    showId: selectedShowId,
+    // Save/Load the WHOLE per-show cache (all rounds):
+    getState: () => scoringCache[selectedShowId] ?? {},
+    applyRemote: (doc) => {
+      setScoringCache((prev) => ({
+        ...prev,
+        [selectedShowId]: doc.state ?? {},
+      }));
+    },
+  });
 
   // Timer state
   const [timerPosition, setTimerPosition] = useState({ x: 0, y: 0 });
@@ -125,6 +138,14 @@ export default function App() {
     setTimerDuration(newDuration);
     setTimeLeft(newDuration);
   };
+
+  // Auto-reset when timer hits 0 (so you only need to press Start next time)
+  useEffect(() => {
+    if (timerRunning && timeLeft <= 0) {
+      setTimerRunning(false);
+      setTimeLeft(timerDuration); // reset to full duration
+    }
+  }, [timerRunning, timeLeft, timerDuration]);
 
   // Utils
   function numberToLetter(n) {
@@ -509,6 +530,7 @@ export default function App() {
               }
               return next;
             });
+            queueSave("host"); // optional "by"
           }}
           scoringMode={scoringMode}
           setScoringMode={setScoringMode}
