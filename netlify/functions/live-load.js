@@ -1,9 +1,13 @@
 // netlify/functions/live-load.js
-exports.handler = async (event) => {
-  try {
-    const { getStore } = await import("@netlify/blobs");
+import { getStore } from "@netlify/blobs";
 
-    const showId = (event.queryStringParameters?.showId || "").trim();
+export const handler = async (event) => {
+  try {
+    const url = new URL(
+      event.rawUrl ||
+        `https://x${event.path}${event.rawQuery ? "?" + event.rawQuery : ""}`
+    );
+    const showId = url.searchParams.get("showId")?.trim();
     if (!showId) {
       return {
         statusCode: 400,
@@ -13,20 +17,21 @@ exports.handler = async (event) => {
 
     const store = getStore({ name: "live-state", consistency: "strong" });
     const key = `live/${showId}.json`;
+    const text = await store.get(key);
 
-    // Get parsed JSON (null if missing)
-    const doc = (await store.get(key, { type: "json" })) || {
-      version: 0,
-      updatedAt: Date.now(),
-      state: { teams: [], grid: {}, entryOrder: [] },
-      by: null,
-    };
+    const doc = text
+      ? JSON.parse(text)
+      : {
+          version: 0,
+          updatedAt: Date.now(),
+          state: { teams: [], grid: {}, entryOrder: [] },
+          by: null,
+        };
 
     const etag = `W/"${doc.version}"`;
-    const ifNoneMatch =
+    const inm =
       event.headers?.["if-none-match"] || event.headers?.["If-None-Match"];
-
-    if (ifNoneMatch === etag) {
+    if (inm === etag) {
       return {
         statusCode: 304,
         headers: { ETag: etag, "Cache-Control": "no-store" },
@@ -36,11 +41,15 @@ exports.handler = async (event) => {
 
     return {
       statusCode: 200,
-      headers: { ETag: etag, "Cache-Control": "no-store" },
+      headers: {
+        ETag: etag,
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify(doc),
     };
   } catch (e) {
-    console.error(e);
+    console.error("live-load failed", e);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: "live-load failed" }),
