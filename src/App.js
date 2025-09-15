@@ -8,7 +8,6 @@ import ScoringMode from "./ScoringMode";
 import ResultsMode from "./ResultsMode";
 import AnswersMode from "./AnswersMode";
 import { ButtonTab, colors, tokens } from "./styles/index.js";
-import { useLiveShowSync } from "./liveSync.js";
 
 // 🔐 PASSWORD PROTECTION
 const allowedPassword = "tv2025";
@@ -60,18 +59,6 @@ export default function App() {
     }
   }, []);
 
-  const { queueSave } = useLiveShowSync({
-    showId: selectedShowId,
-    // Save/Load the WHOLE per-show cache (all rounds):
-    getState: () => scoringCache[selectedShowId] ?? {},
-    applyRemote: (doc) => {
-      setScoringCache((prev) => ({
-        ...prev,
-        [selectedShowId]: doc.state ?? {},
-      }));
-    },
-  });
-
   // Timer state
   const [timerPosition, setTimerPosition] = useState({ x: 0, y: 0 });
   const [timerDuration, setTimerDuration] = useState(60);
@@ -102,19 +89,6 @@ export default function App() {
     localStorage.setItem("tv_poolPerQuestion", String(poolPerQuestion));
   }, [poolPerQuestion]);
 
-  // Load timer position
-  useEffect(() => {
-    const saved = localStorage.getItem("timerPosition");
-    if (saved) {
-      setTimerPosition(JSON.parse(saved));
-    } else {
-      setTimerPosition({
-        x: window.innerWidth - 200,
-        y: window.innerHeight - 150,
-      });
-    }
-  }, []);
-
   useEffect(() => {
     const savedPosition = localStorage.getItem("timerPosition");
     if (savedPosition) {
@@ -122,11 +96,21 @@ export default function App() {
         setTimerPosition(JSON.parse(savedPosition));
       } catch {}
     }
+
     if (!timerRunning) return;
-    if (timeLeft <= 0) return;
-    const t = setTimeout(() => setTimeLeft((prev) => prev - 1), 1000);
+
+    if (timeLeft <= 0) {
+      setTimeLeft(timerDuration); // ✅ reset the clock
+      setTimerRunning(false); // ✅ stop running after reset
+      return;
+    }
+
+    const t = setTimeout(
+      () => setTimeLeft((prev) => Math.max(prev - 1, 0)),
+      1000
+    );
     return () => clearTimeout(t);
-  }, [timerRunning, timeLeft]);
+  }, [timerRunning, timeLeft, timerDuration]);
 
   const handleStartPause = () => setTimerRunning((p) => !p);
   const handleReset = () => {
@@ -138,14 +122,6 @@ export default function App() {
     setTimerDuration(newDuration);
     setTimeLeft(newDuration);
   };
-
-  // Auto-reset when timer hits 0 (so you only need to press Start next time)
-  useEffect(() => {
-    if (timerRunning && timeLeft <= 0) {
-      setTimerRunning(false);
-      setTimeLeft(timerDuration); // reset to full duration
-    }
-  }, [timerRunning, timeLeft, timerDuration]);
 
   // Utils
   function numberToLetter(n) {
@@ -241,65 +217,6 @@ export default function App() {
     return Array.from(new Set(arr)).sort((a, b) => a - b);
   }, [showBundle]);
 
-  // Somewhere in App.js (or ShowMode) — add this helper:
-  function downloadAnswerKey(showBundle) {
-    if (!Array.isArray(showBundle?.rounds) || !showBundle.rounds.length) return;
-
-    const isTB = (q) =>
-      (q.questionType || "").toLowerCase() === "tiebreaker" ||
-      String(q.questionOrder).toUpperCase() === "TB" ||
-      String(q.id || "").startsWith("tb-");
-
-    const cvt = (val) => {
-      if (typeof val === "string" && /^[A-Z]$/i.test(val)) {
-        return val.toUpperCase().charCodeAt(0) - 64; // A=1
-      }
-      const n = parseInt(val, 10);
-      return Number.isNaN(n) ? 9999 : 100 + n;
-    };
-
-    const lines = [];
-    const rounds = [...(showBundle.rounds || [])].sort(
-      (a, b) => Number(a.round) - Number(b.round)
-    );
-
-    for (const r of rounds) {
-      const qs = [...(r.questions || [])]
-        .filter((q) => !isTB(q))
-        .sort(
-          (a, b) =>
-            Number(a.sortOrder ?? 9999) - Number(b.sortOrder ?? 9999) ||
-            cvt(a.questionOrder) - cvt(b.questionOrder)
-        );
-
-      if (!qs.length) continue;
-
-      lines.push(`Round ${r.round}`);
-      for (const q of qs) {
-        const num = q.questionOrder ?? "";
-        const ans =
-          (Array.isArray(q.answer) ? q.answer[0] : q.answer) ??
-          q.answerText ??
-          q.correctAnswer ??
-          "";
-        lines.push(`${num}) ${ans}`);
-      }
-      lines.push(""); // blank line between rounds
-    }
-
-    const blob = new Blob([lines.join("\n")], {
-      type: "text/plain;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "answer-key.txt";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }
-
   // UI
   return (
     <div
@@ -369,10 +286,6 @@ export default function App() {
           onClick={() => setActiveMode("results")}
         >
           Results mode
-        </ButtonTab>
-
-        <ButtonTab onClick={() => downloadAnswerKey(showBundle)}>
-          Create printable answer key
         </ButtonTab>
       </div>
 
@@ -530,7 +443,6 @@ export default function App() {
               }
               return next;
             });
-            queueSave("host"); // optional "by"
           }}
           scoringMode={scoringMode}
           setScoringMode={setScoringMode}
