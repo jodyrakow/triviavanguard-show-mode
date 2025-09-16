@@ -131,9 +131,8 @@ export default function App() {
   };
 
   // Supabase Realtime sanity test + "mark" event (double quotes)
-  // Supabase Realtime sanity test + "mark" event (double quotes)
   useEffect(() => {
-    if (!supabase) return;
+    if (!supabase) return; // no client available
 
     const ch = supabase.channel("tv-sanity", {
       config: { broadcast: { ack: true } },
@@ -149,10 +148,10 @@ export default function App() {
       }
       return ch.send({ type: "broadcast", event, payload });
     };
+    // -------------------------------------------------
 
-    ch.on("broadcast", { event: "ping" }, (msg) => {
-      const data = msg?.payload ?? msg;
-      console.log("[realtime] ping received:", data);
+    ch.on("broadcast", { event: "ping" }, (payload) => {
+      console.log("[realtime] ping received:", payload);
     });
 
     ch.on("broadcast", { event: "mark" }, (msg) => {
@@ -181,21 +180,25 @@ export default function App() {
 
     ch.on("broadcast", { event: "teamRename" }, (msg) => {
       const data = msg?.payload ?? msg;
-      console.log("[realtime] teamRename received:", data);
       window.dispatchEvent(new CustomEvent("tv:teamRename", { detail: data }));
     });
 
     ch.on("broadcast", { event: "teamRemove" }, (msg) => {
       const data = msg?.payload ?? msg;
-      console.log("[realtime] teamRemove received:", data);
       window.dispatchEvent(new CustomEvent("tv:teamRemove", { detail: data }));
     });
+
+    // expose convenience helpers (safe via tvSend queue)
+    window.sendMark = (payload) => window.tvSend("mark", payload);
+    window.sendCellEdit = (payload) => window.tvSend("cellEdit", payload);
+    window.sendTeamBonus = (payload) => window.tvSend("teamBonus", payload);
+    window.sendTeamAdd = (payload) => window.tvSend("teamAdd", payload);
+    window.sendTeamRename = (payload) => window.tvSend("teamRename", payload);
+    window.sendTeamRemove = (payload) => window.tvSend("teamRemove", payload);
 
     ch.subscribe((status) => {
       if (status === "SUBSCRIBED") {
         console.log("[realtime] joined tv-sanity");
-
-        // Mark ready and flush anything sent before we subscribed
         window._tvReady = true;
         if (window._tvQueue?.length) {
           const q = window._tvQueue.splice(0);
@@ -203,16 +206,6 @@ export default function App() {
             ch.send({ type: "broadcast", event, payload })
           );
         }
-
-        // expose convenience helpers (backed by tvSend)
-        window.sendMark = (payload) => window.tvSend("mark", payload);
-        window.sendCellEdit = (payload) => window.tvSend("cellEdit", payload);
-        window.sendTeamBonus = (payload) => window.tvSend("teamBonus", payload);
-        window.sendTeamAdd = (payload) => window.tvSend("teamAdd", payload);
-        window.sendTeamRename = (payload) =>
-          window.tvSend("teamRename", payload);
-        window.sendTeamRemove = (payload) =>
-          window.tvSend("teamRemove", payload);
       }
     });
 
@@ -240,9 +233,13 @@ export default function App() {
       } catch {}
       window._tvReady = false;
       window._tvQueue = [];
-      supabase.removeChannel(ch);
+      // guard in case supabase is falsy
+      try {
+        supabase?.removeChannel(ch);
+      } catch {}
     };
-  }, [supabase]);
+    // ✅ run once; 'supabase' is a module-level constant and won't change
+  }, []);
 
   // Utils
   function numberToLetter(n) {
