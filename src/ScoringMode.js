@@ -128,6 +128,73 @@ export default function ScoringMode({
   const lastScrollYRef = useRef(0);
   const lastFocusKeyRef = useRef(null);
 
+  useEffect(() => {
+    const onMark = (e) => {
+      const { teamId, showQuestionId, nowCorrect } = e.detail || {};
+      if (!teamId || !showQuestionId) return;
+
+      // Apply the incoming toggle deterministically (no feedback loop issues)
+      setGrid((prev) => {
+        const byTeam = prev[teamId] ? { ...prev[teamId] } : {};
+        const cell = byTeam[showQuestionId] || {
+          isCorrect: false,
+          questionBonus: 0,
+          overridePoints: null,
+        };
+        byTeam[showQuestionId] = { ...cell, isCorrect: !!nowCorrect };
+        return { ...prev, [teamId]: byTeam };
+      });
+    };
+
+    window.addEventListener("tv:mark", onMark);
+    return () => window.removeEventListener("tv:mark", onMark);
+  }, [setGrid]);
+
+  useEffect(() => {
+    const onTeamBonus = (e) => {
+      const { teamId, showBonus } = e.detail || {};
+      if (!teamId) return;
+      setTeams((prev) =>
+        prev.map((t) =>
+          t.showTeamId === teamId
+            ? { ...t, showBonus: Number(showBonus || 0) }
+            : t
+        )
+      );
+    };
+    window.addEventListener("tv:teamBonus", onTeamBonus);
+    return () => window.removeEventListener("tv:teamBonus", onTeamBonus);
+  }, []);
+
+  useEffect(() => {
+    const onCellEdit = (e) => {
+      const { teamId, showQuestionId, questionBonus, overridePoints } =
+        e.detail || {};
+      if (!teamId || !showQuestionId) return;
+
+      setGrid((prev) => {
+        const byTeam = prev[teamId] ? { ...prev[teamId] } : {};
+        const cell = byTeam[showQuestionId] || {
+          isCorrect: false,
+          questionBonus: 0,
+          overridePoints: null,
+        };
+        byTeam[showQuestionId] = {
+          ...cell,
+          questionBonus: Number(questionBonus || 0),
+          overridePoints:
+            overridePoints === null || overridePoints === undefined
+              ? null
+              : Number(overridePoints),
+        };
+        return { ...prev, [teamId]: byTeam };
+      });
+    };
+
+    window.addEventListener("tv:cellEdit", onCellEdit);
+    return () => window.removeEventListener("tv:cellEdit", onCellEdit);
+  }, []);
+
   // Remove a team and all their cells
   const removeTeam = (showTeamId) => {
     const hasAnyScores =
@@ -214,6 +281,14 @@ export default function ScoringMode({
     if (!editingCell) return;
     const { showTeamId, showQuestionId, draftBonus, draftOverride } =
       editingCell;
+
+    // ✅ Decide values BEFORE setGrid
+    const nextBonus = Number(draftBonus || 0);
+    const nextOverride =
+      draftOverride === "" || draftOverride === null
+        ? null
+        : Number(draftOverride);
+
     setGrid((prev) => {
       const byTeam = prev[showTeamId] ? { ...prev[showTeamId] } : {};
       const cell = byTeam[showQuestionId] || {
@@ -223,14 +298,23 @@ export default function ScoringMode({
       };
       byTeam[showQuestionId] = {
         ...cell,
-        questionBonus: Number(draftBonus || 0),
-        overridePoints:
-          draftOverride === "" || draftOverride === null
-            ? null
-            : Number(draftOverride),
+        questionBonus: nextBonus,
+        overridePoints: nextOverride,
       };
       return { ...prev, [showTeamId]: byTeam };
     });
+
+    // ✅ Broadcast with the precomputed values
+    try {
+      window.sendCellEdit?.({
+        teamId: showTeamId,
+        showQuestionId,
+        questionBonus: nextBonus,
+        overridePoints: nextOverride, // null = clear override
+        ts: Date.now(),
+      });
+    } catch {}
+
     setEditingCell(null);
     restoreAfterModal();
   };
@@ -323,6 +407,54 @@ export default function ScoringMode({
     setTeamIdxSolo((i) => (i - 1 + visibleTeams.length) % visibleTeams.length);
   }, [visibleTeams.length]);
 
+  useEffect(() => {
+    const onTeamAdd = (e) => {
+      const { teamId, teamName } = e.detail || {};
+      if (!teamId || !teamName) return;
+
+      setTeams((prev) => {
+        // skip if already present
+        if (prev.some((t) => t.showTeamId === teamId)) return prev;
+        return [...prev, { showTeamId: teamId, teamName, showBonus: 0 }];
+      });
+
+      setEntryOrder((prev) =>
+        prev.includes(teamId) ? prev : [...prev, teamId]
+      );
+    };
+    window.addEventListener("tv:teamAdd", onTeamAdd);
+    return () => window.removeEventListener("tv:teamAdd", onTeamAdd);
+  }, []);
+
+  useEffect(() => {
+    const onTeamRename = (e) => {
+      const { teamId, teamName } = e.detail || {};
+      if (!teamId || !teamName) return;
+      setTeams((prev) =>
+        prev.map((t) => (t.showTeamId === teamId ? { ...t, teamName } : t))
+      );
+    };
+    window.addEventListener("tv:teamRename", onTeamRename);
+    return () => window.removeEventListener("tv:teamRename", onTeamRename);
+  }, []);
+
+  const renameTeam = (showTeamId, nextName) => {
+    const name = String(nextName ?? "").trim();
+    if (!name) return;
+    setTeams((prev) =>
+      prev.map((t) =>
+        t.showTeamId === showTeamId ? { ...t, teamName: name } : t
+      )
+    );
+    try {
+      window.sendTeamRename?.({
+        teamId: showTeamId,
+        teamName: name,
+        ts: Date.now(),
+      });
+    } catch {}
+  };
+
   // ---------------- Focus + keyboard nav ----------------
   const [focus, setFocus] = useState({ teamIdx: 0, qIdx: 0 });
   useEffect(() => {
@@ -337,6 +469,11 @@ export default function ScoringMode({
       const t = renderTeams[renderTeamIdx];
       const q = questions[qIdx];
       if (!t || !q) return;
+
+      // ✅ Decide next state BEFORE setGrid
+      const prevCell = grid[t.showTeamId]?.[q.showQuestionId];
+      const nextOn = !prevCell?.isCorrect;
+
       setGrid((prev) => {
         const byTeam = prev[t.showTeamId] ? { ...prev[t.showTeamId] } : {};
         const cell = byTeam[q.showQuestionId] || {
@@ -344,12 +481,25 @@ export default function ScoringMode({
           questionBonus: 0,
           overridePoints: null,
         };
-        byTeam[q.showQuestionId] = { ...cell, isCorrect: !cell.isCorrect };
+        byTeam[q.showQuestionId] = { ...cell, isCorrect: nextOn };
         return { ...prev, [t.showTeamId]: byTeam };
       });
+
+      // ✅ Broadcast with the already-computed value
+      try {
+        window.sendMark?.({
+          teamId: t.showTeamId,
+          teamName: t.teamName,
+          showQuestionId: q.showQuestionId,
+          questionOrder: q.order,
+          nowCorrect: nextOn,
+          ts: Date.now(),
+        });
+      } catch {}
+
       setFocus({ teamIdx: teamMode ? 0 : renderTeamIdx, qIdx });
     },
-    [renderTeams, questions, teamMode]
+    [renderTeams, questions, teamMode, grid] // note: include `grid` since we read from it
   );
 
   useEffect(() => {
@@ -391,7 +541,7 @@ export default function ScoringMode({
         // otherwise: advance to next question in this column
         setFocus(({ teamIdx: t, qIdx }) => ({
           teamIdx: teamMode ? teamIdxSolo : t,
-          qIdx: Math.min(qIdx + 1, questions.length - 1),
+          qIdx: (qIdx + 1) % questions.length, // ✅ wraps to top when at last row
         }));
       } else if (e.key === "Tab" && e.shiftKey) {
         e.preventDefault();
@@ -573,11 +723,22 @@ export default function ScoringMode({
   // ---------------- Local mutations (pure state) ----------------
   const updateShowBonus = (showTeamId, val) => {
     const v = Number(val) || 0;
+
+    // local update
     setTeams((prev) =>
       prev.map((t) =>
         t.showTeamId === showTeamId ? { ...t, showBonus: v } : t
       )
     );
+
+    // broadcast to other browsers
+    try {
+      window.sendTeamBonus?.({
+        teamId: showTeamId,
+        showBonus: v,
+        ts: Date.now(),
+      });
+    } catch {}
   };
 
   const addTeamLocal = (teamName, airtableId = null) => {
@@ -591,6 +752,13 @@ export default function ScoringMode({
     };
     setTeams((prev) => [...prev, newTeam]);
     setEntryOrder((prev) => [...prev, newTeam.showTeamId]);
+    try {
+      window.sendTeamAdd?.({
+        teamId: newTeam.showTeamId,
+        teamName: newTeam.teamName,
+        ts: Date.now(),
+      });
+    } catch {}
   };
 
   // --- TB ADD: helpers to read/write tiebreaker guesses in local grid -------
@@ -1018,6 +1186,12 @@ export default function ScoringMode({
                       wordBreak: "break-word",
                       overflowWrap: "anywhere",
                       lineHeight: 1.1,
+                      cursor: "text",
+                    }}
+                    title="Double-click to rename"
+                    onDoubleClick={() => {
+                      const v = window.prompt("Rename team:", t.teamName);
+                      if (v !== null) renameTeam(t.showTeamId, v);
                     }}
                   >
                     {t.teamName}
