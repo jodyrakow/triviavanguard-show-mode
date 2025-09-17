@@ -35,7 +35,7 @@ export default function App() {
   // Core app state
   const [shows, setShows] = useState([]);
   const [selectedShowId, setSelectedShowId] = useState("");
-  const [selectedRoundId, setSelectedRoundId] = useState(""); // store as string of round number (e.g. "1")
+  const [selectedRoundId, setSelectedRoundId] = useState(""); // string (e.g. "1")
   const [showDetails, setshowDetails] = useState(true);
   const [visibleImages, setVisibleImages] = useState({});
   const questionRefs = useRef({});
@@ -43,6 +43,7 @@ export default function App() {
   const [activeMode, setActiveMode] = useState("show");
   const [currentImageIndex, setCurrentImageIndex] = useState({});
   const timerRef = useRef(null);
+  const [rtStatus, setRtStatus] = useState("INIT"); // ✅ moved inside
 
   // Bundle (rounds+questions+teams)
   const [showBundle, setShowBundle] = useState(null);
@@ -107,8 +108,8 @@ export default function App() {
     if (!timerRunning) return;
 
     if (timeLeft <= 0) {
-      setTimeLeft(timerDuration); // ✅ reset the clock
-      setTimerRunning(false); // ✅ stop running after reset
+      setTimeLeft(timerDuration); // reset the clock
+      setTimerRunning(false); // stop after reset
       return;
     }
 
@@ -130,15 +131,14 @@ export default function App() {
     setTimeLeft(newDuration);
   };
 
-  // Supabase Realtime sanity test + "mark" event (double quotes)
   useEffect(() => {
-    if (!supabase) return; // no client available
+    if (!supabase) return;
 
     const ch = supabase.channel("tv-sanity", {
       config: { broadcast: { ack: true } },
     });
 
-    // --- tiny queue + ready flag + unified sender ---
+    // queue + ready flag + unified sender
     window._tvReady = false;
     window._tvQueue = [];
     window.tvSend = (event, payload) => {
@@ -148,47 +148,37 @@ export default function App() {
       }
       return ch.send({ type: "broadcast", event, payload });
     };
-    // -------------------------------------------------
 
+    // event handlers -> DOM CustomEvents
     ch.on("broadcast", { event: "ping" }, (payload) => {
       console.log("[realtime] ping received:", payload);
     });
-
     ch.on("broadcast", { event: "mark" }, (msg) => {
       const data = msg?.payload ?? msg;
-      console.log("[realtime] mark received:", data);
       window.dispatchEvent(new CustomEvent("tv:mark", { detail: data }));
     });
-
     ch.on("broadcast", { event: "cellEdit" }, (msg) => {
       const data = msg?.payload ?? msg;
-      console.log("[realtime] cellEdit received:", data);
       window.dispatchEvent(new CustomEvent("tv:cellEdit", { detail: data }));
     });
-
     ch.on("broadcast", { event: "teamBonus" }, (msg) => {
       const data = msg?.payload ?? msg;
-      console.log("[realtime] teamBonus received:", data);
       window.dispatchEvent(new CustomEvent("tv:teamBonus", { detail: data }));
     });
-
     ch.on("broadcast", { event: "teamAdd" }, (msg) => {
       const data = msg?.payload ?? msg;
-      console.log("[realtime] teamAdd received:", data);
       window.dispatchEvent(new CustomEvent("tv:teamAdd", { detail: data }));
     });
-
     ch.on("broadcast", { event: "teamRename" }, (msg) => {
       const data = msg?.payload ?? msg;
       window.dispatchEvent(new CustomEvent("tv:teamRename", { detail: data }));
     });
-
     ch.on("broadcast", { event: "teamRemove" }, (msg) => {
       const data = msg?.payload ?? msg;
       window.dispatchEvent(new CustomEvent("tv:teamRemove", { detail: data }));
     });
 
-    // expose convenience helpers (safe via tvSend queue)
+    // expose helpers (safe via tvSend queue)
     window.sendMark = (payload) => window.tvSend("mark", payload);
     window.sendCellEdit = (payload) => window.tvSend("cellEdit", payload);
     window.sendTeamBonus = (payload) => window.tvSend("teamBonus", payload);
@@ -196,7 +186,9 @@ export default function App() {
     window.sendTeamRename = (payload) => window.tvSend("teamRename", payload);
     window.sendTeamRemove = (payload) => window.tvSend("teamRemove", payload);
 
+    setRtStatus("SUBSCRIBING");
     ch.subscribe((status) => {
+      setRtStatus(status); // "SUBSCRIBED" | "TIMED_OUT" | "CLOSED" | "CHANNEL_ERROR"
       if (status === "SUBSCRIBED") {
         console.log("[realtime] joined tv-sanity");
         window._tvReady = true;
@@ -209,42 +201,73 @@ export default function App() {
       }
     });
 
+    // single cleanup
     return () => {
       try {
         delete window.sendMark;
-      } catch {}
-      try {
         delete window.sendCellEdit;
-      } catch {}
-      try {
         delete window.sendTeamBonus;
-      } catch {}
-      try {
         delete window.sendTeamAdd;
-      } catch {}
-      try {
         delete window.sendTeamRename;
-      } catch {}
-      try {
         delete window.sendTeamRemove;
-      } catch {}
-      try {
         delete window.tvSend;
       } catch {}
       window._tvReady = false;
       window._tvQueue = [];
-      // guard in case supabase is falsy
       try {
-        supabase?.removeChannel(ch);
+        supabase.removeChannel(ch);
       } catch {}
+      setRtStatus("CLOSED");
     };
-    // ✅ run once; 'supabase' is a module-level constant and won't change
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once; supabase is module-constant
 
   // Utils
   function numberToLetter(n) {
     return String.fromCharCode(64 + n);
   }
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        try {
+          window.tvSend?.("ping", { at: Date.now() });
+        } catch {}
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedShowId || !selectedRoundId) return;
+
+    (async () => {
+      try {
+        const res = await fetch(
+          `/.netlify/functions/supaLoadScoring?showId=${encodeURIComponent(selectedShowId)}&roundId=${encodeURIComponent(selectedRoundId)}`
+        );
+        const json = await res.json();
+
+        setScoringCache((prev) => {
+          const prevShow = prev[selectedShowId] || {};
+          return {
+            ...prev,
+            [selectedShowId]: {
+              ...prevShow,
+              _shared: json.shared ??
+                prevShow._shared ?? { teams: [], entryOrder: [] },
+              [selectedRoundId]: json.round ??
+                prevShow[selectedRoundId] ?? { grid: {} },
+            },
+          };
+        });
+      } catch (e) {
+        console.warn("supaLoadScoring failed", e);
+        // falls back to whatever is in local scoringCache/localStorage
+      }
+    })();
+  }, [selectedShowId, selectedRoundId]);
 
   const getClosestQuestionKey = () => {
     const viewportCenter = window.innerHeight / 2;
@@ -263,12 +286,18 @@ export default function App() {
     return closestKey;
   };
 
+  const saveTimers = useRef({}); // {shared, round}
+
+  const saveDebounced = (key, fn, delay = 350) => {
+    clearTimeout(saveTimers.current[key]);
+    saveTimers.current[key] = setTimeout(fn, delay);
+  };
+
   // Fetch shows
   useEffect(() => {
     (async () => {
       try {
         const res = await axios.get("/.netlify/functions/fetchShows");
-        console.log("fetchShows response (prod):", res.data);
         setShows(res.data?.Shows || []);
       } catch (err) {
         console.error("Error fetching shows:", err);
@@ -323,7 +352,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-    // 👇 only depend on selectedShowId
+    // only depend on selectedShowId
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedShowId]);
 
@@ -334,6 +363,19 @@ export default function App() {
       .filter((n) => Number.isFinite(n));
     return Array.from(new Set(arr)).sort((a, b) => a - b);
   }, [showBundle]);
+
+  // 🔸 Compose a single cachedState shape shared by all modes
+  const composedCachedState = (() => {
+    const showCache = scoringCache[selectedShowId] ?? {};
+    const shared = showCache._shared ?? null; // { teams, entryOrder }
+    const roundCache = showCache[selectedRoundId] ?? null; // { grid }
+    if (!shared && !roundCache) return null;
+    return {
+      teams: shared?.teams ?? [],
+      entryOrder: shared?.entryOrder ?? [],
+      grid: roundCache?.grid ?? {},
+    };
+  })();
 
   // UI
   return (
@@ -405,6 +447,9 @@ export default function App() {
         >
           Results mode
         </ButtonTab>
+      </div>
+      <div style={{ fontSize: ".9rem", opacity: 0.85 }}>
+        Realtime: <strong>{rtStatus}</strong>
       </div>
 
       <div>
@@ -541,24 +586,54 @@ export default function App() {
           selectedShowId={selectedShowId}
           selectedRoundId={selectedRoundId}
           preloadedTeams={showBundle?.teams ?? []}
-          cachedState={scoringCache[selectedShowId]?.[selectedRoundId] ?? null}
+          cachedState={composedCachedState}
           onChangeState={(payload) => {
             setScoringCache((prev) => {
+              const { teams = [], entryOrder = [], grid = {} } = payload;
               const next = {
                 ...prev,
                 [selectedShowId]: {
                   ...(prev[selectedShowId] || {}),
-                  [selectedRoundId]: payload,
+                  _shared: { teams, entryOrder },
+                  [selectedRoundId]: { grid },
                 },
               };
+
+              // Persist to Supabase (NOT Airtable)
+              // shared
+              saveDebounced("shared", () => {
+                fetch("/.netlify/functions/supaSaveScoring", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    showId: selectedShowId,
+                    roundId: "shared",
+                    payload: { teams, entryOrder },
+                  }),
+                }).catch(() => {});
+              });
+
+              // per-round grid
+              saveDebounced("round", () => {
+                fetch("/.netlify/functions/supaSaveScoring", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    showId: selectedShowId,
+                    roundId: selectedRoundId,
+                    payload: { grid },
+                  }),
+                }).catch(() => {});
+              });
+
+              // keep your localStorage backup if you want
               try {
                 localStorage.setItem(
                   "trivia.scoring.backup",
                   JSON.stringify(next)
                 );
-              } catch (err) {
-                console.warn("Failed to save scoring backup:", err);
-              }
+              } catch {}
+
               return next;
             });
           }}
@@ -585,7 +660,7 @@ export default function App() {
           }
           selectedShowId={selectedShowId}
           selectedRoundId={selectedRoundId}
-          cachedState={scoringCache[selectedShowId]?.[selectedRoundId] ?? null}
+          cachedState={composedCachedState}
           scoringMode={scoringMode}
           pubPoints={pubPoints}
           poolPerQuestion={poolPerQuestion}
@@ -597,7 +672,7 @@ export default function App() {
           showBundle={showBundle || { rounds: [], teams: [] }}
           selectedShowId={selectedShowId}
           selectedRoundId={selectedRoundId}
-          cachedState={scoringCache[selectedShowId]?.[selectedRoundId] ?? null}
+          cachedState={composedCachedState}
           cachedByRound={scoringCache[selectedShowId] ?? {}}
           scoringMode={scoringMode}
           setScoringMode={setScoringMode}
