@@ -627,11 +627,6 @@ export default function ResultsMode({
         : Number(n).toLocaleString("en-US")
       : "—";
 
-  const tbUsedInPrizeBand = useMemo(
-    () => standings.some((r) => r.tieBroken && r.place <= prizeCount),
-    [standings, prizeCount]
-  );
-
   // Teams whose TB guess should be shown:
   // - authored TB: any tie group (same total) with >=2 teams where at least one finished inside prize band
   // - OTF TB: any selected subset within a tie group where at least one finished inside prize band
