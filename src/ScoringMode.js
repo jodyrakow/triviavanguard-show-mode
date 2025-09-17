@@ -459,7 +459,7 @@ export default function ScoringMode({
     window.addEventListener("tv:teamRemove", onTeamRemove);
     return () => window.removeEventListener("tv:teamRemove", onTeamRemove);
     // it's fine to leave deps empty; we only use setters
-  }, []);
+  }, [renderTeams.length]);
 
   useEffect(() => {
     const onTeamRename = (e) => {
