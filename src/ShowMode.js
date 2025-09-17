@@ -34,6 +34,8 @@ export default function ShowMode({
   timerPosition,
   setTimerPosition,
   getClosestQuestionKey,
+  showTimer,
+  setShowTimer,
   numberToLetter,
 }) {
   // --- Adapter: build groupedQuestions shape from bundle rounds ---
@@ -125,30 +127,42 @@ export default function ShowMode({
   return (
     <>
       {Object.keys(groupedQuestions).length > 0 && (
-        <ButtonPrimary
-          onClick={() => {
-            const key = getClosestQuestionKey();
-            setshowDetails((prev) => !prev);
-            setTimeout(() => {
-              const ref = questionRefs.current[key];
-              if (ref?.current) {
-                ref.current.scrollIntoView({
-                  behavior: "auto",
-                  block: "center",
-                });
-              }
-            }, 100);
-          }}
+        <div
           style={{
             position: "fixed",
             left: "1rem",
             top: "1rem",
             zIndex: 1000,
             pointerEvents: "auto",
+            display: "flex",
+            gap: ".5rem",
           }}
         >
-          {showDetails ? "Hide all answers" : "Show all answers"}
-        </ButtonPrimary>
+          <ButtonPrimary
+            onClick={() => {
+              const key = getClosestQuestionKey();
+              setshowDetails((prev) => !prev);
+              setTimeout(() => {
+                const ref = questionRefs.current[key];
+                if (ref?.current) {
+                  ref.current.scrollIntoView({
+                    behavior: "auto",
+                    block: "center",
+                  });
+                }
+              }, 100);
+            }}
+          >
+            {showDetails ? "Hide all answers" : "Show all answers"}
+          </ButtonPrimary>
+
+          <ButtonPrimary
+            onClick={() => setShowTimer((v) => !v)}
+            title={showTimer ? "Hide timer" : "Show timer"}
+          >
+            {showTimer ? "Hide timer" : "Show timer"}
+          </ButtonPrimary>
+        </div>
       )}
 
       {sortedGroupedEntries.map(([categoryId, catData], index) => {
@@ -650,92 +664,94 @@ export default function ShowMode({
       })}
 
       {/* Countdown Timer Floating Box */}
-      <div
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          pointerEvents: "none",
-          zIndex: 999,
-        }}
-      >
-        <Draggable
-          nodeRef={timerRef}
-          defaultPosition={timerPosition}
-          onStop={(e, data) => {
-            const newPos = { x: data.x, y: data.y };
-            setTimerPosition(newPos);
-            localStorage.setItem("timerPosition", JSON.stringify(newPos));
+      {showTimer && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            pointerEvents: "none",
+            zIndex: 999,
           }}
         >
-          <div
-            ref={timerRef}
-            style={{
-              position: "absolute",
-              backgroundColor: theme.dark,
-              color: "#fff",
-              padding: "1rem",
-              borderRadius: "0.5rem",
-              border: `1px solid ${theme.accent}`,
-              boxShadow: "0 0 10px rgba(0,0,0,0.3)",
-              fontFamily: tokens.font.body,
-              width: "180px",
-              textAlign: "center",
-              pointerEvents: "auto",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
+          <Draggable
+            nodeRef={timerRef}
+            defaultPosition={timerPosition}
+            onStop={(e, data) => {
+              const newPos = { x: data.x, y: data.y };
+              setTimerPosition(newPos);
+              localStorage.setItem("timerPosition", JSON.stringify(newPos));
             }}
           >
             <div
+              ref={timerRef}
               style={{
-                fontSize: "2rem",
-                fontWeight: "bold",
-                marginBottom: "0.5rem",
-              }}
-            >
-              {timeLeft}s
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "center",
-                gap: "0.5rem",
-                marginBottom: "0.5rem",
-              }}
-            >
-              <ButtonPrimary
-                onClick={handleStartPause}
-                style={{ width: "70px" }}
-              >
-                {timerRunning ? "Pause" : "Start"}
-              </ButtonPrimary>
-              <Button onClick={handleReset} style={{ width: "70px" }}>
-                Reset
-              </Button>
-            </div>
-
-            <input
-              type="number"
-              value={timerDuration}
-              onChange={handleDurationChange}
-              style={{
-                width: "80px",
-                padding: "0.25rem",
-                borderRadius: "0.25rem",
-                border: "1px solid #ccc",
-                fontSize: "0.9rem",
+                position: "absolute",
+                backgroundColor: theme.dark,
+                color: "#fff",
+                padding: "1rem",
+                borderRadius: "0.5rem",
+                border: `1px solid ${theme.accent}`,
+                boxShadow: "0 0 10px rgba(0,0,0,0.3)",
+                fontFamily: tokens.font.body,
+                width: "180px",
                 textAlign: "center",
+                pointerEvents: "auto",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
               }}
-              min={5}
-              max={300}
-            />
-          </div>
-        </Draggable>
-      </div>
+            >
+              <div
+                style={{
+                  fontSize: "2rem",
+                  fontWeight: "bold",
+                  marginBottom: "0.5rem",
+                }}
+              >
+                {timeLeft}s
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  gap: "0.5rem",
+                  marginBottom: "0.5rem",
+                }}
+              >
+                <ButtonPrimary
+                  onClick={handleStartPause}
+                  style={{ width: "70px" }}
+                >
+                  {timerRunning ? "Pause" : "Start"}
+                </ButtonPrimary>
+                <Button onClick={handleReset} style={{ width: "70px" }}>
+                  Reset
+                </Button>
+              </div>
+
+              <input
+                type="number"
+                value={timerDuration}
+                onChange={handleDurationChange}
+                style={{
+                  width: "80px",
+                  padding: "0.25rem",
+                  borderRadius: "0.25rem",
+                  border: "1px solid #ccc",
+                  fontSize: "0.9rem",
+                  textAlign: "center",
+                }}
+                min={5}
+                max={300}
+              />
+            </div>
+          </Draggable>
+        </div>
+      )}
     </>
   );
 }

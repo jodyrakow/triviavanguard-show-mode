@@ -230,6 +230,14 @@ export default function ScoringMode({
       const newTeamIdx = Math.max(0, f.teamIdx - (f.teamIdx >= idx ? 1 : 0));
       return { teamIdx: newTeamIdx, qIdx: f.qIdx };
     });
+
+    // inside removeTeam(showTeamId) AFTER updating teams/grid/entryOrder/focus
+    try {
+      window.sendTeamRemove?.({
+        teamId: showTeamId,
+        ts: Date.now(),
+      });
+    } catch {}
   };
 
   useEffect(() => {
@@ -424,6 +432,33 @@ export default function ScoringMode({
     };
     window.addEventListener("tv:teamAdd", onTeamAdd);
     return () => window.removeEventListener("tv:teamAdd", onTeamAdd);
+  }, []);
+
+  useEffect(() => {
+    const onTeamRemove = (e) => {
+      const { teamId } = e.detail || {};
+      if (!teamId) return;
+
+      // remove from local state
+      setTeams((prev) => prev.filter((t) => t.showTeamId !== teamId));
+      setGrid((prev) => {
+        const next = { ...prev };
+        delete next[teamId];
+        return next;
+      });
+      setEntryOrder((prev) => prev.filter((id) => id !== teamId));
+
+      // fix focus if we deleted the focused column
+      setFocus((f) => {
+        const newTeamCount = Math.max(0, renderTeams.length - 1);
+        const clampedIdx = Math.max(0, Math.min(f.teamIdx, newTeamCount - 1));
+        return { teamIdx: clampedIdx, qIdx: f.qIdx };
+      });
+    };
+
+    window.addEventListener("tv:teamRemove", onTeamRemove);
+    return () => window.removeEventListener("tv:teamRemove", onTeamRemove);
+    // it's fine to leave deps empty; we only use setters
   }, []);
 
   useEffect(() => {

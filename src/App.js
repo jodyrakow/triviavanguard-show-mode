@@ -73,6 +73,15 @@ export default function App() {
   const [timeLeft, setTimeLeft] = useState(60);
   const [timerRunning, setTimerRunning] = useState(false);
 
+  // App.js (top of component state)
+  const [showTimer, setShowTimer] = useState(
+    () => localStorage.getItem("tv_showTimer") !== "false"
+  );
+
+  useEffect(() => {
+    localStorage.setItem("tv_showTimer", String(showTimer));
+  }, [showTimer]);
+
   // Global scoring settings
   const [scoringMode, setScoringMode] = useState(
     () => localStorage.getItem("tv_scoringMode") || "pub"
@@ -169,6 +178,7 @@ export default function App() {
       const data = msg?.payload ?? msg;
       window.dispatchEvent(new CustomEvent("tv:teamAdd", { detail: data }));
     });
+
     ch.on("broadcast", { event: "teamRename" }, (msg) => {
       const data = msg?.payload ?? msg;
       window.dispatchEvent(new CustomEvent("tv:teamRename", { detail: data }));
@@ -176,6 +186,27 @@ export default function App() {
     ch.on("broadcast", { event: "teamRemove" }, (msg) => {
       const data = msg?.payload ?? msg;
       window.dispatchEvent(new CustomEvent("tv:teamRemove", { detail: data }));
+    });
+
+    ch.on("broadcast", { event: "prizesUpdate" }, (msg) => {
+      const data = msg?.payload ?? msg;
+      const showId = data?.showId;
+      const val = typeof data?.prizes === "string" ? data.prizes : "";
+      if (!showId) return;
+
+      setScoringCache((prev) => {
+        const show = prev[showId] || {};
+        const shared = show._shared || {
+          teams: [],
+          entryOrder: [],
+          prizes: "",
+        };
+        const nextShared = { ...shared, prizes: val };
+        return {
+          ...prev,
+          [showId]: { ...show, _shared: nextShared },
+        };
+      });
     });
 
     // expose helpers (safe via tvSend queue)
@@ -256,7 +287,7 @@ export default function App() {
             [selectedShowId]: {
               ...prevShow,
               _shared: json.shared ??
-                prevShow._shared ?? { teams: [], entryOrder: [] },
+                prevShow._shared ?? { teams: [], entryOrder: [], prizes: "" },
               [selectedRoundId]: json.round ??
                 prevShow[selectedRoundId] ?? { grid: {} },
             },
@@ -364,6 +395,58 @@ export default function App() {
     return Array.from(new Set(arr)).sort((a, b) => a - b);
   }, [showBundle]);
 
+  const patchShared = (patch) => {
+    setScoringCache((prev) => {
+      const show = prev[selectedShowId] || {};
+      const shared = show._shared || { teams: [], entryOrder: [], prizes: "" };
+
+      // merge the change (patch) into shared
+      const nextShared = { ...shared, ...patch };
+
+      const next = {
+        ...prev,
+        [selectedShowId]: {
+          ...show,
+          _shared: nextShared,
+          [selectedRoundId]: show[selectedRoundId] || { grid: {} },
+        },
+      };
+
+      // Persist to Supabase using values from nextShared
+      saveDebounced("shared", () => {
+        fetch("/.netlify/functions/supaSaveScoring", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            showId: selectedShowId,
+            roundId: "shared",
+            payload: {
+              teams: nextShared.teams ?? [],
+              entryOrder: nextShared.entryOrder ?? [],
+              prizes: nextShared.prizes ?? "",
+            },
+          }),
+        }).catch(() => {});
+      });
+
+      // Realtime broadcast so other hosts update instantly
+      try {
+        window.tvSend?.("prizesUpdate", {
+          showId: selectedShowId,
+          prizes: nextShared.prizes ?? "",
+          ts: Date.now(),
+        });
+      } catch {}
+
+      // optional local backup
+      try {
+        localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
+      } catch {}
+
+      return next;
+    });
+  };
+
   // 🔸 Compose a single cachedState shape shared by all modes
   const composedCachedState = (() => {
     const showCache = scoringCache[selectedShowId] ?? {};
@@ -374,6 +457,7 @@ export default function App() {
       teams: shared?.teams ?? [],
       entryOrder: shared?.entryOrder ?? [],
       grid: roundCache?.grid ?? {},
+      prizes: shared?.prizes ?? "",
     };
   })();
 
@@ -568,6 +652,8 @@ export default function App() {
           setTimerPosition={setTimerPosition}
           getClosestQuestionKey={getClosestQuestionKey}
           numberToLetter={numberToLetter}
+          showTimer={showTimer}
+          setShowTimer={setShowTimer}
         />
       )}
 
@@ -680,6 +766,8 @@ export default function App() {
           setPubPoints={setPubPoints}
           poolPerQuestion={poolPerQuestion}
           setPoolPerQuestion={setPoolPerQuestion}
+          prizes={composedCachedState?.prizes ?? ""}
+          setPrizes={(val) => patchShared({ prizes: String(val || "") })}
         />
       )}
     </div>
