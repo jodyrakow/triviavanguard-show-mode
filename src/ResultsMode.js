@@ -297,6 +297,22 @@ export default function ResultsMode({
     localStorage.setItem(`tv_prizes_${showKey}`, JSON.stringify(prizes));
   }, [prizeCount, prizes, selectedShowId, showBundle?.showId]);
 
+  // --- On-the-fly TB (OTF) state ---
+  const [otfOpen, setOtfOpen] = useState(false);
+  const [otfSelectedTeams, setOtfSelectedTeams] = useState([]); // [showTeamId]
+  const [otfStage, setOtfStage] = useState("pick"); // "pick" | "source" | "guesses" | "review"
+  const [otfSource, setOtfSource] = useState({
+    // chosen source of the OTF TB
+    mode: null, // "airtable" | "custom"
+    recordId: null, // Airtable record id (if any)
+    question: "", // short text (if any)
+    answerText: "", // short text (if any)
+    number: null, // numeric answer we’ll compare against
+  });
+  const [otfGuesses, setOtfGuesses] = useState({}); // { [showTeamId]: "" }
+  const [otfApplied, setOtfApplied] = useState(null);
+  // when applied: { number, question, answerText, teamDelta: {teamId: number}, selected: [ids] }
+
   // ----------------------- Standings (cumulative-aware) -----------------------
   const standings = useMemo(() => {
     if (!teams.length || !questions.length) return [];
@@ -463,6 +479,84 @@ export default function ResultsMode({
       }
       r.place = place;
     }
+    // ---- OTF TB (on-the-fly) reordering (non-destructive to authored TB logic) ----
+    if (otfApplied && prizeCount > 0) {
+      const { selected, teamDelta, number } = otfApplied;
+      if (selected?.length && Number.isFinite(number)) {
+        // group rows by total to ensure we only reorder within equal-total tie groups
+        const byTotal = new Map();
+        rows.forEach((r, idx) => {
+          const arr = byTotal.get(r.total) || [];
+          arr.push({ r, idx });
+          byTotal.set(r.total, arr);
+        });
+
+        for (const arr of byTotal.values()) {
+          // consider only the subset that is both selected and inside prize band
+          const inThisGroup = arr
+            .map((x) => x.r)
+            .filter(
+              (x) => selected.includes(x.showTeamId) && x.place <= prizeCount
+            );
+
+          if (inThisGroup.length >= 2) {
+            // sort that subset by OTF distance asc; stable fallback by team name
+            const sorted = [...inThisGroup].sort((a, b) => {
+              const da = teamDelta[a.showTeamId] ?? Infinity;
+              const db = teamDelta[b.showTeamId] ?? Infinity;
+              if (da !== db) return da - db;
+              return a.teamName.localeCompare(b.teamName, "en", {
+                sensitivity: "base",
+              });
+            });
+
+            // write back in place: we only permute within the same indexes for the selected ones
+            const positions = arr
+              .map((x, i) => ({ i, r: x.r }))
+              .filter(
+                (x) =>
+                  selected.includes(x.r.showTeamId) && x.r.place <= prizeCount
+              )
+              .map((x) => x.i);
+
+            positions.forEach((pos, k) => {
+              arr[pos].r = sorted[k];
+            });
+          }
+        }
+
+        // flatten back
+        const flattened = [];
+        byTotal.forEach((group) => group.forEach((x) => flattened.push(x.r)));
+        // reassign ascending by the original sort order of groups (they still in order)
+        // then recompute places
+        flattened.sort(
+          (a, b) =>
+            b.total - a.total ||
+            a.teamName.localeCompare(b.teamName, "en", { sensitivity: "base" })
+        );
+        let place = 0,
+          prevKey = null,
+          cnt = 0;
+        for (const r of flattened) {
+          cnt++;
+          // if we re-ordered inside a tie group, make that tie “broken” for the selected ones
+          if (selected.includes(r.showTeamId) && r.place <= prizeCount) {
+            r.tieBroken = true;
+            r._tbGroupBroken = true;
+            r._tbRank = teamDelta[r.showTeamId] ?? Infinity; // not shown, but keeps uniqueness
+          }
+          const tieKey =
+            r && r._tbGroupBroken ? `${r.total}|${r._tbRank}` : `${r.total}|`;
+          if (prevKey === null || tieKey !== prevKey) {
+            place = cnt;
+            prevKey = tieKey;
+          }
+          r.place = place;
+        }
+        rows.splice(0, rows.length, ...flattened);
+      }
+    }
 
     return rows;
   }, [
@@ -476,7 +570,34 @@ export default function ResultsMode({
     tbQ,
     tbNumber,
     tbGuessFor,
+    otfApplied,
   ]);
+
+  // Candidates inside prize band that remain tied (or were unbreakably tied by authored TB)
+  const otfDefaultCandidates = useMemo(() => {
+    if (!standings.length || prizeCount <= 0) return [];
+    // teams whose place is within prizeCount and (not tieBroken OR unbreakableTie)
+    // i.e., either no authored TB applied to them, or authored TB still left a tie.
+    const ids = standings
+      .filter(
+        (r) => r.place <= prizeCount && (!r.tieBroken || r.unbreakableTie)
+      )
+      .map((r) => r.showTeamId);
+    // keep only groups where at least 2 share the same total
+    const byTotal = new Map();
+    standings.forEach((r) => {
+      if (r.place <= prizeCount) {
+        const arr = byTotal.get(r.total) || [];
+        arr.push(r);
+        byTotal.set(r.total, arr);
+      }
+    });
+    const realTies = new Set();
+    for (const arr of byTotal.values()) {
+      if (arr.length >= 2) arr.forEach((r) => realTies.add(r.showTeamId));
+    }
+    return ids.filter((id) => realTies.has(id));
+  }, [standings, prizeCount]);
 
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishStatus, setPublishStatus] = useState(null); // 'ok' | 'error' | null
@@ -493,6 +614,11 @@ export default function ResultsMode({
     }, 4000);
   };
 
+  const fmtFloat = (v) => {
+    if (!Number.isFinite(v)) return "—";
+    return Number.isInteger(v) ? String(v) : String(v);
+  };
+
   // Formats
   const fmtNum = (n) =>
     Number.isFinite(n)
@@ -505,6 +631,58 @@ export default function ResultsMode({
     () => standings.some((r) => r.tieBroken && r.place <= prizeCount),
     [standings, prizeCount]
   );
+
+  // Teams whose TB guess should be shown:
+  // - authored TB: any tie group (same total) with >=2 teams where at least one finished inside prize band
+  // - OTF TB: any selected subset within a tie group where at least one finished inside prize band
+  const tbDisplaySet = useMemo(() => {
+    const s = new Set();
+    if (!standings.length || prizeCount <= 0) return s;
+
+    // group by total
+    const groups = new Map(); // total -> rows[]
+    for (const r of standings) {
+      const arr = groups.get(r.total) || [];
+      arr.push(r);
+      groups.set(r.total, arr);
+    }
+
+    // 1) Authored TB path
+    for (const arr of groups.values()) {
+      if (arr.length < 2) continue; // not a tie group
+      const intersectsPrizeBand = arr.some((r) => r.place <= prizeCount);
+      if (!intersectsPrizeBand) continue;
+      // show authored guesses for anyone in this tie group who has a finite tbGuess
+      for (const r of arr) {
+        if (Number.isFinite(r.tbGuess)) s.add(r.showTeamId);
+      }
+    }
+
+    // 2) OTF path
+    if (
+      otfApplied &&
+      Array.isArray(otfApplied.selected) &&
+      otfApplied.selected.length
+    ) {
+      for (const arr of groups.values()) {
+        if (arr.length < 2) continue;
+        const selectedInGroup = arr.filter((r) =>
+          otfApplied.selected.includes(r.showTeamId)
+        );
+        if (selectedInGroup.length < 2) continue;
+        const intersectsPrizeBand = selectedInGroup.some(
+          (r) => r.place <= prizeCount
+        );
+        if (!intersectsPrizeBand) continue;
+        // show OTF guesses for all selected teams in this tie group
+        for (const r of selectedInGroup) s.add(r.showTeamId);
+      }
+    }
+
+    return s;
+  }, [standings, prizeCount, otfApplied]);
+
+  const showTbColumn = tbDisplaySet.size > 0;
 
   function computePlacesForPublish(rows) {
     let place = 0,
@@ -904,6 +1082,36 @@ export default function ResultsMode({
         >
           {isPublishing ? "⏳ Publishing…" : "Publish results to Airtable"}
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            setOtfSelectedTeams(
+              otfDefaultCandidates.length >= 2 ? otfDefaultCandidates : []
+            );
+            setOtfGuesses({});
+            setOtfSource({
+              mode: null,
+              recordId: null,
+              question: "",
+              answerText: "",
+              number: null,
+            });
+            setOtfStage("pick");
+            setOtfOpen(true);
+          }}
+          style={{
+            padding: ".45rem .7rem",
+            border: `1px solid ${theme.accent}`,
+            background: "#fff",
+            color: theme.accent,
+            borderRadius: ".35rem",
+            cursor: "pointer",
+            fontFamily: tokens.font.body,
+          }}
+          title="Break ties on the fly (closest to the pin)"
+        >
+          On-the-fly tiebreaker
+        </button>
 
         {showPrizeCol && (
           <span
@@ -1139,7 +1347,7 @@ export default function ResultsMode({
           Final standings
         </div>
 
-        {tbUsedInPrizeBand && tbQ && tbNumber !== null && (
+        {showTbColumn ? (
           <div
             style={{
               padding: `${tokens.spacing.xs} ${tokens.spacing.md}`,
@@ -1150,16 +1358,29 @@ export default function ResultsMode({
             }}
           >
             <div style={{ fontWeight: 700, marginBottom: 4 }}>
-              🎯 Tiebreaker
+              🎯 {otfApplied ? "On-the-fly tiebreaker" : "Tiebreaker"}
             </div>
-            {tbQ?.questionText ? (
-              <div style={{ marginBottom: 2 }}>{tbQ.questionText}</div>
-            ) : null}
-            <div>
-              <strong>Correct answer:</strong> {fmtNum(tbNumber)}
-            </div>
+            {otfApplied ? (
+              <>
+                {otfApplied.question ? (
+                  <div style={{ marginBottom: 2 }}>{otfApplied.question}</div>
+                ) : null}
+                <div>
+                  <strong>Correct answer:</strong> {fmtNum(otfApplied.number)}
+                </div>
+              </>
+            ) : (
+              <>
+                {tbQ?.questionText ? (
+                  <div style={{ marginBottom: 2 }}>{tbQ.questionText}</div>
+                ) : null}
+                <div>
+                  <strong>Correct answer:</strong> {fmtNum(tbNumber)}
+                </div>
+              </>
+            )}
           </div>
-        )}
+        ) : null}
 
         <div style={{ padding: tokens.spacing.md }}>
           {standings.length === 0 ? (
@@ -1191,7 +1412,7 @@ export default function ResultsMode({
                       Prize
                     </th>
                   )}
-                  {tbUsedInPrizeBand && (
+                  {showTbColumn && (
                     <th
                       style={{
                         padding: tokens.spacing.sm,
@@ -1270,7 +1491,7 @@ export default function ResultsMode({
                           </td>
                         )}
 
-                        {tbUsedInPrizeBand && (
+                        {showTbColumn && (
                           <td
                             style={{
                               padding: tokens.spacing.sm,
@@ -1279,31 +1500,69 @@ export default function ResultsMode({
                               fontSize: "1.0rem",
                             }}
                           >
-                            {r.tieBroken &&
-                            r.place <= prizeCount &&
-                            Number.isFinite(r.tbGuess) ? (
-                              <div
-                                style={{
-                                  display: "inline-flex",
-                                  alignItems: "baseline",
-                                  gap: 6,
-                                }}
-                                title={`Guess: ${fmtNum(r.tbGuess)} … (${fmtNum(r.tbDelta)} away!)`}
-                              >
-                                <span aria-hidden>🎯</span>
-                                <span>{fmtNum(r.tbGuess)}</span>
-                                <span style={{ opacity: 0.8 }}>
-                                  ({fmtNum(r.tbDelta)} away!)
-                                </span>
-                              </div>
-                            ) : (
-                              <span
-                                style={{
-                                  display: "inline-block",
-                                  minHeight: 18,
-                                }}
-                              />
-                            )}
+                            {(() => {
+                              // authored TB path
+                              if (
+                                !otfApplied &&
+                                tbDisplaySet.has(r.showTeamId) &&
+                                Number.isFinite(r.tbGuess)
+                              ) {
+                                return (
+                                  <div
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "baseline",
+                                      gap: 6,
+                                    }}
+                                    title={`Guess: ${fmtNum(r.tbGuess)} … (${fmtNum(r.tbDelta)} away!)`}
+                                  >
+                                    <span aria-hidden>🎯</span>
+                                    <span>{fmtNum(r.tbGuess)}</span>
+                                    <span style={{ opacity: 0.8 }}>
+                                      ({fmtNum(r.tbDelta)} away!)
+                                    </span>
+                                  </div>
+                                );
+                              }
+                              // OTF path
+                              if (
+                                otfApplied &&
+                                tbDisplaySet.has(r.showTeamId)
+                              ) {
+                                const guess = otfGuesses[r.showTeamId];
+                                const delta =
+                                  otfApplied.teamDelta[r.showTeamId];
+                                if (
+                                  guess !== undefined &&
+                                  Number.isFinite(delta)
+                                ) {
+                                  return (
+                                    <div
+                                      style={{
+                                        display: "inline-flex",
+                                        alignItems: "baseline",
+                                        gap: 6,
+                                      }}
+                                      title={`Guess: ${fmtNum(+guess)} … (${fmtNum(delta)} away!)`}
+                                    >
+                                      <span aria-hidden>🎯</span>
+                                      <span>{fmtNum(+guess)}</span>
+                                      <span style={{ opacity: 0.8 }}>
+                                        ({fmtNum(delta)} away!)
+                                      </span>
+                                    </div>
+                                  );
+                                }
+                              }
+                              return (
+                                <span
+                                  style={{
+                                    display: "inline-block",
+                                    minHeight: 18,
+                                  }}
+                                />
+                              );
+                            })()}
                           </td>
                         )}
 
@@ -1365,6 +1624,545 @@ export default function ResultsMode({
           )}
         </div>
       </div>
+      {otfOpen && (
+        <div
+          onMouseDown={() => setOtfOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(43,57,74,.65)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem",
+          }}
+        >
+          <div
+            onMouseDown={(e) => e.stopPropagation()}
+            style={{
+              width: "min(92vw, 660px)",
+              background: "#fff",
+              borderRadius: ".6rem",
+              border: `1px solid ${theme.accent}`,
+              overflow: "hidden",
+              boxShadow: "0 10px 30px rgba(0,0,0,.25)",
+              fontFamily: tokens.font.body,
+            }}
+          >
+            {/* Header */}
+            <div
+              style={{
+                background: theme.dark,
+                color: "#fff",
+                padding: ".6rem .8rem",
+                borderBottom: `2px solid ${theme.accent}`,
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: tokens.font.display,
+                  fontSize: "1.25rem",
+                  letterSpacing: ".01em",
+                }}
+              >
+                On-the-fly tiebreaker
+              </div>
+              <div
+                style={{ fontSize: ".9rem", opacity: 0.9, marginTop: ".15rem" }}
+              >
+                Closest-to-the-pin; affects only the teams you choose.
+              </div>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: ".9rem .9rem 0" }}>
+              {otfStage === "pick" && (
+                <>
+                  <div style={{ marginBottom: ".6rem", fontWeight: 700 }}>
+                    Select teams to include
+                  </div>
+                  <div
+                    style={{
+                      maxHeight: 260,
+                      overflow: "auto",
+                      border: "1px solid #eee",
+                      borderRadius: ".35rem",
+                    }}
+                  >
+                    {standings.map((r) => (
+                      <label
+                        key={r.showTeamId}
+                        style={{
+                          display: "flex",
+                          gap: ".5rem",
+                          alignItems: "center",
+                          padding: ".4rem .6rem",
+                          borderBottom: "1px solid #f2f2f2",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={otfSelectedTeams.includes(r.showTeamId)}
+                          onChange={(e) => {
+                            setOtfSelectedTeams((prev) => {
+                              if (e.target.checked)
+                                return Array.from(
+                                  new Set([...prev, r.showTeamId])
+                                );
+                              return prev.filter((id) => id !== r.showTeamId);
+                            });
+                          }}
+                        />
+                        <div
+                          style={{
+                            width: 64,
+                            textAlign: "right",
+                            color: theme.accent,
+                            fontWeight: 700,
+                          }}
+                        >
+                          {ordinal(r.place)}
+                        </div>
+                        <div
+                          style={{
+                            width: 88,
+                            textAlign: "right",
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {fmtNum(r.total)}
+                        </div>
+                        <div style={{ flex: 1 }}>{r.teamName}</div>
+                      </label>
+                    ))}
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "flex-end",
+                      gap: ".5rem",
+                      padding: ".8rem 0",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (otfSelectedTeams.length < 2) return;
+                        setOtfStage("source");
+                      }}
+                      style={{
+                        padding: ".45rem .8rem",
+                        border: `1px solid ${theme.accent}`,
+                        background: theme.accent,
+                        color: "#fff",
+                        borderRadius: ".35rem",
+                        cursor:
+                          otfSelectedTeams.length < 2
+                            ? "not-allowed"
+                            : "pointer",
+                        opacity: otfSelectedTeams.length < 2 ? 0.6 : 1,
+                      }}
+                    >
+                      Continue
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {otfStage === "source" && (
+                <>
+                  <div style={{ marginBottom: ".6rem", fontWeight: 700 }}>
+                    Pick the tiebreaker source
+                  </div>
+
+                  <div style={{ display: "grid", gap: ".5rem" }}>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(
+                            "/.netlify/functions/getNextTiebreaker"
+                          );
+                          const json = await res.json();
+                          if (!json || !json.id) {
+                            // fallback to custom
+                            setOtfSource({
+                              mode: "custom",
+                              recordId: null,
+                              question: "",
+                              answerText: "",
+                              number: null,
+                            });
+                            setOtfStage("guesses");
+                            return;
+                          }
+                          const q = json.fields?.["Tiebreaker question"] || "";
+                          const aText =
+                            json.fields?.["Tiebreaker answer"] || "";
+                          const nRaw = json.fields?.["Tiebreaker number"];
+                          const n =
+                            nRaw === undefined || nRaw === null
+                              ? null
+                              : Number(nRaw);
+                          setOtfSource({
+                            mode: "airtable",
+                            recordId: json.id,
+                            question: String(q || ""),
+                            answerText: String(aText || ""),
+                            number: Number.isFinite(n) ? n : null,
+                          });
+                          // mark used now
+                          await fetch(
+                            "/.netlify/functions/markTiebreakerUsed",
+                            {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ recordId: json.id }),
+                            }
+                          );
+                          setOtfStage("guesses");
+                        } catch {
+                          // fallback to custom
+                          setOtfSource({
+                            mode: "custom",
+                            recordId: null,
+                            question: "",
+                            answerText: "",
+                            number: null,
+                          });
+                          setOtfStage("guesses");
+                        }
+                      }}
+                      style={{
+                        padding: ".45rem .7rem",
+                        border: "1px solid #ccc",
+                        background: "#f7f7f7",
+                        borderRadius: ".35rem",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Use next unused from Airtable
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOtfSource({
+                          mode: "custom",
+                          recordId: null,
+                          question: "",
+                          answerText: "",
+                          number: null,
+                        });
+                        setOtfStage("guesses");
+                      }}
+                      style={{
+                        padding: ".45rem .7rem",
+                        border: "1px solid #ccc",
+                        background: "#f7f7f7",
+                        borderRadius: ".35rem",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Enter a custom numeric answer
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {otfStage === "guesses" && (
+                <>
+                  <div style={{ marginBottom: ".6rem", fontWeight: 700 }}>
+                    Enter guesses
+                  </div>
+
+                  {otfSource.mode === "airtable" &&
+                    (otfSource.question || otfSource.answerText) && (
+                      <div
+                        style={{
+                          marginBottom: ".5rem",
+                          padding: ".5rem",
+                          border: "1px solid #eee",
+                          borderRadius: ".35rem",
+                          background: "#fafafa",
+                        }}
+                      >
+                        {otfSource.question ? (
+                          <div style={{ marginBottom: 4 }}>
+                            <strong>Question:</strong> {otfSource.question}
+                          </div>
+                        ) : null}
+                        {otfSource.answerText ? (
+                          <div style={{ marginBottom: 4 }}>
+                            <strong>Answer:</strong> {otfSource.answerText}
+                          </div>
+                        ) : null}
+                        <div>
+                          <strong>Number:</strong>{" "}
+                          {otfSource.number !== null
+                            ? fmtFloat(otfSource.number)
+                            : "(host will enter custom number)"}
+                        </div>
+                      </div>
+                    )}
+
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: ".5rem",
+                      marginBottom: ".75rem",
+                    }}
+                  >
+                    <span style={{ minWidth: 160 }}>Correct number:</span>
+                    <input
+                      type="number"
+                      step="any"
+                      value={otfSource.number ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setOtfSource((src) => ({
+                          ...src,
+                          number: v === "" ? null : Number(v),
+                        }));
+                      }}
+                      placeholder="e.g., 123.45"
+                      style={{
+                        width: 160,
+                        padding: ".45rem .55rem",
+                        border: "1px solid #ccc",
+                        borderRadius: ".35rem",
+                      }}
+                    />
+                  </label>
+
+                  <div
+                    style={{
+                      maxHeight: 260,
+                      overflow: "auto",
+                      border: "1px solid #eee",
+                      borderRadius: ".35rem",
+                    }}
+                  >
+                    {otfSelectedTeams.map((id) => {
+                      const team = standings.find((r) => r.showTeamId === id);
+                      if (!team) return null;
+                      return (
+                        <label
+                          key={id}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 180px",
+                            alignItems: "center",
+                            gap: ".5rem",
+                            padding: ".4rem .6rem",
+                            borderBottom: "1px solid #f2f2f2",
+                          }}
+                        >
+                          <div>{team.teamName}</div>
+                          <input
+                            type="number"
+                            step="any"
+                            value={otfGuesses[id] ?? ""}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setOtfGuesses((prev) => ({ ...prev, [id]: v }));
+                            }}
+                            placeholder="Guess"
+                            style={{
+                              padding: ".35rem .5rem",
+                              border: "1px solid #ccc",
+                              borderRadius: ".35rem",
+                            }}
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "flex-end",
+                      gap: ".5rem",
+                      padding: ".8rem 0",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!Number.isFinite(otfSource.number)) return;
+                        // compute deltas
+                        const teamDelta = {};
+                        for (const id of otfSelectedTeams) {
+                          const g = otfGuesses[id];
+                          const num = g === "" || g == null ? NaN : Number(g);
+                          teamDelta[id] = Number.isFinite(num)
+                            ? Math.abs(num - otfSource.number)
+                            : Infinity;
+                        }
+                        setOtfApplied({
+                          question: otfSource.question || "",
+                          answerText: otfSource.answerText || "",
+                          number: otfSource.number,
+                          selected: otfSelectedTeams.slice(),
+                          teamDelta,
+                        });
+                        setOtfStage("review");
+                      }}
+                      style={{
+                        padding: ".45rem .8rem",
+                        border: `1px solid ${theme.accent}`,
+                        background: theme.accent,
+                        color: "#fff",
+                        borderRadius: ".35rem",
+                        cursor: Number.isFinite(otfSource.number)
+                          ? "pointer"
+                          : "not-allowed",
+                        opacity: Number.isFinite(otfSource.number) ? 1 : 0.6,
+                      }}
+                    >
+                      Preview results
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {otfStage === "review" && otfApplied && (
+                <>
+                  <div style={{ marginBottom: ".6rem", fontWeight: 700 }}>
+                    Preview: closest to the pin
+                  </div>
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      marginBottom: ".75rem",
+                    }}
+                  >
+                    <thead>
+                      <tr style={{ background: theme.bg }}>
+                        <th
+                          style={{ textAlign: "left", padding: ".35rem .5rem" }}
+                        >
+                          Team
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "right",
+                            padding: ".35rem .5rem",
+                          }}
+                        >
+                          Guess
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "right",
+                            padding: ".35rem .5rem",
+                          }}
+                        >
+                          Distance
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...otfApplied.selected]
+                        .sort((a, b) => {
+                          const da = otfApplied.teamDelta[a] ?? Infinity;
+                          const db = otfApplied.teamDelta[b] ?? Infinity;
+                          if (da !== db) return da - db;
+                          const A =
+                            standings.find((r) => r.showTeamId === a)
+                              ?.teamName || "";
+                          const B =
+                            standings.find((r) => r.showTeamId === b)
+                              ?.teamName || "";
+                          return A.localeCompare(B, "en", {
+                            sensitivity: "base",
+                          });
+                        })
+                        .map((id) => {
+                          const name =
+                            standings.find((r) => r.showTeamId === id)
+                              ?.teamName || id;
+                          const g = otfGuesses[id];
+                          const d = otfApplied.teamDelta[id];
+                          return (
+                            <tr key={id}>
+                              <td style={{ padding: ".35rem .5rem" }}>
+                                {name}
+                              </td>
+                              <td
+                                style={{
+                                  padding: ".35rem .5rem",
+                                  textAlign: "right",
+                                }}
+                              >
+                                {g === "" || g == null ? "—" : fmtFloat(+g)}
+                              </td>
+                              <td
+                                style={{
+                                  padding: ".35rem .5rem",
+                                  textAlign: "right",
+                                }}
+                              >
+                                {Number.isFinite(d) ? fmtFloat(d) : "—"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: ".5rem",
+                      paddingBottom: ".9rem",
+                    }}
+                  >
+                    <div style={{ opacity: 0.85 }}>
+                      Correct number:&nbsp;
+                      <strong>{fmtFloat(otfApplied.number)}</strong>
+                    </div>
+                    <div style={{ display: "flex", gap: ".5rem" }}>
+                      <button
+                        type="button"
+                        onClick={() => setOtfStage("guesses")}
+                        style={{
+                          padding: ".45rem .7rem",
+                          border: "1px solid #ccc",
+                          background: "#f7f7f7",
+                          borderRadius: ".35rem",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Back
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setOtfOpen(false)}
+                        style={{
+                          padding: ".45rem .8rem",
+                          border: `1px solid ${theme.accent}`,
+                          background: theme.accent,
+                          color: "#fff",
+                          borderRadius: ".35rem",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Apply to standings
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
