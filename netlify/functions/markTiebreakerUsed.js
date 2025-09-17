@@ -1,54 +1,40 @@
 // netlify/functions/markTiebreakerUsed.js
+const AIRTABLE_BASE_ID = "appnwzfwa2Bl6V2jX";
+const AIRTABLE_API_URL = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}`;
+const AIRTABLE_TOKEN = process.env.AIRTABLE_TOKEN;
+
 export async function handler(event) {
   try {
-    if (event.httpMethod !== "POST") {
-      return { statusCode: 405, body: "Method Not Allowed" };
+    if (!AIRTABLE_TOKEN) {
+      return { statusCode: 500, body: "Missing AIRTABLE_TOKEN" };
     }
-
     const { recordId } = JSON.parse(event.body || "{}");
-    if (!recordId) return { statusCode: 400, body: "Missing recordId" };
-
-    const baseId = process.env.AIRTABLE_BASE_ID;
-    const table = process.env.AIRTABLE_TB_TABLE || "Tiebreakers";
-    const token = process.env.AIRTABLE_TOKEN;
-
-    if (!baseId || !token) {
-      return {
-        statusCode: 500,
-        body: "Missing AIRTABLE_BASE_ID or AIRTABLE_TOKEN",
-      };
+    if (!recordId) {
+      return { statusCode: 400, body: "Missing recordId" };
     }
+    const table = process.env.AIRTABLE_TB_TABLE || "Tiebreakers";
 
-    const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}`;
-    const body = {
-      records: [
-        {
-          id: recordId,
-          fields: { Used: true },
+    const res = await fetch(
+      `${AIRTABLE_API_URL}/${encodeURIComponent(table)}/${encodeURIComponent(recordId)}`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${AIRTABLE_TOKEN}`,
+          "Content-Type": "application/json",
         },
-      ],
-      typecast: false,
-    };
-
-    const res = await fetch(url, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
+        body: JSON.stringify({ fields: { Used: true } }),
+      }
+    );
 
     if (!res.ok) {
       const txt = await res.text();
       return { statusCode: res.status, body: txt };
     }
-
     const json = await res.json();
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ok: true, updated: json.records?.length || 0 }),
+      body: JSON.stringify(json),
     };
   } catch (err) {
     return { statusCode: 500, body: String(err?.message || err) };
