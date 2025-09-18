@@ -531,6 +531,14 @@ export default function App() {
         >
           Results mode
         </ButtonTab>
+
+        <ButtonTab
+          active={showTimer}
+          onClick={() => setShowTimer((v) => !v)}
+          title={showTimer ? "Hide timer" : "Show timer"}
+        >
+          {showTimer ? "Hide timer" : "Show timer"}
+        </ButtonTab>
       </div>
       <div style={{ fontSize: ".9rem", opacity: 0.85 }}>
         Realtime: <strong>{rtStatus}</strong>
@@ -653,7 +661,6 @@ export default function App() {
           getClosestQuestionKey={getClosestQuestionKey}
           numberToLetter={numberToLetter}
           showTimer={showTimer}
-          setShowTimer={setShowTimer}
         />
       )}
 

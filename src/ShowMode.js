@@ -1,5 +1,5 @@
 // src/ShowMode.js
-import React from "react";
+import React, { useMemo } from "react";
 import AudioPlayer from "react-h5-audio-player";
 import Draggable from "react-draggable";
 import { marked } from "marked";
@@ -38,6 +38,8 @@ export default function ShowMode({
   setShowTimer,
   numberToLetter,
 }) {
+  const [scriptOpen, setScriptOpen] = React.useState(false);
+
   // --- Adapter: build groupedQuestions shape from bundle rounds ---
   const groupedQuestionsFromRounds = React.useMemo(() => {
     const grouped = {};
@@ -124,6 +126,34 @@ export default function ShowMode({
     });
   }, [groupedQuestions]);
 
+  // --- Host Script (safe, minimal data) ---
+  const fmtNum = (n) => (Number.isFinite(n) ? n.toLocaleString("en-US") : "—");
+
+  // count non-tiebreaker questions from groupedQuestions
+  const totalQuestions = useMemo(() => {
+    let count = 0;
+    Object.values(groupedQuestions || {}).forEach((cat) => {
+      Object.values(cat?.questions || {}).forEach((q) => {
+        const typ = String(q?.["Question type"] || "").toLowerCase();
+        if (typ === "tiebreaker") return;
+        count++;
+      });
+    });
+    return count;
+  }, [groupedQuestions]);
+
+  const hasTB = useMemo(() => {
+    return Object.values(groupedQuestions || {}).some((cat) =>
+      Object.values(cat?.questions || {}).some(
+        (q) => String(q?.["Question type"] || "").toLowerCase() === "tiebreaker"
+      )
+    );
+  }, [groupedQuestions]);
+
+  const hostScript = useMemo(() => {
+    return `Tonight's show has ${fmtNum(totalQuestions)} question${totalQuestions === 1 ? "" : "s"}${hasTB ? " plus a tiebreaker" : ""}.`;
+  }, [totalQuestions, hasTB]);
+
   return (
     <>
       {Object.keys(groupedQuestions).length > 0 && (
@@ -161,6 +191,13 @@ export default function ShowMode({
             title={showTimer ? "Hide timer" : "Show timer"}
           >
             {showTimer ? "Hide timer" : "Show timer"}
+          </ButtonPrimary>
+
+          <ButtonPrimary
+            onClick={() => setScriptOpen(true)}
+            title="Show a host-ready script with tonight's details"
+          >
+            Show script
           </ButtonPrimary>
         </div>
       )}
@@ -662,6 +699,93 @@ export default function ShowMode({
           </div>
         );
       })}
+
+      {scriptOpen && (
+        <div
+          onMouseDown={() => setScriptOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(43,57,74,.65)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem",
+          }}
+        >
+          <div
+            onMouseDown={(e) => e.stopPropagation()}
+            style={{
+              width: "min(92vw, 720px)",
+              background: "#fff",
+              borderRadius: ".6rem",
+              border: `1px solid ${theme.accent}`,
+              overflow: "hidden",
+              boxShadow: "0 10px 30px rgba(0,0,0,.25)",
+              fontFamily: tokens.font.body,
+              display: "flex",
+              flexDirection: "column",
+              maxHeight: "85vh",
+            }}
+          >
+            <div
+              style={{
+                background: theme.dark,
+                color: "#fff",
+                padding: ".6rem .8rem",
+                borderBottom: `2px solid ${theme.accent}`,
+                fontFamily: tokens.font.display,
+                fontSize: "1.1rem",
+                letterSpacing: ".01em",
+              }}
+            >
+              Host Script
+            </div>
+
+            <textarea
+              readOnly
+              value={hostScript}
+              style={{
+                width: "100%",
+                minHeight: "40vh",
+                resize: "vertical",
+                padding: ".75rem",
+                border: "1px solid #ddd",
+                borderRadius: ".35rem",
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                lineHeight: 1.35,
+                fontSize: "0.95rem",
+                whiteSpace: "pre",
+              }}
+            />
+
+            <div
+              style={{
+                display: "flex",
+                gap: ".5rem",
+                justifyContent: "flex-end",
+                padding: ".8rem .9rem .9rem",
+                borderTop: "1px solid #eee",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setScriptOpen(false)}
+                style={{
+                  padding: ".5rem .75rem",
+                  border: "1px solid #ccc",
+                  background: "#f7f7f7",
+                  borderRadius: ".35rem",
+                  cursor: "pointer",
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Countdown Timer Floating Box */}
       {showTimer && (
