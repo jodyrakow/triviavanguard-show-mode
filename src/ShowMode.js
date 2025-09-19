@@ -13,7 +13,8 @@ import {
 } from "./styles";
 
 export default function ShowMode({
-  rounds = [],
+  showBundle = { rounds: [], teams: [] },
+  selectedRoundId,
   groupedQuestions: groupedQuestionsProp,
   showDetails,
   setshowDetails,
@@ -36,14 +37,57 @@ export default function ShowMode({
   getClosestQuestionKey,
   showTimer,
   setShowTimer,
-  numberToLetter,
+  scoringMode = "pub",
+  pubPoints = 10,
+  poolPerQuestion = 100,
+  prizes = "",
 }) {
   const [scriptOpen, setScriptOpen] = React.useState(false);
+
+  const allRounds = showBundle?.rounds || [];
+  const displayRounds = selectedRoundId
+    ? allRounds.filter((r) => Number(r.round) === Number(selectedRoundId))
+    : allRounds;
+
+  // Fallback: if prizes prop is empty, pull from localStorage (same keys ResultsMode uses)
+  const [prizesText, setPrizesText] = React.useState(
+    typeof prizes === "string"
+      ? prizes
+      : Array.isArray(prizes)
+        ? prizes.join("\n")
+        : ""
+  );
+
+  React.useEffect(() => {
+    // keep in sync if parent starts sending a non-empty prop
+    if (typeof prizes === "string" && prizes.trim()) {
+      setPrizesText(prizes);
+      return;
+    }
+    if (Array.isArray(prizes) && prizes.length) {
+      setPrizesText(prizes.join("\n"));
+      return;
+    }
+
+    // otherwise, try localStorage
+    const showKey = String(
+      selectedRoundId ? showBundle?.showId || "" : showBundle?.showId || ""
+    ).trim();
+    if (!showKey) return;
+
+    const rawPrizes = localStorage.getItem(`tv_prizes_${showKey}`);
+    if (rawPrizes) {
+      try {
+        const arr = JSON.parse(rawPrizes);
+        if (Array.isArray(arr)) setPrizesText(arr.join("\n"));
+      } catch {}
+    }
+  }, [prizes, selectedRoundId, showBundle?.showId]);
 
   // --- Adapter: build groupedQuestions shape from bundle rounds ---
   const groupedQuestionsFromRounds = React.useMemo(() => {
     const grouped = {};
-    for (const r of rounds || []) {
+    for (const r of displayRounds || []) {
       const rNum = r?.round ?? 0;
       for (const q of r?.questions || []) {
         const catName = (q?.categoryName || "").trim();
@@ -101,7 +145,11 @@ export default function ShowMode({
       }
     }
     return grouped;
-  }, [rounds]);
+  }, [displayRounds]);
+
+  const isTB = (q) =>
+    String(q?.questionType || q?.["Question type"] || "").toLowerCase() ===
+    "tiebreaker";
 
   // Prefer upstream if provided
   const groupedQuestions =
@@ -126,33 +174,167 @@ export default function ShowMode({
     });
   }, [groupedQuestions]);
 
+  // Parse prizes passed as a string (supports newline- or comma-separated)
+  // Parse prizes from the resolved string (prop or localStorage)
+  const prizeList = useMemo(() => {
+    const raw = (prizesText || "").toString();
+    const parts = raw.includes("\n") ? raw.split(/\r?\n/) : raw.split(/,\s*/);
+    return parts.map((s) => s.trim()).filter(Boolean);
+  }, [prizesText]);
+
+  // TEMP: debug prizes coming in
+  console.log("[ShowMode] prizes prop →", prizesText);
+  console.log("[ShowMode] prizeList →", prizeList);
+
+  const prizeCount = prizeList.length;
+
+  const ordinal = (n) => {
+    const j = n % 10,
+      k = n % 100;
+    if (j === 1 && k !== 11) return `${n}st`;
+    if (j === 2 && k !== 12) return `${n}nd`;
+    if (j === 3 && k !== 13) return `${n}rd`;
+    return `${n}th`;
+  };
+
   // --- Host Script (safe, minimal data) ---
   const fmtNum = (n) => (Number.isFinite(n) ? n.toLocaleString("en-US") : "—");
 
   // count non-tiebreaker questions from groupedQuestions
   const totalQuestions = useMemo(() => {
     let count = 0;
-    Object.values(groupedQuestions || {}).forEach((cat) => {
-      Object.values(cat?.questions || {}).forEach((q) => {
-        const typ = String(q?.["Question type"] || "").toLowerCase();
-        if (typ === "tiebreaker") return;
-        count++;
-      });
-    });
+    for (const r of allRounds) {
+      for (const q of r?.questions || []) {
+        const typ = String(
+          q?.questionType || q?.["Question type"] || ""
+        ).toLowerCase();
+        if (typ === "tiebreaker") continue;
+        count += 1;
+      }
+    }
     return count;
-  }, [groupedQuestions]);
+  }, [allRounds]);
 
   const hasTB = useMemo(() => {
-    return Object.values(groupedQuestions || {}).some((cat) =>
-      Object.values(cat?.questions || {}).some(
-        (q) => String(q?.["Question type"] || "").toLowerCase() === "tiebreaker"
-      )
-    );
-  }, [groupedQuestions]);
+    for (const r of allRounds) {
+      for (const q of r?.questions || []) {
+        const typ = String(
+          q?.questionType || q?.["Question type"] || ""
+        ).toLowerCase();
+        if (typ === "tiebreaker") return true;
+      }
+    }
+    return false;
+  }, [allRounds]);
+
+  const totalPointsPossible = useMemo(() => {
+    let sum = 0;
+    for (const r of allRounds) {
+      for (const q of r?.questions || []) {
+        if (isTB(q)) continue; // exclude tiebreakers from totals
+        const perQ =
+          typeof q?.pointsPerQuestion === "number" ? q.pointsPerQuestion : null;
+        // Per-question override wins (for either mode). Otherwise use the mode default.
+        const base =
+          perQ ??
+          (scoringMode === "pooled"
+            ? Number.isFinite(poolPerQuestion)
+              ? poolPerQuestion
+              : 0
+            : Number.isFinite(pubPoints)
+              ? pubPoints
+              : 0);
+        sum += Number.isFinite(base) ? base : 0;
+      }
+    }
+    return sum;
+  }, [allRounds, scoringMode, pubPoints, poolPerQuestion]);
+  // Default-per-question and count of special questions (non-TB with overrides)
+  const { defaultPer, specialCount } = useMemo(() => {
+    const allRounds = Array.isArray(showBundle?.rounds)
+      ? showBundle.rounds
+      : [];
+    const def =
+      scoringMode === "pooled"
+        ? Number.isFinite(poolPerQuestion)
+          ? poolPerQuestion
+          : 0
+        : Number.isFinite(pubPoints)
+          ? pubPoints
+          : 0;
+
+    let specials = 0;
+    for (const r of allRounds) {
+      for (const q of r?.questions || []) {
+        const type = String(
+          q?.questionType || q?.["Question type"] || ""
+        ).toLowerCase();
+        if (type.includes("tiebreaker")) continue;
+        const perQ =
+          typeof q?.pointsPerQuestion === "number" ? q.pointsPerQuestion : null;
+        if (perQ !== null && perQ !== def) specials += 1;
+      }
+    }
+    return { defaultPer: def, specialCount: specials };
+  }, [showBundle?.rounds, scoringMode, pubPoints, poolPerQuestion]);
 
   const hostScript = useMemo(() => {
-    return `Tonight's show has ${fmtNum(totalQuestions)} question${totalQuestions === 1 ? "" : "s"}${hasTB ? " plus a tiebreaker" : ""}.`;
-  }, [totalQuestions, hasTB]);
+    const s = (n, a, b) => (n === 1 ? a : b);
+
+    const X = totalQuestions;
+    const Y = defaultPer;
+    const Z = totalPointsPossible;
+    const N = specialCount;
+
+    let text = "";
+
+    if (scoringMode === "pooled") {
+      if (N > 0) {
+        text =
+          `Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n\n` +
+          `Each question has a pool of ${fmtNum(Y)} point${Y === 1 ? "" : "s"} ` +
+          `that will be split evenly among the teams that answer that question correctly. ` +
+          `We do have ${fmtNum(N)} special ${s(N, "question", "questions")} with ${s(N, "a different point value", "different point values")} ` +
+          `— we'll explain in more detail when we get to ${s(N, "that question", "those questions")} — ` +
+          `giving us a total of ${fmtNum(Z)} points in the pool for the evening.`;
+      } else {
+        text =
+          `Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n\n` +
+          `Each question has a pool of ${fmtNum(Y)} point${Y === 1 ? "" : "s"} ` +
+          `that will be split evenly among the teams that answer that question correctly, ` +
+          `for a total of ${fmtNum(Z)} points in the pool for the evening.`;
+      }
+    } else {
+      if (N > 0) {
+        text =
+          `Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n\n` +
+          `Most questions are worth ${fmtNum(Y)} point${Y === 1 ? "" : "s"}, except for ${fmtNum(N)} special ${s(N, "question", "questions")} ` +
+          `with ${s(N, "a different point value", "different point values")} — we'll explain in more detail when we get to ${s(N, "that question", "those questions")} — ` +
+          `for a total of ${fmtNum(Z)} possible points.`;
+      } else {
+        text =
+          `Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n\n` +
+          `Each question is worth ${fmtNum(Y)} point${Y === 1 ? "" : "s"}, for a total of ${fmtNum(Z)} possible points.`;
+      }
+    }
+
+    // Prizes (use the pre-parsed prizeList which supports commas or newlines)
+    if (prizeList.length > 0) {
+      text += `\n\nPrizes for top ${fmtNum(prizeList.length)}:\n`;
+      prizeList.forEach((p, i) => {
+        text += `\n  • ${ordinal(i + 1)}: ${p}`;
+      });
+    }
+
+    return text;
+  }, [
+    scoringMode,
+    totalQuestions,
+    defaultPer,
+    specialCount,
+    totalPointsPossible,
+    prizeList,
+  ]);
 
   return (
     <>
@@ -736,7 +918,7 @@ export default function ShowMode({
                 padding: ".6rem .8rem",
                 borderBottom: `2px solid ${theme.accent}`,
                 fontFamily: tokens.font.display,
-                fontSize: "1.1rem",
+                fontSize: "1.5rem",
                 letterSpacing: ".01em",
               }}
             >
@@ -750,13 +932,15 @@ export default function ShowMode({
                 width: "100%",
                 minHeight: "40vh",
                 resize: "vertical",
-                padding: ".75rem",
+                padding: "1rem",
                 border: "1px solid #ddd",
                 borderRadius: ".35rem",
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                fontFamily: tokens.font.body,
                 lineHeight: 1.35,
-                fontSize: "0.95rem",
-                whiteSpace: "pre",
+                fontSize: "1.25rem",
+                whiteSpace: "pre-wrap",
+                wordWrap: "break-word",
+                boxSizing: "border-box",
               }}
             />
 

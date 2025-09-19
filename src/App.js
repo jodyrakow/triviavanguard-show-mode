@@ -531,14 +531,6 @@ export default function App() {
         >
           Results mode
         </ButtonTab>
-
-        <ButtonTab
-          active={showTimer}
-          onClick={() => setShowTimer((v) => !v)}
-          title={showTimer ? "Hide timer" : "Show timer"}
-        >
-          {showTimer ? "Hide timer" : "Show timer"}
-        </ButtonTab>
       </div>
       <div style={{ fontSize: ".9rem", opacity: 0.85 }}>
         Realtime: <strong>{rtStatus}</strong>
@@ -637,9 +629,8 @@ export default function App() {
 
       {activeMode === "show" && (
         <ShowMode
-          rounds={(showBundle?.rounds || []).filter(
-            (r) => Number(r.round) === Number(selectedRoundId)
-          )}
+          showBundle={showBundle || { rounds: [], teams: [] }}
+          selectedRoundId={selectedRoundId}
           showDetails={showDetails}
           setshowDetails={setshowDetails}
           questionRefs={questionRefs}
@@ -661,6 +652,8 @@ export default function App() {
           getClosestQuestionKey={getClosestQuestionKey}
           numberToLetter={numberToLetter}
           showTimer={showTimer}
+          prizes={composedCachedState?.prizes ?? ""}
+          setShowTimer={setShowTimer}
         />
       )}
 
@@ -763,8 +756,8 @@ export default function App() {
       {activeMode === "results" && (
         <ResultsMode
           showBundle={showBundle || { rounds: [], teams: [] }}
-          selectedShowId={selectedShowId}
           selectedRoundId={selectedRoundId}
+          selectedShowId={selectedShowId}
           cachedState={composedCachedState}
           cachedByRound={scoringCache[selectedShowId] ?? {}}
           scoringMode={scoringMode}
