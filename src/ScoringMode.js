@@ -195,6 +195,43 @@ export default function ScoringMode({
     return () => window.removeEventListener("tv:cellEdit", onCellEdit);
   }, []);
 
+  useEffect(() => {
+    const onTBEdit = (e) => {
+      const {
+        showId: msgShowId,
+        roundId: msgRoundId,
+        teamId,
+        showQuestionId,
+        tiebreakerGuessRaw,
+        tiebreakerGuess,
+      } = e.detail || {};
+
+      if (!teamId || !showQuestionId) return;
+      // only accept edits for the currently selected show/round
+      if (msgShowId !== selectedShowId || msgRoundId !== selectedRoundId)
+        return;
+
+      setGrid((prev) => {
+        const byTeam = prev[teamId] ? { ...prev[teamId] } : {};
+        const cell = byTeam[showQuestionId] || {
+          isCorrect: false,
+          questionBonus: 0,
+          overridePoints: null,
+        };
+        byTeam[showQuestionId] = {
+          ...cell,
+          tiebreakerGuessRaw: tiebreakerGuessRaw ?? "",
+          tiebreakerGuess:
+            tiebreakerGuess == null ? null : Number(tiebreakerGuess),
+        };
+        return { ...prev, [teamId]: byTeam };
+      });
+    };
+
+    window.addEventListener("tv:tbEdit", onTBEdit);
+    return () => window.removeEventListener("tv:tbEdit", onTBEdit);
+  }, [selectedShowId, selectedRoundId]);
+
   // Remove a team and all their cells
   const removeTeam = (showTeamId) => {
     const hasAnyScores =
@@ -253,6 +290,18 @@ export default function ScoringMode({
     }
     return m;
   }, [questions]);
+
+  const moveTeam = (teamId, delta) => {
+    setEntryOrder((prev) => {
+      const idx = prev.indexOf(teamId);
+      if (idx === -1) return prev;
+      const newIdx = Math.min(Math.max(0, idx + delta), prev.length - 1);
+      const copy = [...prev];
+      copy.splice(idx, 1);
+      copy.splice(newIdx, 0, teamId);
+      return copy;
+    });
+  };
 
   const openCellEditor = (showTeamId, showQuestionId) => {
     // remember where we were
@@ -865,9 +914,20 @@ export default function ScoringMode({
 
       return { ...prev, [showTeamId]: byTeam };
     });
+
+    // ✅ NEW: realtime broadcast so other hosts update instantly
+    try {
+      window.sendTBEdit?.({
+        showId: selectedShowId,
+        roundId: selectedRoundId,
+        teamId: showTeamId,
+        showQuestionId: tiebreaker.id,
+        tiebreakerGuessRaw: raw === "" || Number.isNaN(num) ? "" : String(num),
+        tiebreakerGuess: raw === "" || Number.isNaN(num) ? null : num,
+        ts: Date.now(),
+      });
+    } catch {}
   };
-  // -------------------------------------------------------------------------
-  // -------------------------------------------------------------------------
 
   // ---------------- Sticky & tile styles ----------------
   const COL_Q_WIDTH = 60;
@@ -1214,6 +1274,7 @@ export default function ScoringMode({
                     borderBottom: "none",
                   }}
                 >
+                  {/* Team name (renamable) */}
                   <div
                     style={{
                       fontSize: "0.95rem",
@@ -1231,6 +1292,52 @@ export default function ScoringMode({
                   >
                     {t.teamName}
                   </div>
+
+                  {/* Move buttons */}
+                  <div
+                    style={{
+                      marginTop: "0.25rem",
+                      display: "flex",
+                      gap: "0.25rem",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <div
+                      style={{
+                        marginTop: "0.25rem",
+                        display: "flex",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <ui.Segmented
+                        style={{
+                          border: "1px solid rgba(220,106,36,0.65)", // thin orange border all around
+                          borderRadius: "999px", // keep pill shape
+                          overflow: "hidden",
+                        }}
+                      >
+                        <button
+                          style={ui.segBtn(false)}
+                          onClick={() => moveTeam(t.showTeamId, -1)}
+                          title="Move left"
+                        >
+                          ◀
+                        </button>
+                        <button
+                          style={{
+                            ...ui.segBtn(false),
+                            borderLeft: "1px solid rgba(220,106,36,0.65)", // thin orange divider
+                          }}
+                          onClick={() => moveTeam(t.showTeamId, +1)}
+                          title="Move right"
+                        >
+                          ▶
+                        </button>
+                      </ui.Segmented>
+                    </div>
+                  </div>
+
+                  {/* Delete button */}
                   <button
                     aria-label={`Remove ${t.teamName}`}
                     onClick={(e) => {
@@ -1238,7 +1345,7 @@ export default function ScoringMode({
                       removeTeam(t.showTeamId);
                     }}
                     style={{
-                      margin: "0 auto",
+                      margin: "0.25rem auto 0",
                       width: 20,
                       height: 20,
                       borderRadius: "50%",
@@ -1266,6 +1373,8 @@ export default function ScoringMode({
                       />
                     </svg>
                   </button>
+
+                  {/* Totals */}
                   <div
                     style={{ fontSize: ".8rem", opacity: 0.85, marginTop: 2 }}
                   >

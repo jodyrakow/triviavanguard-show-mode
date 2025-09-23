@@ -44,6 +44,38 @@ export default function ShowMode({
 }) {
   const [scriptOpen, setScriptOpen] = React.useState(false);
 
+  // under other React.useState(...) lines near the top:
+  const [hostModalOpen, setHostModalOpen] = React.useState(false);
+  const [hostInfo, setHostInfo] = React.useState({
+    host: "",
+    cohost: "",
+    location: "",
+  });
+
+  // load from localStorage once
+  React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem("tv_hostInfo");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          setHostInfo({
+            host: parsed.host || "",
+            cohost: parsed.cohost || "",
+            location: parsed.location || "",
+          });
+        }
+      }
+    } catch {}
+  }, []);
+
+  const saveHostInfo = (next) => {
+    setHostInfo(next);
+    try {
+      localStorage.setItem("tv_hostInfo", JSON.stringify(next));
+    } catch {}
+  };
+
   // ✅ make allRounds stable
   const allRounds = React.useMemo(
     () => showBundle?.rounds ?? [],
@@ -280,45 +312,62 @@ export default function ShowMode({
     const Z = totalPointsPossible;
     const N = specialCount;
 
-    let text = "";
+    // fallbacks if someone leaves a field blank
+    const hName = (hostInfo.host || "your host").trim();
+    const cName = (hostInfo.cohost || "your co-host").trim();
+    const loc = (hostInfo.location || "your venue").trim();
 
+    // --- Intro ---
+    let text =
+      `Hey, everybody! It’s time for team trivia at ${loc}!\n\n` +
+      `I’m ${hName} and this is ${cName}, and we’re your hosts tonight as you play for trivia glory and some pretty awesome prizes.\n\n`;
+
+    // --- Stats ---
     if (scoringMode === "pooled") {
       if (N > 0) {
-        text =
-          `Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n\n` +
-          `Each question has a pool of ${fmtNum(Y)} point${Y === 1 ? "" : "s"} ` +
-          `that will be split evenly among the teams that answer that question correctly. ` +
-          `We do have ${fmtNum(N)} special ${s(N, "question", "questions")} with ${s(N, "a different point value", "different point values")} ` +
-          `— we'll explain in more detail when we get to ${s(N, "that question", "those questions")} — ` +
-          `giving us a total of ${fmtNum(Z)} points in the pool for the evening.`;
+        text +=
+          `• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n` +
+          `• Each question has a pool of ${fmtNum(Y)} point${Y === 1 ? "" : "s"} that will be split evenly among the teams that answer correctly.\n` +
+          `• We do have ${fmtNum(N)} special ${s(N, "question", "questions")} with ${s(N, "a different point value", "different point values")} — we'll explain in more detail when we get to ${s(N, "that question", "those questions")}.\n` +
+          `• That gives us a total of ${fmtNum(Z)} points in the pool for the evening.\n`;
       } else {
-        text =
-          `Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n\n` +
-          `Each question has a pool of ${fmtNum(Y)} point${Y === 1 ? "" : "s"} ` +
-          `that will be split evenly among the teams that answer that question correctly, ` +
-          `for a total of ${fmtNum(Z)} points in the pool for the evening.`;
+        text +=
+          `• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n` +
+          `• Each question has a pool of ${fmtNum(Y)} point${Y === 1 ? "" : "s"} that will be split evenly among correct teams.\n` +
+          `• Total points in the pool tonight: ${fmtNum(Z)}.\n`;
       }
     } else {
       if (N > 0) {
-        text =
-          `Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n\n` +
-          `Most questions are worth ${fmtNum(Y)} point${Y === 1 ? "" : "s"}, except for ${fmtNum(N)} special ${s(N, "question", "questions")} ` +
-          `with ${s(N, "a different point value", "different point values")} — we'll explain in more detail when we get to ${s(N, "that question", "those questions")} — ` +
-          `for a total of ${fmtNum(Z)} possible points.`;
+        text +=
+          `• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n` +
+          `• Most questions are worth ${fmtNum(Y)} point${Y === 1 ? "" : "s"}, except for ${fmtNum(N)} special ${s(N, "question", "questions")} with ${s(N, "a different point value", "different point values")} — details when we get there.\n` +
+          `• That's a total of ${fmtNum(Z)} possible points.\n`;
       } else {
-        text =
-          `Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n\n` +
-          `Each question is worth ${fmtNum(Y)} point${Y === 1 ? "" : "s"}, for a total of ${fmtNum(Z)} possible points.`;
+        text +=
+          `• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n` +
+          `• Each question is worth ${fmtNum(Y)} point${Y === 1 ? "" : "s"}.\n` +
+          `• Total possible points: ${fmtNum(Z)}.\n`;
       }
     }
 
-    // Prizes (use the pre-parsed prizeList which supports commas or newlines)
+    // --- Prizes ---
     if (prizeList.length > 0) {
-      text += `\n\nPrizes for top ${fmtNum(prizeList.length)}:\n`;
+      text += `\nPrizes for top ${fmtNum(prizeList.length)}:\n`;
       prizeList.forEach((p, i) => {
-        text += `\n  • ${ordinal(i + 1)}: ${p}`;
+        text += `  • ${ordinal(i + 1)}: ${p}\n`;
       });
     }
+
+    // --- Rules (always on) ---
+    text +=
+      `\n` +
+      `• To keep things fair, no electronic devices may be out during the round. Whether you’re inside, outside, or in the bathroom, if you step out, please return with only your charming personality, not with answers you looked up while you were gone. If it looks like cheating, we have to treat it like cheating.\n` +
+      `• Don't shout out the answers. Use your note pads to share ideas with your team.\n` +
+      `• Spelling doesn't count unless we say it does.\n` +
+      `• Unless we say otherwise, when we ask for someone’s name, we want their last name. If any part of your answer is wrong, the whole thing is wrong. For fictional characters, either first or last name is okay unless we say otherwise.\n` +
+      `• Our answer is the only correct answer. Dispute if you like and we’ll consider it, but our decisions are final.\n` +
+      `• Be generous to the staff—they're working hard to ensure you have a great night.\n` +
+      `• ${cName} will be coming around with tonight's visual round. That’s your signal to put those phones away because the contest starts now. Good luck!`;
 
     return text;
   }, [
@@ -328,6 +377,9 @@ export default function ShowMode({
     specialCount,
     totalPointsPossible,
     prizeList,
+    hostInfo.host,
+    hostInfo.cohost,
+    hostInfo.location,
   ]);
 
   return (
@@ -374,6 +426,13 @@ export default function ShowMode({
             title="Show a host-ready script with tonight's details"
           >
             Show script
+          </ButtonPrimary>
+
+          <ButtonPrimary
+            onClick={() => setHostModalOpen(true)}
+            title="Set your names & location"
+          >
+            Set hosts
           </ButtonPrimary>
         </div>
       )}
@@ -598,7 +657,6 @@ export default function ShowMode({
 
             {Object.values(questions)
               .sort((a, b) => {
-                const isTB = (q) => (q["Question type"] || "") === "Tiebreaker";
                 // Always put the tiebreaker last
                 if (isTB(a) && !isTB(b)) return 1;
                 if (!isTB(a) && isTB(b)) return -1;
@@ -950,6 +1008,126 @@ export default function ShowMode({
               <button
                 type="button"
                 onClick={() => setScriptOpen(false)}
+                style={{
+                  padding: ".5rem .75rem",
+                  border: "1px solid #ccc",
+                  background: "#f7f7f7",
+                  borderRadius: ".35rem",
+                  cursor: "pointer",
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {hostModalOpen && (
+        <div
+          onMouseDown={() => setHostModalOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(43,57,74,.65)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem",
+          }}
+        >
+          <div
+            onMouseDown={(e) => e.stopPropagation()}
+            style={{
+              width: "min(92vw, 560px)",
+              background: "#fff",
+              borderRadius: ".6rem",
+              border: `1px solid ${theme.accent}`,
+              overflow: "hidden",
+              boxShadow: "0 10px 30px rgba(0,0,0,.25)",
+              fontFamily: tokens.font.body,
+            }}
+          >
+            <div
+              style={{
+                background: theme.dark,
+                color: "#fff",
+                padding: ".6rem .8rem",
+                borderBottom: `2px solid ${theme.accent}`,
+                fontFamily: tokens.font.display,
+                fontSize: "1.25rem",
+                letterSpacing: ".01em",
+              }}
+            >
+              Hosts & Location
+            </div>
+
+            <div style={{ padding: ".9rem .9rem 0" }}>
+              <label style={{ display: "block", marginBottom: ".6rem" }}>
+                <div style={{ marginBottom: 4 }}>Host name</div>
+                <input
+                  type="text"
+                  value={hostInfo.host}
+                  onChange={(e) =>
+                    saveHostInfo({ ...hostInfo, host: e.target.value })
+                  }
+                  style={{
+                    width: "100%",
+                    padding: ".45rem .55rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                  }}
+                />
+              </label>
+
+              <label style={{ display: "block", marginBottom: ".6rem" }}>
+                <div style={{ marginBottom: 4 }}>Co-host name</div>
+                <input
+                  type="text"
+                  value={hostInfo.cohost}
+                  onChange={(e) =>
+                    saveHostInfo({ ...hostInfo, cohost: e.target.value })
+                  }
+                  style={{
+                    width: "100%",
+                    padding: ".45rem .55rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                  }}
+                />
+              </label>
+
+              <label style={{ display: "block", marginBottom: ".6rem" }}>
+                <div style={{ marginBottom: 4 }}>Location</div>
+                <input
+                  type="text"
+                  value={hostInfo.location}
+                  onChange={(e) =>
+                    saveHostInfo({ ...hostInfo, location: e.target.value })
+                  }
+                  style={{
+                    width: "100%",
+                    padding: ".45rem .55rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                  }}
+                />
+              </label>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                gap: ".5rem",
+                justifyContent: "flex-end",
+                padding: ".8rem .9rem .9rem",
+                borderTop: "1px solid #eee",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setHostModalOpen(false)}
                 style={{
                   padding: ".5rem .75rem",
                   border: "1px solid #ccc",

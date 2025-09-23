@@ -4,6 +4,7 @@ import AudioPlayer from "react-h5-audio-player";
 import { marked } from "marked";
 import {
   Button,
+  ButtonPrimary,
   colors as theme,
   tokens,
   overlayStyle,
@@ -75,6 +76,70 @@ export default function AnswersMode({
     }));
   }, [roundObj]);
 
+  // --- Answer Key helpers (drop this near the top of AnswersMode.js) ---
+
+  // match ScoringMode's sorting (letters A..Z first, then numbers)
+  function sortQuestionsForKey(raw) {
+    const list = Array.isArray(raw) ? raw : [];
+    return [...list].sort((a, b) => {
+      const sa = Number(a.sortOrder ?? 9999);
+      const sb = Number(b.sortOrder ?? 9999);
+      if (sa !== sb) return sa - sb;
+
+      const cvt = (val) => {
+        if (typeof val === "string" && /^[A-Z]$/i.test(val)) {
+          return val.toUpperCase().charCodeAt(0) - 64; // A=1
+        }
+        const n = parseInt(val, 10);
+        return Number.isNaN(n) ? 9999 : 100 + n;
+      };
+      return cvt(a.questionOrder) - cvt(b.questionOrder);
+    });
+  }
+
+  // detect tiebreaker (skip it for the key)
+  function detectTB(list) {
+    return (
+      list.find((q) => (q.questionType || "").toLowerCase() === "tiebreaker") ||
+      list.find((q) => String(q.questionOrder).toUpperCase() === "TB") ||
+      list.find((q) => String(q.id || "").startsWith("tb-")) ||
+      null
+    );
+  }
+
+  // Build the answer key text for ONE round
+  function buildRoundAnswerKeyText(round, { withLabels = true } = {}) {
+    if (!round) return "";
+    const all = Array.isArray(round.questions) ? round.questions : [];
+    const tb = detectTB(all);
+    const nonTB = tb ? all.filter((q) => q !== tb) : all;
+
+    const qs = sortQuestionsForKey(nonTB);
+
+    const lines = [];
+    for (const q of qs) {
+      const label = String(q.questionOrder ?? "").trim();
+      const ans = (q.answer ?? "").toString().trim();
+      const line = withLabels && label ? `${label}. ${ans}` : ans;
+      lines.push(line);
+    }
+
+    const head = `Round ${round.round}`;
+    return [head, ...lines].join("\n");
+  }
+
+  // Build a full-show text (separated by rounds) — if AnswersMode
+  // only receives a single round, it will just output that one.
+  function buildShowAnswerKeyText(showBundle, { withLabels = true } = {}) {
+    const rounds = Array.isArray(showBundle?.rounds) ? showBundle.rounds : [];
+    const parts = [];
+    for (const r of rounds) {
+      const txt = buildRoundAnswerKeyText(r, { withLabels });
+      if (txt.trim()) parts.push(txt);
+    }
+    return parts.join("\n\n"); // blank line between rounds
+  }
+
   // --------- teams + grid (from cache) ---------
   const teams = useMemo(() => {
     const incoming = cachedState?.teams || [];
@@ -88,6 +153,47 @@ export default function AnswersMode({
   const [currentImageIndex, setCurrentImageIndex] = useState({}); // keyed by showQuestionId
   const [visibleCategoryImages, setVisibleCategoryImages] = useState({}); // keyed by group key
   const topRef = useRef(null);
+
+  // Answer key UI state
+  const [akIncludeLabels, setAkIncludeLabels] = React.useState(true);
+
+  const [showAnswerKey, setShowAnswerKey] = React.useState(false);
+
+  const getAnswerKeyText = React.useCallback(() => {
+    // If App filtered to one round, showBundle.rounds will have length 1.
+    return buildShowAnswerKeyText(showBundle, { withLabels: akIncludeLabels });
+  }, [showBundle, akIncludeLabels]);
+
+  const copyAnswerKey = async () => {
+    const text = getAnswerKeyText();
+    try {
+      await navigator.clipboard.writeText(text);
+      alert("Answer key copied to clipboard.");
+    } catch {
+      window.prompt("Copy the answer key:", text);
+    }
+  };
+
+  const downloadAnswerKey = () => {
+    const text = getAnswerKeyText();
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    // If there’s one round, use its number; otherwise “all-rounds”
+    const rounds = Array.isArray(showBundle?.rounds) ? showBundle.rounds : [];
+    const filename =
+      rounds.length === 1
+        ? `answer-key-round-${rounds[0]?.round ?? "x"}.txt`
+        : "answer-key-all-rounds.txt";
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      a.remove();
+    }, 0);
+  };
 
   // --------- Group questions by category (carry images & audio once) ---------
   const groupedByCategory = useMemo(() => {
@@ -172,6 +278,77 @@ export default function AnswersMode({
           No teams or questions yet for this round.
         </div>
       ) : null}
+
+      {/* Answer Key toggle */}
+      <div style={{ marginTop: "0.75rem" }}>
+        <ButtonPrimary
+          onClick={() => setShowAnswerKey((prev) => !prev)}
+          title="Toggle answer key panel"
+        >
+          {showAnswerKey ? "Hide Answer Key" : "Show Answer Key"}
+        </ButtonPrimary>
+      </div>
+
+      {showAnswerKey && (
+        <div
+          style={{
+            marginTop: "0.75rem",
+            marginBottom: "0.75rem",
+            padding: "0.75rem",
+            background: "#fff",
+            border: "1px solid #ddd",
+            borderRadius: 8,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              flexWrap: "wrap",
+            }}
+          >
+            <strong style={{ marginRight: 8 }}>Answer Key</strong>
+
+            <label
+              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+            >
+              <input
+                type="checkbox"
+                checked={akIncludeLabels}
+                onChange={(e) => setAkIncludeLabels(e.target.checked)}
+              />
+              Include labels (A., 1., etc.)
+            </label>
+
+            <div style={{ marginLeft: "auto", display: "flex", gap: "0.4rem" }}>
+              <button onClick={copyAnswerKey}>Copy</button>
+              <button onClick={downloadAnswerKey}>Download .txt</button>
+            </div>
+          </div>
+
+          {/* Preview */}
+          <pre
+            style={{
+              marginTop: 8,
+              marginBottom: 0,
+              background: "#fafafa",
+              border: "1px solid #eee",
+              borderRadius: 6,
+              padding: "0.6rem 0.75rem",
+              whiteSpace: "pre-wrap",
+              lineHeight: 1.5,
+              fontFamily:
+                "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace",
+              fontSize: 13,
+              maxHeight: 300,
+              overflow: "auto",
+            }}
+          >
+            {getAnswerKeyText()}
+          </pre>
+        </div>
+      )}
 
       {/* Categories + questions */}
       {groupedByCategory.map(([groupKey, cat], idx) => {

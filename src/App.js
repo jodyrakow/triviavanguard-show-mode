@@ -7,7 +7,7 @@ import ShowMode from "./ShowMode";
 import ScoringMode from "./ScoringMode";
 import ResultsMode from "./ResultsMode";
 import AnswersMode from "./AnswersMode";
-import { ButtonTab, colors, tokens } from "./styles/index.js";
+import { ButtonTab, ButtonPrimary, colors, tokens } from "./styles/index.js";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
@@ -157,6 +157,14 @@ export default function App() {
       }
       return ch.send({ type: "broadcast", event, payload });
     };
+    // send helper
+    window.sendTBEdit = (payload) => {
+      ch.send({
+        type: "broadcast",
+        event: "tbEdit",
+        payload, // { showId, roundId, teamId, showQuestionId, tiebreakerGuessRaw, tiebreakerGuess, ts }
+      });
+    };
 
     // event handlers -> DOM CustomEvents
     ch.on("broadcast", { event: "ping" }, (payload) => {
@@ -187,6 +195,11 @@ export default function App() {
       const data = msg?.payload ?? msg;
       window.dispatchEvent(new CustomEvent("tv:teamRemove", { detail: data }));
     });
+    ch.on("broadcast", { event: "tbEdit" }, (msg) => {
+      const d = msg?.payload ?? msg;
+      const ev = new CustomEvent("tv:tbEdit", { detail: d });
+      window.dispatchEvent(ev);
+    });
 
     ch.on("broadcast", { event: "prizesUpdate" }, (msg) => {
       const data = msg?.payload ?? msg;
@@ -211,6 +224,8 @@ export default function App() {
 
     // expose helpers (safe via tvSend queue)
     window.sendMark = (payload) => window.tvSend("mark", payload);
+    // App.js (right after window.tvSend is defined)
+    window.sendTBEdit = (payload) => window.tvSend("tbEdit", payload);
     window.sendCellEdit = (payload) => window.tvSend("cellEdit", payload);
     window.sendTeamBonus = (payload) => window.tvSend("teamBonus", payload);
     window.sendTeamAdd = (payload) => window.tvSend("teamAdd", payload);
@@ -242,6 +257,7 @@ export default function App() {
         delete window.sendTeamRename;
         delete window.sendTeamRemove;
         delete window.tvSend;
+        delete window.sendTBEdit;
       } catch {}
       window._tvReady = false;
       window._tvQueue = [];
@@ -770,6 +786,13 @@ export default function App() {
           setPrizes={(val) => patchShared({ prizes: String(val || "") })}
         />
       )}
+
+      <ButtonPrimary
+        onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+        style={{ margin: "2rem auto", display: "block" }}
+      >
+        ↑ Back to Top
+      </ButtonPrimary>
     </div>
   );
 }
