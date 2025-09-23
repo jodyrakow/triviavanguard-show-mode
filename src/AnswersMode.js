@@ -22,6 +22,70 @@ const normalizeTeam = (t) => ({
   showBonus: Number(t.showBonus || 0),
 });
 
+// --- Answer Key helpers (drop this near the top of AnswersMode.js) ---
+
+// match ScoringMode's sorting (letters A..Z first, then numbers)
+function sortQuestionsForKey(raw) {
+  const list = Array.isArray(raw) ? raw : [];
+  return [...list].sort((a, b) => {
+    const sa = Number(a.sortOrder ?? 9999);
+    const sb = Number(b.sortOrder ?? 9999);
+    if (sa !== sb) return sa - sb;
+
+    const cvt = (val) => {
+      if (typeof val === "string" && /^[A-Z]$/i.test(val)) {
+        return val.toUpperCase().charCodeAt(0) - 64; // A=1
+      }
+      const n = parseInt(val, 10);
+      return Number.isNaN(n) ? 9999 : 100 + n;
+    };
+    return cvt(a.questionOrder) - cvt(b.questionOrder);
+  });
+}
+
+// detect tiebreaker (skip it for the key)
+function detectTB(list) {
+  return (
+    list.find((q) => (q.questionType || "").toLowerCase() === "tiebreaker") ||
+    list.find((q) => String(q.questionOrder).toUpperCase() === "TB") ||
+    list.find((q) => String(q.id || "").startsWith("tb-")) ||
+    null
+  );
+}
+
+// Build the answer key text for ONE round
+function buildRoundAnswerKeyText(round, { withLabels = true } = {}) {
+  if (!round) return "";
+  const all = Array.isArray(round.questions) ? round.questions : [];
+  const tb = detectTB(all);
+  const nonTB = tb ? all.filter((q) => q !== tb) : all;
+
+  const qs = sortQuestionsForKey(nonTB);
+
+  const lines = [];
+  for (const q of qs) {
+    const label = String(q.questionOrder ?? "").trim();
+    const ans = (q.answer ?? "").toString().trim();
+    const line = withLabels && label ? `${label}. ${ans}` : ans;
+    lines.push(line);
+  }
+
+  const head = `Round ${round.round}`;
+  return [head, ...lines].join("\n");
+}
+
+// Build a full-show text (separated by rounds) — if AnswersMode
+// only receives a single round, it will just output that one.
+function buildShowAnswerKeyText(showBundle, { withLabels = true } = {}) {
+  const rounds = Array.isArray(showBundle?.rounds) ? showBundle.rounds : [];
+  const parts = [];
+  for (const r of rounds) {
+    const txt = buildRoundAnswerKeyText(r, { withLabels });
+    if (txt.trim()) parts.push(txt);
+  }
+  return parts.join("\n\n"); // blank line between rounds
+}
+
 export default function AnswersMode({
   showBundle, // { rounds:[{round, questions:[...] }], teams:[...] }
   selectedRoundId, // round number or string (e.g. "1")
@@ -76,70 +140,6 @@ export default function AnswersMode({
     }));
   }, [roundObj]);
 
-  // --- Answer Key helpers (drop this near the top of AnswersMode.js) ---
-
-  // match ScoringMode's sorting (letters A..Z first, then numbers)
-  function sortQuestionsForKey(raw) {
-    const list = Array.isArray(raw) ? raw : [];
-    return [...list].sort((a, b) => {
-      const sa = Number(a.sortOrder ?? 9999);
-      const sb = Number(b.sortOrder ?? 9999);
-      if (sa !== sb) return sa - sb;
-
-      const cvt = (val) => {
-        if (typeof val === "string" && /^[A-Z]$/i.test(val)) {
-          return val.toUpperCase().charCodeAt(0) - 64; // A=1
-        }
-        const n = parseInt(val, 10);
-        return Number.isNaN(n) ? 9999 : 100 + n;
-      };
-      return cvt(a.questionOrder) - cvt(b.questionOrder);
-    });
-  }
-
-  // detect tiebreaker (skip it for the key)
-  function detectTB(list) {
-    return (
-      list.find((q) => (q.questionType || "").toLowerCase() === "tiebreaker") ||
-      list.find((q) => String(q.questionOrder).toUpperCase() === "TB") ||
-      list.find((q) => String(q.id || "").startsWith("tb-")) ||
-      null
-    );
-  }
-
-  // Build the answer key text for ONE round
-  function buildRoundAnswerKeyText(round, { withLabels = true } = {}) {
-    if (!round) return "";
-    const all = Array.isArray(round.questions) ? round.questions : [];
-    const tb = detectTB(all);
-    const nonTB = tb ? all.filter((q) => q !== tb) : all;
-
-    const qs = sortQuestionsForKey(nonTB);
-
-    const lines = [];
-    for (const q of qs) {
-      const label = String(q.questionOrder ?? "").trim();
-      const ans = (q.answer ?? "").toString().trim();
-      const line = withLabels && label ? `${label}. ${ans}` : ans;
-      lines.push(line);
-    }
-
-    const head = `Round ${round.round}`;
-    return [head, ...lines].join("\n");
-  }
-
-  // Build a full-show text (separated by rounds) — if AnswersMode
-  // only receives a single round, it will just output that one.
-  function buildShowAnswerKeyText(showBundle, { withLabels = true } = {}) {
-    const rounds = Array.isArray(showBundle?.rounds) ? showBundle.rounds : [];
-    const parts = [];
-    for (const r of rounds) {
-      const txt = buildRoundAnswerKeyText(r, { withLabels });
-      if (txt.trim()) parts.push(txt);
-    }
-    return parts.join("\n\n"); // blank line between rounds
-  }
-
   // --------- teams + grid (from cache) ---------
   const teams = useMemo(() => {
     const incoming = cachedState?.teams || [];
@@ -159,8 +159,7 @@ export default function AnswersMode({
 
   const [showAnswerKey, setShowAnswerKey] = React.useState(false);
 
-  const getAnswerKeyText = React.useCallback(() => {
-    // If App filtered to one round, showBundle.rounds will have length 1.
+  const answerKeyText = React.useMemo(() => {
     return buildShowAnswerKeyText(showBundle, { withLabels: akIncludeLabels });
   }, [showBundle, akIncludeLabels]);
 
