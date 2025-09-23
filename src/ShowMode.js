@@ -44,10 +44,18 @@ export default function ShowMode({
 }) {
   const [scriptOpen, setScriptOpen] = React.useState(false);
 
-  const allRounds = showBundle?.rounds || [];
-  const displayRounds = selectedRoundId
-    ? allRounds.filter((r) => Number(r.round) === Number(selectedRoundId))
-    : allRounds;
+  // ✅ make allRounds stable
+const allRounds = React.useMemo(
+  () => showBundle?.rounds ?? [],
+  [showBundle?.rounds]
+);
+
+// ✅ make displayRounds stable too
+const displayRounds = React.useMemo(() => {
+  if (!selectedRoundId) return allRounds;
+  const sel = Number(selectedRoundId);
+  return allRounds.filter((r) => Number(r.round) === sel);
+}, [allRounds, selectedRoundId]);
 
   // Fallback: if prizes prop is empty, pull from localStorage (same keys ResultsMode uses)
   const [prizesText, setPrizesText] = React.useState(
