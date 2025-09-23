@@ -164,7 +164,7 @@ export default function AnswersMode({
   }, [showBundle, akIncludeLabels]);
 
   const copyAnswerKey = async () => {
-    const text = answerKeyText();
+    const text = answerKeyText;
     try {
       await navigator.clipboard.writeText(text);
       alert("Answer key copied to clipboard.");
@@ -174,7 +174,7 @@ export default function AnswersMode({
   };
 
   const downloadAnswerKey = () => {
-    const text = answerKeyText();
+    const text = answerKeyText;
     const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -284,7 +284,7 @@ export default function AnswersMode({
           onClick={() => setShowAnswerKey((prev) => !prev)}
           title="Toggle answer key panel"
         >
-          {showAnswerKey ? "Hide Answer Key" : "Show Answer Key"}
+          {showAnswerKey ? "Hide Answer Key" : "Show answer key"}
         </ButtonPrimary>
       </div>
 
@@ -344,7 +344,7 @@ export default function AnswersMode({
               overflow: "auto",
             }}
           >
-            {answerKeyText()}
+            {answerKeyText}
           </pre>
         </div>
       )}
