@@ -182,28 +182,28 @@ export default function App() {
       const data = msg?.payload ?? msg;
       window.dispatchEvent(new CustomEvent("tv:teamBonus", { detail: data }));
 
-      const { teamId, showBonus } = data || {};
-      if (!teamId) return;
+      const { showId, teamId, showBonus } = data || {};
+      if (!showId || !teamId) return;
 
       setScoringCache((prev) => {
-        const show = prev[selectedShowId] || {};
+        const show = prev[showId] || {};
         const shared = show._shared || {
           teams: [],
           entryOrder: [],
           prizes: "",
         };
+
         const nextTeams = (shared.teams || []).map((t) =>
           t.showTeamId === teamId
             ? { ...t, showBonus: Number(showBonus || 0) }
             : t
         );
+
         const next = {
           ...prev,
-          [selectedShowId]: {
-            ...show,
-            _shared: { ...shared, teams: nextTeams },
-          },
+          [showId]: { ...show, _shared: { ...shared, teams: nextTeams } },
         };
+
         try {
           localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
         } catch {}
@@ -215,11 +215,11 @@ export default function App() {
       const data = msg?.payload ?? msg;
       window.dispatchEvent(new CustomEvent("tv:teamAdd", { detail: data }));
 
-      const { teamId, teamName } = data || {};
-      if (!teamId || !teamName) return;
+      const { showId, teamId, teamName } = data || {};
+      if (!showId || !teamId || !teamName) return;
 
       setScoringCache((prev) => {
-        const show = prev[selectedShowId] || {};
+        const show = prev[showId] || {};
         const shared = show._shared || {
           teams: [],
           entryOrder: [],
@@ -243,7 +243,7 @@ export default function App() {
 
         const next = {
           ...prev,
-          [selectedShowId]: {
+          [showId]: {
             ...show,
             _shared: { ...shared, teams: nextTeams, entryOrder: nextEntry },
           },
@@ -256,31 +256,30 @@ export default function App() {
       });
     });
 
-    // TEAM RENAMED
     ch.on("broadcast", { event: "teamRename" }, (msg) => {
       const data = msg?.payload ?? msg;
       window.dispatchEvent(new CustomEvent("tv:teamRename", { detail: data }));
 
-      const { teamId, teamName } = data || {};
-      if (!teamId || !teamName) return;
+      const { showId, teamId, teamName } = data || {};
+      if (!showId || !teamId || !teamName) return;
 
       setScoringCache((prev) => {
-        const show = prev[selectedShowId] || {};
+        const show = prev[showId] || {};
         const shared = show._shared || {
           teams: [],
           entryOrder: [],
           prizes: "",
         };
+
         const nextTeams = (shared.teams || []).map((t) =>
           t.showTeamId === teamId ? { ...t, teamName } : t
         );
+
         const next = {
           ...prev,
-          [selectedShowId]: {
-            ...show,
-            _shared: { ...shared, teams: nextTeams },
-          },
+          [showId]: { ...show, _shared: { ...shared, teams: nextTeams } },
         };
+
         try {
           localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
         } catch {}
@@ -288,16 +287,15 @@ export default function App() {
       });
     });
 
-    // TEAM REMOVED
     ch.on("broadcast", { event: "teamRemove" }, (msg) => {
       const data = msg?.payload ?? msg;
       window.dispatchEvent(new CustomEvent("tv:teamRemove", { detail: data }));
 
-      const { teamId } = data || {};
-      if (!teamId) return;
+      const { showId, teamId } = data || {};
+      if (!showId || !teamId) return;
 
       setScoringCache((prev) => {
-        const show = prev[selectedShowId] || {};
+        const show = prev[showId] || {};
         const shared = show._shared || {
           teams: [],
           entryOrder: [],
@@ -313,11 +311,12 @@ export default function App() {
 
         const next = {
           ...prev,
-          [selectedShowId]: {
+          [showId]: {
             ...show,
             _shared: { ...shared, teams: nextTeams, entryOrder: nextEntry },
           },
         };
+
         try {
           localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
         } catch {}

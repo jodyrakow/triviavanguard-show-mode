@@ -272,6 +272,7 @@ export default function ScoringMode({
     // inside removeTeam(showTeamId) AFTER updating teams/grid/entryOrder/focus
     try {
       window.sendTeamRemove?.({
+        showId: selectedShowId,
         teamId: showTeamId,
         ts: Date.now(),
       });
@@ -533,6 +534,7 @@ export default function ScoringMode({
     );
     try {
       window.sendTeamRename?.({
+        showId: selectedShowId,
         teamId: showTeamId,
         teamName: name,
         ts: Date.now(),
@@ -819,6 +821,7 @@ export default function ScoringMode({
     // broadcast to other browsers
     try {
       window.sendTeamBonus?.({
+        showId: selectedShowId,
         teamId: showTeamId,
         showBonus: v,
         ts: Date.now(),
@@ -839,6 +842,7 @@ export default function ScoringMode({
     setEntryOrder((prev) => [...prev, newTeam.showTeamId]);
     try {
       window.sendTeamAdd?.({
+        showId: selectedShowId,
         teamId: newTeam.showTeamId,
         teamName: newTeam.teamName,
         ts: Date.now(),
