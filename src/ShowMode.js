@@ -45,17 +45,17 @@ export default function ShowMode({
   const [scriptOpen, setScriptOpen] = React.useState(false);
 
   // ✅ make allRounds stable
-const allRounds = React.useMemo(
-  () => showBundle?.rounds ?? [],
-  [showBundle?.rounds]
-);
+  const allRounds = React.useMemo(
+    () => showBundle?.rounds ?? [],
+    [showBundle?.rounds]
+  );
 
-// ✅ make displayRounds stable too
-const displayRounds = React.useMemo(() => {
-  if (!selectedRoundId) return allRounds;
-  const sel = Number(selectedRoundId);
-  return allRounds.filter((r) => Number(r.round) === sel);
-}, [allRounds, selectedRoundId]);
+  // ✅ make displayRounds stable too
+  const displayRounds = React.useMemo(() => {
+    if (!selectedRoundId) return allRounds;
+    const sel = Number(selectedRoundId);
+    return allRounds.filter((r) => Number(r.round) === sel);
+  }, [allRounds, selectedRoundId]);
 
   // Fallback: if prizes prop is empty, pull from localStorage (same keys ResultsMode uses)
   const [prizesText, setPrizesText] = React.useState(
@@ -194,8 +194,6 @@ const displayRounds = React.useMemo(() => {
   console.log("[ShowMode] prizes prop →", prizesText);
   console.log("[ShowMode] prizeList →", prizeList);
 
-  const prizeCount = prizeList.length;
-
   const ordinal = (n) => {
     const j = n % 10,
       k = n % 100;
@@ -221,18 +219,6 @@ const displayRounds = React.useMemo(() => {
       }
     }
     return count;
-  }, [allRounds]);
-
-  const hasTB = useMemo(() => {
-    for (const r of allRounds) {
-      for (const q of r?.questions || []) {
-        const typ = String(
-          q?.questionType || q?.["Question type"] || ""
-        ).toLowerCase();
-        if (typ === "tiebreaker") return true;
-      }
-    }
-    return false;
   }, [allRounds]);
 
   const totalPointsPossible = useMemo(() => {
