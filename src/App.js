@@ -181,24 +181,204 @@ export default function App() {
     ch.on("broadcast", { event: "teamBonus" }, (msg) => {
       const data = msg?.payload ?? msg;
       window.dispatchEvent(new CustomEvent("tv:teamBonus", { detail: data }));
+
+      const { teamId, showBonus } = data || {};
+      if (!teamId) return;
+
+      setScoringCache((prev) => {
+        const show = prev[selectedShowId] || {};
+        const shared = show._shared || {
+          teams: [],
+          entryOrder: [],
+          prizes: "",
+        };
+        const nextTeams = (shared.teams || []).map((t) =>
+          t.showTeamId === teamId
+            ? { ...t, showBonus: Number(showBonus || 0) }
+            : t
+        );
+        const next = {
+          ...prev,
+          [selectedShowId]: {
+            ...show,
+            _shared: { ...shared, teams: nextTeams },
+          },
+        };
+        try {
+          localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
     });
+    // TEAM ADDED
     ch.on("broadcast", { event: "teamAdd" }, (msg) => {
       const data = msg?.payload ?? msg;
       window.dispatchEvent(new CustomEvent("tv:teamAdd", { detail: data }));
+
+      const { teamId, teamName } = data || {};
+      if (!teamId || !teamName) return;
+
+      setScoringCache((prev) => {
+        const show = prev[selectedShowId] || {};
+        const shared = show._shared || {
+          teams: [],
+          entryOrder: [],
+          prizes: "",
+        };
+
+        // skip if already present
+        if (shared.teams?.some((t) => t.showTeamId === teamId)) return prev;
+
+        const nextTeams = [
+          ...(shared.teams || []),
+          {
+            showTeamId: teamId,
+            teamName,
+            showBonus: 0,
+          },
+        ];
+        const nextEntry = shared.entryOrder?.includes(teamId)
+          ? shared.entryOrder
+          : [...(shared.entryOrder || []), teamId];
+
+        const next = {
+          ...prev,
+          [selectedShowId]: {
+            ...show,
+            _shared: { ...shared, teams: nextTeams, entryOrder: nextEntry },
+          },
+        };
+
+        try {
+          localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
     });
 
+    // TEAM RENAMED
     ch.on("broadcast", { event: "teamRename" }, (msg) => {
       const data = msg?.payload ?? msg;
       window.dispatchEvent(new CustomEvent("tv:teamRename", { detail: data }));
+
+      const { teamId, teamName } = data || {};
+      if (!teamId || !teamName) return;
+
+      setScoringCache((prev) => {
+        const show = prev[selectedShowId] || {};
+        const shared = show._shared || {
+          teams: [],
+          entryOrder: [],
+          prizes: "",
+        };
+        const nextTeams = (shared.teams || []).map((t) =>
+          t.showTeamId === teamId ? { ...t, teamName } : t
+        );
+        const next = {
+          ...prev,
+          [selectedShowId]: {
+            ...show,
+            _shared: { ...shared, teams: nextTeams },
+          },
+        };
+        try {
+          localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
     });
+
+    // TEAM REMOVED
     ch.on("broadcast", { event: "teamRemove" }, (msg) => {
       const data = msg?.payload ?? msg;
       window.dispatchEvent(new CustomEvent("tv:teamRemove", { detail: data }));
+
+      const { teamId } = data || {};
+      if (!teamId) return;
+
+      setScoringCache((prev) => {
+        const show = prev[selectedShowId] || {};
+        const shared = show._shared || {
+          teams: [],
+          entryOrder: [],
+          prizes: "",
+        };
+
+        const nextTeams = (shared.teams || []).filter(
+          (t) => t.showTeamId !== teamId
+        );
+        const nextEntry = (shared.entryOrder || []).filter(
+          (id) => id !== teamId
+        );
+
+        const next = {
+          ...prev,
+          [selectedShowId]: {
+            ...show,
+            _shared: { ...shared, teams: nextTeams, entryOrder: nextEntry },
+          },
+        };
+        try {
+          localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
     });
+    // TIEBREAKER EDIT
     ch.on("broadcast", { event: "tbEdit" }, (msg) => {
-      const d = msg?.payload ?? msg;
-      const ev = new CustomEvent("tv:tbEdit", { detail: d });
-      window.dispatchEvent(ev);
+      const data = msg?.payload ?? msg;
+
+      // 1) Keep the DOM event for ScoringMode if it's mounted
+      window.dispatchEvent(new CustomEvent("tv:tbEdit", { detail: data }));
+
+      // 2) ALSO patch scoringCache so late-joining hosts see the latest guess
+      const {
+        showId, // string
+        roundId, // string
+        teamId, // showTeamId
+        showQuestionId, // tb question id
+        tiebreakerGuessRaw,
+        tiebreakerGuess,
+      } = data || {};
+
+      if (!showId || !roundId || !teamId || !showQuestionId) return;
+
+      setScoringCache((prev) => {
+        const show = prev[showId] || {};
+        const round = show[roundId] || { grid: {} };
+
+        const byTeam = round.grid?.[teamId] ? { ...round.grid[teamId] } : {};
+        const cell = byTeam[showQuestionId] || {
+          isCorrect: false,
+          questionBonus: 0,
+          overridePoints: null,
+        };
+
+        byTeam[showQuestionId] = {
+          ...cell,
+          tiebreakerGuessRaw: tiebreakerGuessRaw ?? "",
+          tiebreakerGuess:
+            tiebreakerGuess === null || tiebreakerGuess === undefined
+              ? null
+              : Number(tiebreakerGuess),
+        };
+
+        const next = {
+          ...prev,
+          [showId]: {
+            ...show,
+            [roundId]: {
+              ...round,
+              grid: { ...(round.grid || {}), [teamId]: byTeam },
+            },
+          },
+        };
+
+        try {
+          localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
     });
 
     ch.on("broadcast", { event: "prizesUpdate" }, (msg) => {

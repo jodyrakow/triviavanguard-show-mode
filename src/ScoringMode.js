@@ -198,18 +198,17 @@ export default function ScoringMode({
   useEffect(() => {
     const onTBEdit = (e) => {
       const {
-        showId: msgShowId,
-        roundId: msgRoundId,
+        showId,
+        roundId,
         teamId,
         showQuestionId,
         tiebreakerGuessRaw,
         tiebreakerGuess,
       } = e.detail || {};
-
       if (!teamId || !showQuestionId) return;
-      // only accept edits for the currently selected show/round
-      if (msgShowId !== selectedShowId || msgRoundId !== selectedRoundId)
-        return;
+
+      // ✅ Guard against cross-show/round chatter
+      if (showId !== selectedShowId || roundId !== selectedRoundId) return;
 
       setGrid((prev) => {
         const byTeam = prev[teamId] ? { ...prev[teamId] } : {};
@@ -222,7 +221,9 @@ export default function ScoringMode({
           ...cell,
           tiebreakerGuessRaw: tiebreakerGuessRaw ?? "",
           tiebreakerGuess:
-            tiebreakerGuess == null ? null : Number(tiebreakerGuess),
+            tiebreakerGuess === null || tiebreakerGuess === undefined
+              ? null
+              : Number(tiebreakerGuess),
         };
         return { ...prev, [teamId]: byTeam };
       });
