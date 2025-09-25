@@ -51,20 +51,44 @@ export default function ShowMode({
     host: "",
     cohost: "",
     location: "",
+    totalGames: "",
+    startTimesText: "",
   });
   // show name (best-effort)
   const showName =
     (showBundle?.Show && showBundle?.Show?.Show) || showBundle?.showName || "";
 
-  const isMultiGameNight = /game/i.test(showName); // true if name contains "Game"
-
-  // right after `const showName = ...`
-  const inferredLocation = React.useMemo(() => {
+  // Detects "YYYY-MM-DD Game N @ Venue" vs "YYYY-MM-DD @ Venue"
+  const multiGameMeta = useMemo(() => {
     const s = (showName || "").trim();
-    // capture everything after the last "@"
-    const m = s.match(/@\s*([^@]+)$/);
-    return m ? m[1].trim() : "";
+
+    // 2025-09-23 Game 1 @ Venue
+    const multiRe = /^\s*\d{4}-\d{2}-\d{2}\s+Game\s+(\d+)\s*@\s*(.+)\s*$/i;
+
+    // 2025-09-23 @ Venue
+    const singleRe = /^\s*\d{4}-\d{2}-\d{2}\s*@\s*(.+)\s*$/;
+
+    let gameIndex = null;
+    let venue = "";
+
+    const m1 = s.match(multiRe);
+    if (m1) {
+      gameIndex = parseInt(m1[1], 10);
+      venue = m1[2].trim();
+      return { isMultiNight: true, gameIndex, venue };
+    }
+
+    const m2 = s.match(singleRe);
+    if (m2) {
+      venue = m2[1].trim();
+    }
+    return { isMultiNight: false, gameIndex, venue };
   }, [showName]);
+
+  const inferredLocation = useMemo(
+    () => multiGameMeta.venue || "",
+    [multiGameMeta.venue]
+  );
 
   React.useEffect(() => {
     if (inferredLocation) {
@@ -378,48 +402,103 @@ export default function ShowMode({
     const Z = totalPointsPossible;
     const N = specialCount;
 
-    // fallbacks if someone leaves a field blank
     const hName = (hostInfo.host || "your host").trim();
     const cName = (hostInfo.cohost || "your co-host").trim();
-    const loc = (hostInfo.location || "your venue").trim();
+
+    // Prefer explicit location, else parsed venue, else fallback
+    const loc = (
+      hostInfo.location ||
+      multiGameMeta.venue ||
+      "your venue"
+    ).trim();
+
+    // Parse start times, allow commas, semicolons, or line breaks
+    const startTimes = (hostInfo.startTimesText || "")
+      .split(/[,;\n]/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    // Total games: host entry wins; else infer from number of start times; else 1
+    const totalGamesInput = Number(hostInfo.totalGames);
+    const totalGames =
+      Number.isFinite(totalGamesInput) && totalGamesInput > 0
+        ? totalGamesInput
+        : startTimes.length > 1
+          ? startTimes.length
+          : 1;
+
+    const timesBlurb = (() => {
+      if (totalGames <= 1) return "";
+
+      const pluralAll = totalGames === 2 ? "both" : "all";
+      const timesNice = (arr) =>
+        arr.length <= 1
+          ? arr[0] || ""
+          : arr.slice(0, -1).join(", ") + " and " + arr[arr.length - 1];
+
+      let scheduleLine = "";
+      if (startTimes.length > 0) {
+        // “one starting right now at 7:00, then at 8:30 and 10:00”
+        const first = startTimes[0];
+        const rest = startTimes.slice(1);
+        if (rest.length) {
+          scheduleLine = `— one starting right now at ${first}, then at ${timesNice(rest)}`;
+        } else {
+          scheduleLine = `— one starting right now at ${first}`;
+        }
+      }
+
+      return (
+        `\nWe’ll be playing ${totalGames} game${s(totalGames, "", "s")} of trivia tonight ${scheduleLine} — and ${loc} is awarding prizes for ${pluralAll} game${s(totalGames, "", "s")}!\n` +
+        `The slate will be wiped clean between games; that means you can play ${totalGames === 2 ? "one or both" : `one, two, or up to ${totalGames}`} game${s(totalGames, "", "s")} tonight — how long you hang out with us is up to you!\n`
+      );
+    })();
 
     // --- Intro ---
     let text =
       `Hey, everybody! It’s time for team trivia at ${loc}!\n\n` +
       `I’m ${hName} and this is ${cName}, and we’re your hosts tonight as you play for trivia glory and some pretty awesome prizes.\n`;
 
+    // Insert multi-game blurb only when we truly have multiple games
+    if (multiGameMeta.isMultiNight || totalGames > 1) {
+      text += `\n${timesBlurb}`;
+    }
+
     // --- Prizes ---
     if (prizeList.length > 0) {
-      text += `\n${loc} is awarding prizes for the top ${fmtNum(prizeList.length)} teams:\n`;
+      text += `\n${loc} is awarding prizes for the top ${fmtNum(prizeList.length)} team${s(prizeList.length, "", "s")}:\n`;
       prizeList.forEach((p, i) => {
         text += `  • ${ordinal(i + 1)}: ${p}\n`;
       });
     }
 
-    // --- Stats ---
+    // --- Stats (per-show) ---
+    // Keep your four paths, but phrase as “in each show” when multi-game
+    const perShowSuffix =
+      multiGameMeta.isMultiNight || totalGames > 1 ? " in each show" : "";
+
     if (scoringMode === "pooled") {
       if (N > 0) {
         text +=
-          `\n• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n` +
-          `• Each question has a pool of ${fmtNum(Y)} point${Y === 1 ? "" : "s"} that will be split evenly among the teams that answer correctly.\n` +
+          `\n• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}${perShowSuffix}.\n` +
+          `• Each question has a pool of ${fmtNum(Y)} point${Y === 1 ? "" : "s"} that will be split evenly among the teams that answer correctly${perShowSuffix}.\n` +
           `• We do have ${fmtNum(N)} special ${s(N, "question", "questions")} with ${s(N, "a different point value", "different point values")} — we'll explain in more detail when we get to ${s(N, "that question", "those questions")}.\n` +
-          `• That gives us a total of ${fmtNum(Z)} points in the pool for the evening.\n`;
+          `• That gives us a total of ${fmtNum(Z)} points in the pool${perShowSuffix}.\n`;
       } else {
         text +=
-          `\n• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n` +
-          `• Each question has a pool of ${fmtNum(Y)} point${Y === 1 ? "" : "s"} that will be split evenly among correct teams.\n` +
-          `• Total points in the pool tonight: ${fmtNum(Z)}.\n`;
+          `\n• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}${perShowSuffix}.\n` +
+          `• Each question has a pool of ${fmtNum(Y)} point${Y === 1 ? "" : "s"} that will be split evenly among teams that answer correctly, for a total of ${fmtNum(Z)} points in the pool${perShowSuffix}.\n`;
       }
     } else {
       if (N > 0) {
         text +=
-          `\n• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n` +
-          `• Most questions are worth ${fmtNum(Y)} point${Y === 1 ? "" : "s"}, except for ${fmtNum(N)} special ${s(N, "question", "questions")} with ${s(N, "a different point value", "different point values")} — details when we get there.\n` +
-          `• That's a total of ${fmtNum(Z)} possible points.\n`;
+          `\n• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}${perShowSuffix}.\n` +
+          `• Most questions are worth ${fmtNum(Y)} point${Y === 1 ? "" : "s"}, except for ${fmtNum(N)} special ${s(N, "question", "questions")} with ${s(N, "a different point value", "different point values")} — we'll explain in more detail when we get to ${s(N, "that question", "those questions")}.\n` +
+          `• That gives us a total of ${fmtNum(Z)} possible points${perShowSuffix}.\n`;
       } else {
         text +=
-          `\n• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n` +
-          `• Each question is worth ${fmtNum(Y)} point${Y === 1 ? "" : "s"}, for a total of ${fmtNum(Z)} possible points in the game.\n`;
+          `\n• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}${perShowSuffix}.\n` +
+          `• Each question is worth ${fmtNum(Y)} point${Y === 1 ? "" : "s"}, for a total of ${fmtNum(Z)} possible points${perShowSuffix}.\n`;
       }
     }
 
@@ -446,6 +525,10 @@ export default function ShowMode({
     hostInfo.host,
     hostInfo.cohost,
     hostInfo.location,
+    hostInfo.totalGames,
+    hostInfo.startTimesText,
+    multiGameMeta.isMultiNight,
+    multiGameMeta.venue,
   ]);
 
   return (
@@ -1182,6 +1265,57 @@ export default function ShowMode({
                     padding: ".45rem .55rem",
                     border: "1px solid #ccc",
                     borderRadius: ".35rem",
+                  }}
+                />
+              </label>
+              <label style={{ display: "block", marginBottom: ".6rem" }}>
+                <div style={{ marginBottom: 4 }}>Total games tonight</div>
+                <input
+                  type="number"
+                  min={1}
+                  value={hostInfo.totalGames}
+                  onChange={(e) =>
+                    saveHostInfo({ ...hostInfo, totalGames: e.target.value })
+                  }
+                  style={{
+                    width: "120px",
+                    padding: ".45rem .55rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                  }}
+                />
+                <div
+                  style={{
+                    fontSize: ".85rem",
+                    opacity: 0.8,
+                    marginTop: ".25rem",
+                  }}
+                >
+                  (Leave blank if single show)
+                </div>
+              </label>
+
+              <label style={{ display: "block", marginBottom: ".6rem" }}>
+                <div style={{ marginBottom: 4 }}>
+                  Start times (comma- or line-separated)
+                </div>
+                <textarea
+                  value={hostInfo.startTimesText}
+                  onChange={(e) =>
+                    saveHostInfo({
+                      ...hostInfo,
+                      startTimesText: e.target.value,
+                    })
+                  }
+                  placeholder={`7:00, 8:30`}
+                  rows={2}
+                  style={{
+                    width: "100%",
+                    padding: ".55rem .65rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                    resize: "vertical",
+                    fontFamily: tokens.font.body,
                   }}
                 />
               </label>
