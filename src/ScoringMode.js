@@ -102,6 +102,7 @@ export default function ScoringMode({
   const [teams, setTeams] = useState([]); // [{showTeamId, teamId?, teamName, showBonus}]
   const [grid, setGrid] = useState({}); // {[showTeamId]: {[showQuestionId]: {isCorrect, questionBonus}}}
   const [entryOrder, setEntryOrder] = useState([]); // [showTeamId]
+  const seededOnceRef = useRef(false);
   // --- Per-cell points editor (modal) ---
   const [editingCell, setEditingCell] = useState(null);
   // { showTeamId, showQuestionId, draftBonus, draftOverride }
@@ -130,10 +131,20 @@ export default function ScoringMode({
 
   useEffect(() => {
     const onMark = (e) => {
-      const { teamId, showQuestionId, nowCorrect } = e.detail || {};
+      const { showId, roundId, teamId, showQuestionId, nowCorrect } =
+        e.detail || {};
+
+      // Scope to active show/round
+      if (showId !== selectedShowId) return;
+      if (roundId && roundId !== selectedRoundId) return;
+
+      // Basic shape
       if (!teamId || !showQuestionId) return;
 
-      // Apply the incoming toggle deterministically (no feedback loop issues)
+      // Ignore unknowns (avoid creating stray cells)
+      if (!teams.some((t) => t.showTeamId === teamId)) return;
+      if (!questions.some((q) => q.showQuestionId === showQuestionId)) return;
+
       setGrid((prev) => {
         const byTeam = prev[teamId] ? { ...prev[teamId] } : {};
         const cell = byTeam[showQuestionId] || {
@@ -148,12 +159,13 @@ export default function ScoringMode({
 
     window.addEventListener("tv:mark", onMark);
     return () => window.removeEventListener("tv:mark", onMark);
-  }, [setGrid]);
+  }, [selectedShowId, selectedRoundId, teams, questions]); // ✅ keep closure fresh
 
   useEffect(() => {
     const onTeamBonus = (e) => {
-      const { teamId, showBonus } = e.detail || {};
+      const { teamId, showBonus, showId } = e.detail || {};
       if (!teamId) return;
+      if (showId !== selectedShowId) return;
       setTeams((prev) =>
         prev.map((t) =>
           t.showTeamId === teamId
@@ -164,12 +176,19 @@ export default function ScoringMode({
     };
     window.addEventListener("tv:teamBonus", onTeamBonus);
     return () => window.removeEventListener("tv:teamBonus", onTeamBonus);
-  }, []);
+  }, [selectedShowId]);
 
   useEffect(() => {
     const onCellEdit = (e) => {
-      const { teamId, showQuestionId, questionBonus, overridePoints } =
-        e.detail || {};
+      const {
+        showId,
+        roundId,
+        teamId,
+        showQuestionId,
+        questionBonus,
+        overridePoints,
+      } = e.detail || {};
+      if (showId !== selectedShowId || roundId !== selectedRoundId) return;
       if (!teamId || !showQuestionId) return;
 
       setGrid((prev) => {
@@ -263,9 +282,8 @@ export default function ScoringMode({
 
     // If focused column was this team, bump focus left if possible
     setFocus((f) => {
-      const idx = renderTeams.findIndex((t) => t.showTeamId === showTeamId);
-      if (idx === -1) return f;
-      const newTeamIdx = Math.max(0, f.teamIdx - (f.teamIdx >= idx ? 1 : 0));
+      const totalAfter = Math.max(0, teams.length - 1);
+      const newTeamIdx = Math.min(f.teamIdx, Math.max(0, totalAfter - 1));
       return { teamIdx: newTeamIdx, qIdx: f.qIdx };
     });
 
@@ -394,11 +412,13 @@ export default function ScoringMode({
     setGrid({});
     setEntryOrder([]);
     setFocus({ teamIdx: 0, qIdx: 0 });
+    seededOnceRef.current = false; // allow a fresh seed for the new show
   }, [selectedShowId]);
 
   // Seed once we have a source (cache or preloadedTeams). Avoid seeding empty.
   useEffect(() => {
-    if (teams.length > 0) return;
+    if (seededOnceRef.current) return; // we've already seeded for this show
+    if (teams.length > 0) return; // local already has teams (user-added)
 
     const source =
       (cachedState?.teams?.length && cachedState.teams) ||
@@ -416,6 +436,7 @@ export default function ScoringMode({
     setGrid(seededGrid);
     setEntryOrder(seededEntryOrder);
     setFocus({ teamIdx: 0, qIdx: 0 });
+    seededOnceRef.current = true; // ✅ don’t auto-import again
   }, [teams.length, cachedState, preloadedTeams]);
 
   // ---------- Persist local changes up to App ----------
@@ -468,8 +489,9 @@ export default function ScoringMode({
 
   useEffect(() => {
     const onTeamAdd = (e) => {
-      const { teamId, teamName } = e.detail || {};
+      const { showId, teamId, teamName } = e.detail || {};
       if (!teamId || !teamName) return;
+      if (showId !== selectedShowId) return; // ✅ ignore other shows
 
       setTeams((prev) => {
         // skip if already present
@@ -483,12 +505,13 @@ export default function ScoringMode({
     };
     window.addEventListener("tv:teamAdd", onTeamAdd);
     return () => window.removeEventListener("tv:teamAdd", onTeamAdd);
-  }, []);
+  }, [selectedShowId]);
 
   useEffect(() => {
     const onTeamRemove = (e) => {
-      const { teamId } = e.detail || {};
+      const { showId, teamId } = e.detail || {};
       if (!teamId) return;
+      if (showId !== selectedShowId) return; // ✅ ignore other shows
 
       // remove from local state
       setTeams((prev) => prev.filter((t) => t.showTeamId !== teamId));
@@ -510,19 +533,20 @@ export default function ScoringMode({
     window.addEventListener("tv:teamRemove", onTeamRemove);
     return () => window.removeEventListener("tv:teamRemove", onTeamRemove);
     // it's fine to leave deps empty; we only use setters
-  }, [renderTeams.length]);
+  }, [renderTeams.length, selectedShowId]);
 
   useEffect(() => {
     const onTeamRename = (e) => {
-      const { teamId, teamName } = e.detail || {};
+      const { showId, teamId, teamName } = e.detail || {};
       if (!teamId || !teamName) return;
+      if (showId !== selectedShowId) return; // ✅ ignore other shows
       setTeams((prev) =>
         prev.map((t) => (t.showTeamId === teamId ? { ...t, teamName } : t))
       );
     };
     window.addEventListener("tv:teamRename", onTeamRename);
     return () => window.removeEventListener("tv:teamRename", onTeamRename);
-  }, []);
+  }, [selectedShowId]);
 
   const renameTeam = (showTeamId, nextName) => {
     const name = String(nextName ?? "").trim();
@@ -575,6 +599,8 @@ export default function ScoringMode({
       // ✅ Broadcast with the already-computed value
       try {
         window.sendMark?.({
+          showId: selectedShowId,
+          roundId: selectedRoundId,
           teamId: t.showTeamId,
           teamName: t.teamName,
           showQuestionId: q.showQuestionId,
@@ -1401,7 +1427,7 @@ export default function ScoringMode({
                   borderTop: bonusBorder,
                   borderBottom: bonusBorder,
                   whiteSpace: "normal",
-                  wordBreak: "word-break",
+                  wordBreak: "break-word",
                   overflowWrap: "anywhere",
                   lineHeight: 1.1,
                   fontSize: ".9rem",

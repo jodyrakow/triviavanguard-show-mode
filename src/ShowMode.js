@@ -41,6 +41,7 @@ export default function ShowMode({
   pubPoints = 10,
   poolPerQuestion = 100,
   prizes = "",
+  setPrizes,
 }) {
   const [scriptOpen, setScriptOpen] = React.useState(false);
 
@@ -51,6 +52,68 @@ export default function ShowMode({
     cohost: "",
     location: "",
   });
+  // show name (best-effort)
+  const showName =
+    (showBundle?.Show && showBundle?.Show?.Show) || showBundle?.showName || "";
+
+  const isMultiGameNight = /game/i.test(showName); // true if name contains "Game"
+
+  // right after `const showName = ...`
+  const inferredLocation = React.useMemo(() => {
+    const s = (showName || "").trim();
+    // capture everything after the last "@"
+    const m = s.match(/@\s*([^@]+)$/);
+    return m ? m[1].trim() : "";
+  }, [showName]);
+
+  React.useEffect(() => {
+    if (inferredLocation) {
+      const next = { ...hostInfo, location: inferredLocation };
+      setHostInfo(next);
+      try {
+        localStorage.setItem("tv_hostInfo", JSON.stringify(next));
+      } catch {}
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inferredLocation]);
+
+  // keep local textarea in sync with shared prizes
+  const [prizesText, setPrizesText] = React.useState(
+    Array.isArray(prizes) ? prizes.join("\n") : String(prizes || "")
+  );
+  React.useEffect(() => {
+    setPrizesText(
+      Array.isArray(prizes) ? prizes.join("\n") : String(prizes || "")
+    );
+  }, [prizes]);
+
+  const prizeLines = React.useMemo(
+    () =>
+      (prizesText || "")
+        .toString()
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean),
+    [prizesText]
+  );
+  const [prizeCountInput, setPrizeCountInput] = React.useState(
+    prizeLines.length
+  );
+  React.useEffect(() => {
+    setPrizeCountInput(prizeLines.length);
+  }, [prizeLines.length]);
+
+  // after your existing hostInfo load-from-localStorage effect
+  React.useEffect(() => {
+    if (!hostInfo.location.trim() && inferredLocation) {
+      const next = { ...hostInfo, location: inferredLocation };
+      setHostInfo(next);
+      try {
+        localStorage.setItem("tv_hostInfo", JSON.stringify(next));
+      } catch {}
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inferredLocation]); // depend on inferredLocation only
 
   // load from localStorage once
   React.useEffect(() => {
@@ -88,41 +151,6 @@ export default function ShowMode({
     const sel = Number(selectedRoundId);
     return allRounds.filter((r) => Number(r.round) === sel);
   }, [allRounds, selectedRoundId]);
-
-  // Fallback: if prizes prop is empty, pull from localStorage (same keys ResultsMode uses)
-  const [prizesText, setPrizesText] = React.useState(
-    typeof prizes === "string"
-      ? prizes
-      : Array.isArray(prizes)
-        ? prizes.join("\n")
-        : ""
-  );
-
-  React.useEffect(() => {
-    // keep in sync if parent starts sending a non-empty prop
-    if (typeof prizes === "string" && prizes.trim()) {
-      setPrizesText(prizes);
-      return;
-    }
-    if (Array.isArray(prizes) && prizes.length) {
-      setPrizesText(prizes.join("\n"));
-      return;
-    }
-
-    // otherwise, try localStorage
-    const showKey = String(
-      selectedRoundId ? showBundle?.showId || "" : showBundle?.showId || ""
-    ).trim();
-    if (!showKey) return;
-
-    const rawPrizes = localStorage.getItem(`tv_prizes_${showKey}`);
-    if (rawPrizes) {
-      try {
-        const arr = JSON.parse(rawPrizes);
-        if (Array.isArray(arr)) setPrizesText(arr.join("\n"));
-      } catch {}
-    }
-  }, [prizes, selectedRoundId, showBundle?.showId]);
 
   // --- Adapter: build groupedQuestions shape from bundle rounds ---
   const groupedQuestionsFromRounds = React.useMemo(() => {
@@ -213,6 +241,44 @@ export default function ShowMode({
       return ao - bo;
     });
   }, [groupedQuestions]);
+
+  const categoryNumberByKey = React.useMemo(() => {
+    const perRound = new Map(); // round -> running count
+    const out = {};
+    for (const [key, cat] of sortedGroupedEntries) {
+      const m = /^(\d+)/.exec(String(key));
+      const roundNum = m ? Number(m[1]) : 0;
+
+      // check if this category has visual questions
+      const isVisualCat = Object.values(cat?.questions || {}).some((q) =>
+        String(q?.["Question type"] || "")
+          .toLowerCase()
+          .includes("visual")
+      );
+
+      if (isVisualCat) {
+        out[key] = null; // no number assigned
+        continue; // don't increment counter
+      }
+
+      // check if this category has visual questions
+      const isTbCat = Object.values(cat?.questions || {}).some((q) =>
+        String(q?.["Question type"] || "")
+          .toLowerCase()
+          .includes("tiebreaker")
+      );
+
+      if (isTbCat) {
+        out[key] = null; // no number assigned
+        continue; // don't increment counter
+      }
+
+      const next = (perRound.get(roundNum) || 0) + 1;
+      perRound.set(roundNum, next);
+      out[key] = next;
+    }
+    return out;
+  }, [sortedGroupedEntries]);
 
   // Parse prizes passed as a string (supports newline- or comma-separated)
   // Parse prizes from the resolved string (prop or localStorage)
@@ -320,47 +386,47 @@ export default function ShowMode({
     // --- Intro ---
     let text =
       `Hey, everybody! It’s time for team trivia at ${loc}!\n\n` +
-      `I’m ${hName} and this is ${cName}, and we’re your hosts tonight as you play for trivia glory and some pretty awesome prizes.\n\n`;
+      `I’m ${hName} and this is ${cName}, and we’re your hosts tonight as you play for trivia glory and some pretty awesome prizes.\n`;
+
+    // --- Prizes ---
+    if (prizeList.length > 0) {
+      text += `\n${loc} is awarding prizes for the top ${fmtNum(prizeList.length)} teams:\n`;
+      prizeList.forEach((p, i) => {
+        text += `  • ${ordinal(i + 1)}: ${p}\n`;
+      });
+    }
 
     // --- Stats ---
     if (scoringMode === "pooled") {
       if (N > 0) {
         text +=
-          `• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n` +
+          `\n• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n` +
           `• Each question has a pool of ${fmtNum(Y)} point${Y === 1 ? "" : "s"} that will be split evenly among the teams that answer correctly.\n` +
           `• We do have ${fmtNum(N)} special ${s(N, "question", "questions")} with ${s(N, "a different point value", "different point values")} — we'll explain in more detail when we get to ${s(N, "that question", "those questions")}.\n` +
           `• That gives us a total of ${fmtNum(Z)} points in the pool for the evening.\n`;
       } else {
         text +=
-          `• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n` +
+          `\n• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n` +
           `• Each question has a pool of ${fmtNum(Y)} point${Y === 1 ? "" : "s"} that will be split evenly among correct teams.\n` +
           `• Total points in the pool tonight: ${fmtNum(Z)}.\n`;
       }
     } else {
       if (N > 0) {
         text +=
-          `• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n` +
+          `\n• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n` +
           `• Most questions are worth ${fmtNum(Y)} point${Y === 1 ? "" : "s"}, except for ${fmtNum(N)} special ${s(N, "question", "questions")} with ${s(N, "a different point value", "different point values")} — details when we get there.\n` +
           `• That's a total of ${fmtNum(Z)} possible points.\n`;
       } else {
         text +=
-          `• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n` +
-          `• Each question is worth ${fmtNum(Y)} point${Y === 1 ? "" : "s"}.\n` +
-          `• Total possible points: ${fmtNum(Z)}.\n`;
+          `\n• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}.\n` +
+          `• Each question is worth ${fmtNum(Y)} point${Y === 1 ? "" : "s"}, for a total of ${fmtNum(Z)} possible points in the game.\n`;
       }
-    }
-
-    // --- Prizes ---
-    if (prizeList.length > 0) {
-      text += `\nPrizes for top ${fmtNum(prizeList.length)}:\n`;
-      prizeList.forEach((p, i) => {
-        text += `  • ${ordinal(i + 1)}: ${p}\n`;
-      });
     }
 
     // --- Rules (always on) ---
     text +=
       `\n` +
+      `Before we get going, here are the rules.\n` +
       `• To keep things fair, no electronic devices may be out during the round. Whether you’re inside, outside, or in the bathroom, if you step out, please return with only your charming personality, not with answers you looked up while you were gone. If it looks like cheating, we have to treat it like cheating.\n` +
       `• Don't shout out the answers. Use your note pads to share ideas with your team.\n` +
       `• Spelling doesn't count unless we say it does.\n` +
@@ -432,7 +498,7 @@ export default function ShowMode({
             onClick={() => setHostModalOpen(true)}
             title="Set your names & location"
           >
-            Set hosts
+            Set host(s), location, & prizes
           </ButtonPrimary>
         </div>
       )}
@@ -462,7 +528,7 @@ export default function ShowMode({
             ? [catAudio]
             : [];
 
-        const CategoryHeader = ({ secret }) => (
+        const CategoryHeader = ({ secret, number }) => (
           <div style={{ backgroundColor: theme.dark, padding: 0 }}>
             <hr
               style={{
@@ -482,7 +548,9 @@ export default function ShowMode({
                 textIndent: "0.5rem",
               }}
               dangerouslySetInnerHTML={{
-                __html: marked.parseInline(categoryName || ""),
+                __html: marked.parseInline(
+                  `${Number.isFinite(number) ? `${number}. ` : ""}${categoryName || ""}`
+                ),
               }}
             />
             <p
@@ -620,7 +688,10 @@ export default function ShowMode({
                   padding: "0.5rem",
                 }}
               >
-                <CategoryHeader secret />
+                <CategoryHeader
+                  secret
+                  number={categoryNumberByKey[categoryId]}
+                />
                 {/* Secret category explainer box */}
                 <div
                   style={{
@@ -652,7 +723,7 @@ export default function ShowMode({
                 </div>
               </div>
             ) : (
-              <CategoryHeader />
+              <CategoryHeader number={categoryNumberByKey[categoryId]} />
             )}
 
             {Object.values(questions)
@@ -1060,7 +1131,7 @@ export default function ShowMode({
                 letterSpacing: ".01em",
               }}
             >
-              Hosts & Location
+              Hosts, location, & prizes
             </div>
 
             <div style={{ padding: ".9rem .9rem 0" }}>
@@ -1114,6 +1185,53 @@ export default function ShowMode({
                   }}
                 />
               </label>
+              <label style={{ display: "block", marginBottom: ".6rem" }}>
+                <div style={{ marginBottom: 4 }}>Number of prizes</div>
+                <input
+                  type="number"
+                  min={0}
+                  value={prizeCountInput}
+                  onChange={(e) =>
+                    setPrizeCountInput(Number(e.target.value || 0))
+                  }
+                  style={{
+                    width: "120px",
+                    padding: ".45rem .55rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                  }}
+                />
+                <div
+                  style={{
+                    fontSize: ".85rem",
+                    opacity: 0.8,
+                    marginTop: ".25rem",
+                  }}
+                >
+                  (Optional – for your reference; prize lines below control
+                  what’s shown)
+                </div>
+              </label>
+
+              <label style={{ display: "block", marginBottom: ".6rem" }}>
+                <div style={{ marginBottom: 4 }}>
+                  Prize details (one per line)
+                </div>
+                <textarea
+                  value={prizesText}
+                  onChange={(e) => setPrizesText(e.target.value)}
+                  placeholder={`$100 bar tab\nSwag basket\nFree pizza`}
+                  rows={4}
+                  style={{
+                    width: "100%",
+                    padding: ".55rem .65rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                    resize: "vertical",
+                    fontFamily: tokens.font.body,
+                  }}
+                />
+              </label>
             </div>
 
             <div
@@ -1125,6 +1243,30 @@ export default function ShowMode({
                 borderTop: "1px solid #eee",
               }}
             >
+              <button
+                type="button"
+                onClick={() => {
+                  // Normalize: newline-separated string → array or string, your shared state stores string
+                  // We’ll store as string (joined by newlines).
+                  const normalized = (prizesText || "")
+                    .split(/\r?\n/)
+                    .map((s) => s.trim())
+                    .filter(Boolean)
+                    .join("\n");
+                  setPrizes?.(normalized);
+                  setHostModalOpen(false);
+                }}
+                style={{
+                  padding: ".5rem .75rem",
+                  border: `1px solid ${theme.accent}`,
+                  background: theme.accent,
+                  color: "#fff",
+                  borderRadius: ".35rem",
+                  cursor: "pointer",
+                }}
+              >
+                Save
+              </button>
               <button
                 type="button"
                 onClick={() => setHostModalOpen(false)}
