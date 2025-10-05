@@ -52,6 +52,11 @@ export default function App() {
   const [bundleLoading, setBundleLoading] = React.useState(false);
   const [bundleError, setBundleError] = React.useState(null);
 
+  const currentShowIdRef = useRef(selectedShowId);
+  useEffect(() => {
+    currentShowIdRef.current = selectedShowId;
+  }, [selectedShowId]);
+
   // Scoring cache across mode switches
   const [scoringCache, setScoringCache] = useState({});
   // Restore scoring backup (if any) on app load
@@ -159,14 +164,6 @@ export default function App() {
       }
       return ch.send({ type: "broadcast", event, payload });
     };
-    // send helper
-    window.sendTBEdit = (payload) => {
-      ch.send({
-        type: "broadcast",
-        event: "tbEdit",
-        payload, // { showId, roundId, teamId, showQuestionId, tiebreakerGuessRaw, tiebreakerGuess, ts }
-      });
-    };
 
     // event handlers -> DOM CustomEvents
     ch.on("broadcast", { event: "ping" }, (payload) => {
@@ -259,6 +256,7 @@ export default function App() {
 
       const { showId, teamId, showBonus } = data || {};
       if (!showId || !teamId) return;
+      if (showId !== currentShowIdRef.current) return;
 
       setScoringCache((prev) => {
         const show = prev[showId] || {};
@@ -276,7 +274,10 @@ export default function App() {
 
         const next = {
           ...prev,
-          [showId]: { ...show, _shared: { ...shared, teams: nextTeams } },
+          [showId]: {
+            ...show,
+            _shared: { ...shared, teams: nextTeams },
+          },
         };
 
         try {
@@ -292,6 +293,7 @@ export default function App() {
 
       const { showId, teamId, teamName } = data || {};
       if (!showId || !teamId || !teamName) return;
+      if (showId !== currentShowIdRef.current) return;
 
       setScoringCache((prev) => {
         const show = prev[showId] || {};
@@ -337,6 +339,7 @@ export default function App() {
 
       const { showId, teamId, teamName } = data || {};
       if (!showId || !teamId || !teamName) return;
+      if (showId !== currentShowIdRef.current) return;
 
       setScoringCache((prev) => {
         const show = prev[showId] || {};
@@ -352,7 +355,10 @@ export default function App() {
 
         const next = {
           ...prev,
-          [showId]: { ...show, _shared: { ...shared, teams: nextTeams } },
+          [showId]: {
+            ...show,
+            _shared: { ...shared, teams: nextTeams },
+          },
         };
 
         try {
@@ -368,6 +374,7 @@ export default function App() {
 
       const { showId, teamId } = data || {};
       if (!showId || !teamId) return;
+      if (showId !== currentShowIdRef.current) return;
 
       setScoringCache((prev) => {
         const show = prev[showId] || {};
@@ -416,6 +423,7 @@ export default function App() {
       } = data || {};
 
       if (!showId || !roundId || !teamId || !showQuestionId) return;
+      if (showId !== currentShowIdRef.current) return;
 
       setScoringCache((prev) => {
         const show = prev[showId] || {};
@@ -460,6 +468,7 @@ export default function App() {
       const showId = data?.showId;
       const val = typeof data?.prizes === "string" ? data.prizes : "";
       if (!showId) return;
+      if (showId !== currentShowIdRef.current) return;
 
       setScoringCache((prev) => {
         const show = prev[showId] || {};
@@ -933,6 +942,7 @@ export default function App() {
           showTimer={showTimer}
           prizes={composedCachedState?.prizes ?? ""}
           setShowTimer={setShowTimer}
+          setPrizes={(val) => patchShared({ prizes: String(val || "") })}
         />
       )}
 
