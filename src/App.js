@@ -100,18 +100,198 @@ export default function App() {
     () => Number(localStorage.getItem("tv_poolPerQuestion")) || 500
   );
 
-  // Persist scoring settings
+  // Persist scoring settings to localStorage, scoringCache, and Supabase
   useEffect(() => {
     localStorage.setItem("tv_scoringMode", scoringMode);
-  }, [scoringMode]);
+
+    if (!selectedShowId) return;
+
+    setScoringCache((prev) => {
+      const show = prev[selectedShowId] || {};
+      const shared = show._shared || {
+        teams: [],
+        entryOrder: [],
+        prizes: "",
+        scoringMode: "pub",
+        pubPoints: 10,
+        poolPerQuestion: 500,
+      };
+
+      const nextShared = { ...shared, scoringMode };
+
+      const next = {
+        ...prev,
+        [selectedShowId]: {
+          ...show,
+          _shared: nextShared,
+        },
+      };
+
+      // Save to Supabase
+      saveDebounced("shared", () => {
+        fetch("/.netlify/functions/supaSaveScoring", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            showId: selectedShowId,
+            roundId: "shared",
+            payload: {
+              teams: nextShared.teams ?? [],
+              entryOrder: nextShared.entryOrder ?? [],
+              prizes: nextShared.prizes ?? "",
+              scoringMode: nextShared.scoringMode ?? "pub",
+              pubPoints: nextShared.pubPoints ?? 10,
+              poolPerQuestion: nextShared.poolPerQuestion ?? 500,
+            },
+          }),
+        }).catch(() => {});
+      });
+
+      // Broadcast to other hosts
+      try {
+        window.tvSend?.("scoringSettingsUpdate", {
+          showId: selectedShowId,
+          scoringMode,
+          pubPoints,
+          poolPerQuestion,
+          ts: Date.now(),
+        });
+      } catch {}
+
+      try {
+        localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, [scoringMode, selectedShowId]);
 
   useEffect(() => {
     localStorage.setItem("tv_pubPoints", String(pubPoints));
-  }, [pubPoints]);
+
+    if (!selectedShowId) return;
+
+    setScoringCache((prev) => {
+      const show = prev[selectedShowId] || {};
+      const shared = show._shared || {
+        teams: [],
+        entryOrder: [],
+        prizes: "",
+        scoringMode: "pub",
+        pubPoints: 10,
+        poolPerQuestion: 500,
+      };
+
+      const nextShared = { ...shared, pubPoints };
+
+      const next = {
+        ...prev,
+        [selectedShowId]: {
+          ...show,
+          _shared: nextShared,
+        },
+      };
+
+      // Save to Supabase
+      saveDebounced("shared", () => {
+        fetch("/.netlify/functions/supaSaveScoring", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            showId: selectedShowId,
+            roundId: "shared",
+            payload: {
+              teams: nextShared.teams ?? [],
+              entryOrder: nextShared.entryOrder ?? [],
+              prizes: nextShared.prizes ?? "",
+              scoringMode: nextShared.scoringMode ?? "pub",
+              pubPoints: nextShared.pubPoints ?? 10,
+              poolPerQuestion: nextShared.poolPerQuestion ?? 500,
+            },
+          }),
+        }).catch(() => {});
+      });
+
+      // Broadcast to other hosts
+      try {
+        window.tvSend?.("scoringSettingsUpdate", {
+          showId: selectedShowId,
+          scoringMode,
+          pubPoints,
+          poolPerQuestion,
+          ts: Date.now(),
+        });
+      } catch {}
+
+      try {
+        localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, [pubPoints, selectedShowId]);
 
   useEffect(() => {
     localStorage.setItem("tv_poolPerQuestion", String(poolPerQuestion));
-  }, [poolPerQuestion]);
+
+    if (!selectedShowId) return;
+
+    setScoringCache((prev) => {
+      const show = prev[selectedShowId] || {};
+      const shared = show._shared || {
+        teams: [],
+        entryOrder: [],
+        prizes: "",
+        scoringMode: "pub",
+        pubPoints: 10,
+        poolPerQuestion: 500,
+      };
+
+      const nextShared = { ...shared, poolPerQuestion };
+
+      const next = {
+        ...prev,
+        [selectedShowId]: {
+          ...show,
+          _shared: nextShared,
+        },
+      };
+
+      // Save to Supabase
+      saveDebounced("shared", () => {
+        fetch("/.netlify/functions/supaSaveScoring", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            showId: selectedShowId,
+            roundId: "shared",
+            payload: {
+              teams: nextShared.teams ?? [],
+              entryOrder: nextShared.entryOrder ?? [],
+              prizes: nextShared.prizes ?? "",
+              scoringMode: nextShared.scoringMode ?? "pub",
+              pubPoints: nextShared.pubPoints ?? 10,
+              poolPerQuestion: nextShared.poolPerQuestion ?? 500,
+            },
+          }),
+        }).catch(() => {});
+      });
+
+      // Broadcast to other hosts
+      try {
+        window.tvSend?.("scoringSettingsUpdate", {
+          showId: selectedShowId,
+          scoringMode,
+          pubPoints,
+          poolPerQuestion,
+          ts: Date.now(),
+        });
+      } catch {}
+
+      try {
+        localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, [poolPerQuestion, selectedShowId]);
 
   useEffect(() => {
     const savedPosition = localStorage.getItem("timerPosition");
@@ -264,6 +444,9 @@ export default function App() {
           teams: [],
           entryOrder: [],
           prizes: "",
+          scoringMode: "pub",
+          pubPoints: 10,
+          poolPerQuestion: 500,
         };
 
         const nextTeams = (shared.teams || []).map((t) =>
@@ -301,6 +484,9 @@ export default function App() {
           teams: [],
           entryOrder: [],
           prizes: "",
+          scoringMode: "pub",
+          pubPoints: 10,
+          poolPerQuestion: 500,
         };
 
         // skip if already present
@@ -347,6 +533,9 @@ export default function App() {
           teams: [],
           entryOrder: [],
           prizes: "",
+          scoringMode: "pub",
+          pubPoints: 10,
+          poolPerQuestion: 500,
         };
 
         const nextTeams = (shared.teams || []).map((t) =>
@@ -382,6 +571,9 @@ export default function App() {
           teams: [],
           entryOrder: [],
           prizes: "",
+          scoringMode: "pub",
+          pubPoints: 10,
+          poolPerQuestion: 500,
         };
 
         const nextTeams = (shared.teams || []).filter(
@@ -476,8 +668,46 @@ export default function App() {
           teams: [],
           entryOrder: [],
           prizes: "",
+          scoringMode: "pub",
+          pubPoints: 10,
+          poolPerQuestion: 500,
         };
         const nextShared = { ...shared, prizes: val };
+        return {
+          ...prev,
+          [showId]: { ...show, _shared: nextShared },
+        };
+      });
+    });
+
+    ch.on("broadcast", { event: "scoringSettingsUpdate" }, (msg) => {
+      const data = msg?.payload ?? msg;
+      const { showId, scoringMode: mode, pubPoints: pub, poolPerQuestion: pool } = data || {};
+      if (!showId) return;
+      if (showId !== currentShowIdRef.current) return;
+
+      // Update local state
+      if (mode !== undefined) setScoringMode(mode);
+      if (pub !== undefined) setPubPoints(Number(pub));
+      if (pool !== undefined) setPoolPerQuestion(Number(pool));
+
+      // Update cache
+      setScoringCache((prev) => {
+        const show = prev[showId] || {};
+        const shared = show._shared || {
+          teams: [],
+          entryOrder: [],
+          prizes: "",
+          scoringMode: "pub",
+          pubPoints: 10,
+          poolPerQuestion: 500,
+        };
+        const nextShared = {
+          ...shared,
+          ...(mode !== undefined && { scoringMode: mode }),
+          ...(pub !== undefined && { pubPoints: Number(pub) }),
+          ...(pool !== undefined && { poolPerQuestion: Number(pool) }),
+        };
         return {
           ...prev,
           [showId]: { ...show, _shared: nextShared },
@@ -561,12 +791,25 @@ export default function App() {
 
         setScoringCache((prev) => {
           const prevShow = prev[selectedShowId] || {};
+          const loadedShared = json.shared ?? prevShow._shared ?? {
+            teams: [],
+            entryOrder: [],
+            prizes: "",
+            scoringMode: "pub",
+            pubPoints: 10,
+            poolPerQuestion: 500,
+          };
+
+          // Update local scoring state from loaded data
+          if (loadedShared.scoringMode) setScoringMode(loadedShared.scoringMode);
+          if (loadedShared.pubPoints !== undefined) setPubPoints(Number(loadedShared.pubPoints));
+          if (loadedShared.poolPerQuestion !== undefined) setPoolPerQuestion(Number(loadedShared.poolPerQuestion));
+
           return {
             ...prev,
             [selectedShowId]: {
               ...prevShow,
-              _shared: json.shared ??
-                prevShow._shared ?? { teams: [], entryOrder: [], prizes: "" },
+              _shared: loadedShared,
               [selectedRoundId]: json.round ??
                 prevShow[selectedRoundId] ?? { grid: {} },
             },
@@ -703,6 +946,9 @@ export default function App() {
               teams: nextShared.teams ?? [],
               entryOrder: nextShared.entryOrder ?? [],
               prizes: nextShared.prizes ?? "",
+              scoringMode: nextShared.scoringMode ?? "pub",
+              pubPoints: nextShared.pubPoints ?? 10,
+              poolPerQuestion: nextShared.poolPerQuestion ?? 500,
             },
           }),
         }).catch(() => {});

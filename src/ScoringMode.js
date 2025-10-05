@@ -174,8 +174,8 @@ export default function ScoringMode({
         )
       );
     };
-    window.addEventListener("tv:cellEdit", onCellEdit);
-    return () => window.removeEventListener("tv:cellEdit", onCellEdit);
+    window.addEventListener("tv:teamBonus", onTeamBonus);
+    return () => window.removeEventListener("tv:teamBonus", onTeamBonus);
     // We intentionally attach once; the handler itself handles latest state.
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, []);
@@ -610,11 +610,6 @@ export default function ScoringMode({
         ts: Date.now(),
       });
     } catch {}
-
-    window.addEventListener("tv:cellEdit", onCellEdit);
-    return () => window.removeEventListener("tv:cellEdit", onCellEdit);
-    // We intentionally attach once; the handler itself handles latest state.
-    /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, []);
 
   useEffect(() => {
