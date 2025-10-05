@@ -612,7 +612,6 @@ export default function ResultsMode({
     publishedToAirtable: false,
     reopenedAt: null,
   });
-  const [loadingArchiveStatus, setLoadingArchiveStatus] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
 
   const hideTimerRef = React.useRef(null);
@@ -623,7 +622,6 @@ export default function ResultsMode({
     if (!selectedShowId) return;
 
     const fetchArchiveStatus = async () => {
-      setLoadingArchiveStatus(true);
       try {
         const res = await fetch(
           `/.netlify/functions/supaGetArchiveStatus?showId=${encodeURIComponent(selectedShowId)}`
@@ -632,8 +630,6 @@ export default function ResultsMode({
         setArchiveStatus(data);
       } catch (err) {
         console.error("Failed to fetch archive status:", err);
-      } finally {
-        setLoadingArchiveStatus(false);
       }
     };
 
