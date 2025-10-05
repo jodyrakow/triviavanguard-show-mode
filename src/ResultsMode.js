@@ -1,6 +1,7 @@
 // src/ResultsMode.js
 import React, { useMemo, useRef, useState, useCallback } from "react";
 import { tokens, colors as theme } from "./styles/index.js";
+import { colors } from "./styles/ui.js";
 
 // Normalize team shapes coming from cache (same as ScoringMode)
 const normalizeTeam = (t) => ({
@@ -603,8 +604,41 @@ export default function ResultsMode({
   const [publishStatus, setPublishStatus] = useState(null); // 'ok' | 'error' | null
   const [publishDetail, setPublishDetail] = useState(""); // human text
 
+  // Archive status
+  const [archiveStatus, setArchiveStatus] = useState({
+    archived: false,
+    isFinalized: false,
+    archivedAt: null,
+    publishedToAirtable: false,
+    reopenedAt: null,
+  });
+  const [loadingArchiveStatus, setLoadingArchiveStatus] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
+
   const hideTimerRef = React.useRef(null);
   React.useEffect(() => () => clearTimeout(hideTimerRef.current), []);
+
+  // Fetch archive status when show loads
+  React.useEffect(() => {
+    if (!selectedShowId) return;
+
+    const fetchArchiveStatus = async () => {
+      setLoadingArchiveStatus(true);
+      try {
+        const res = await fetch(
+          `/.netlify/functions/supaGetArchiveStatus?showId=${encodeURIComponent(selectedShowId)}`
+        );
+        const data = await res.json();
+        setArchiveStatus(data);
+      } catch (err) {
+        console.error("Failed to fetch archive status:", err);
+      } finally {
+        setLoadingArchiveStatus(false);
+      }
+    };
+
+    fetchArchiveStatus();
+  }, [selectedShowId]);
 
   const clearBannerSoon = () => {
     clearTimeout(hideTimerRef.current);
@@ -612,6 +646,49 @@ export default function ResultsMode({
       setPublishStatus(null);
       setPublishDetail("");
     }, 4000);
+  };
+
+  // ---------- Export JSON Backup ----------
+  const exportJSON = () => {
+    const showName = showBundle?.showName || showBundle?.rounds?.[0]?.questions?.[0]?.showName || "show";
+    const showDate = showBundle?.showDate || new Date().toISOString().split('T')[0];
+
+    const exportData = {
+      showId: selectedShowId,
+      showName,
+      showDate,
+      exportedAt: new Date().toISOString(),
+      scoringMode,
+      pubPoints,
+      poolPerQuestion,
+      showBundle,
+      cachedByRound,
+      standings: standings.map(s => ({
+        teamName: s.teamName,
+        total: s.total,
+        place: s.place,
+        tbRank: s._tbRank,
+        showBonus: s.showBonus,
+      })),
+      prizes: prizes,
+      archiveStatus,
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `trivia-backup-${showName.replace(/[^a-z0-9]/gi, '-')}-${showDate}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    setPublishStatus("ok");
+    setPublishDetail("✅ Backup file downloaded!");
+    clearBannerSoon();
   };
 
   const fmtFloat = (v) => {
@@ -679,6 +756,12 @@ export default function ResultsMode({
 
   const showTbColumn = tbDisplaySet.size > 0;
 
+  // Check if tiebreaker was actually used to break a tie in the prize band
+  const tiebreakerWasUsed = useMemo(() => {
+    if (!prizeCount || prizeCount <= 0) return false;
+    return standings.some((r) => r.place <= prizeCount && r._tbGroupBroken);
+  }, [standings, prizeCount]);
+
   function computePlacesForPublish(rows) {
     let place = 0,
       prevKey = null,
@@ -697,8 +780,105 @@ export default function ResultsMode({
     return out;
   }
 
+  // ---------- Archive Show ----------
+  const archiveShow = async (autoPublishAfter = false) => {
+    if (!selectedShowId) {
+      alert("No show selected");
+      return false;
+    }
+
+    const showName = showBundle?.showName || showBundle?.rounds?.[0]?.questions?.[0]?.showName || "Unknown Show";
+    const showDate = showBundle?.showDate || new Date().toISOString().split('T')[0];
+
+    setIsArchiving(true);
+    setPublishDetail("Archiving show...");
+
+    try {
+      const res = await fetch("/.netlify/functions/supaArchiveShow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ showId: selectedShowId, showName, showDate }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to archive show");
+      }
+
+      // Update archive status
+      setArchiveStatus({
+        archived: true,
+        isFinalized: true,
+        archivedAt: data.archivedAt,
+        publishedToAirtable: false,
+        reopenedAt: null,
+      });
+
+      setPublishDetail("✅ Show archived successfully!");
+      clearBannerSoon();
+      return true;
+    } catch (err) {
+      console.error("Archive failed:", err);
+      setPublishStatus("error");
+      setPublishDetail(`❌ Archive failed: ${err.message}`);
+      clearBannerSoon();
+      return false;
+    } finally {
+      setIsArchiving(false);
+    }
+  };
+
+  // ---------- Re-open Archived Show ----------
+  const reopenShow = async () => {
+    if (!selectedShowId) return;
+
+    const ok = window.confirm(
+      "⚠️ Re-open this show for editing?\n\n" +
+      "This will allow you to make changes to the scores.\n" +
+      "Remember to re-archive when you're done!"
+    );
+    if (!ok) return;
+
+    try {
+      const res = await fetch("/.netlify/functions/supaUnarchiveShow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ showId: selectedShowId }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to re-open show");
+      }
+
+      setArchiveStatus({
+        ...archiveStatus,
+        isFinalized: false,
+        reopenedAt: new Date().toISOString(),
+      });
+
+      setPublishStatus("ok");
+      setPublishDetail("✅ Show re-opened for editing");
+      clearBannerSoon();
+    } catch (err) {
+      console.error("Re-open failed:", err);
+      alert(`Failed to re-open show: ${err.message}`);
+    }
+  };
+
   // ---------- Publish to Airtable (cumulative-aware) ----------
   const publishResults = async () => {
+    // Step 1: Archive first if not already archived
+    if (!archiveStatus.archived || !archiveStatus.isFinalized) {
+      const archived = await archiveShow(true);
+      if (!archived) {
+        alert("Must archive show before publishing. Archive failed.");
+        return;
+      }
+    }
+
     const ok = window.confirm(
       "Publish final results to Airtable?\n\nThis will (1) create ShowTeams as needed and (2) replace any existing Scores for this show."
     );
@@ -706,7 +886,7 @@ export default function ResultsMode({
 
     setIsPublishing(true);
     setPublishStatus(null);
-    setPublishDetail("Starting…");
+    setPublishDetail("Starting publish...");
 
     try {
       // exclude TB from scores
@@ -815,9 +995,24 @@ export default function ResultsMode({
       const json = await res.json();
       console.log("Publish OK:", json);
 
+      // Mark as published in archive
+      try {
+        await fetch("/.netlify/functions/supaMarkPublished", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ showId: selectedShowId, published: true }),
+        });
+        setArchiveStatus({
+          ...archiveStatus,
+          publishedToAirtable: true,
+        });
+      } catch (e) {
+        console.error("Failed to mark as published:", e);
+      }
+
       setPublishStatus("ok");
       setPublishDetail(
-        `Published! Upserted ${json.teamsUpserted} ShowTeams and created ${json.scoresCreated} Scores rows.`
+        `✅ Published! Upserted ${json.teamsUpserted} ShowTeams and created ${json.scoresCreated} Scores rows.`
       );
       clearBannerSoon();
     } catch (err) {
@@ -843,9 +1038,9 @@ export default function ResultsMode({
       <div
         style={{
           backgroundColor: theme.dark,
-          padding: "0.5rem 0",
-          borderTop: `2px solid ${theme.accent}`,
-          borderBottom: `2px solid ${theme.accent}`,
+          padding: `${tokens.spacing.sm} 0`,
+          borderTop: `${tokens.borders.medium} ${theme.accent}`,
+          borderBottom: `${tokens.borders.medium} ${theme.accent}`,
           marginBottom: "0.75rem",
         }}
       >
@@ -855,7 +1050,7 @@ export default function ResultsMode({
             fontFamily: tokens.font.display,
             fontSize: "1.6rem",
             margin: 0,
-            textIndent: "0.5rem",
+            textIndent: tokens.spacing.sm,
             letterSpacing: "0.015em",
           }}
         >
@@ -879,21 +1074,21 @@ export default function ResultsMode({
                   : "rgba(220,106,36,0.10)",
             color:
               publishStatus === "ok"
-                ? "#1ca46d"
+                ? colors.success
                 : publishStatus === "error"
-                  ? "#dc3545"
+                  ? colors.error
                   : theme.accent,
-            border: `1px solid ${
+            border: `${tokens.borders.thin} ${
               publishStatus === "ok"
-                ? "#1ca46d"
+                ? colors.success
                 : publishStatus === "error"
-                  ? "#dc3545"
+                  ? colors.error
                   : theme.accent
             }`,
             borderLeft: "none",
             borderRight: "none",
             padding: ".6rem .9rem",
-            marginBottom: "0.5rem",
+            marginBottom: tokens.spacing.sm,
             textAlign: "center",
             fontFamily: tokens.font.body,
           }}
@@ -925,6 +1120,46 @@ export default function ResultsMode({
         </div>
       ) : null}
 
+      {/* Archive/Publish Status Indicators */}
+      {(archiveStatus.isFinalized || archiveStatus.publishedToAirtable) && (
+        <div
+          style={{
+            margin: "0 12px",
+            marginBottom: tokens.spacing.sm,
+            padding: tokens.spacing.sm,
+            background: archiveStatus.publishedToAirtable
+              ? "rgba(28, 164, 109, 0.1)"
+              : "rgba(220, 106, 36, 0.1)",
+            border: `${tokens.borders.thin} ${archiveStatus.publishedToAirtable ? colors.success : theme.accent}`,
+            borderRadius: ".35rem",
+            display: "flex",
+            alignItems: "center",
+            gap: tokens.spacing.sm,
+            fontSize: ".95rem",
+          }}
+        >
+          <div style={{ display: "flex", gap: tokens.spacing.sm, flexWrap: "wrap" }}>
+            {archiveStatus.isFinalized && (
+              <span style={{ fontFamily: tokens.font.body }}>
+                🗄️ <strong>Archived</strong>
+                {archiveStatus.archivedAt &&
+                  ` on ${new Date(archiveStatus.archivedAt).toLocaleString()}`}
+              </span>
+            )}
+            {archiveStatus.publishedToAirtable && (
+              <span style={{ fontFamily: tokens.font.body, color: colors.success }}>
+                ✅ <strong>Published to Airtable</strong>
+              </span>
+            )}
+            {archiveStatus.reopenedAt && (
+              <span style={{ fontFamily: tokens.font.body, fontStyle: "italic", opacity: 0.8 }}>
+                (Re-opened for editing)
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Controls */}
       <div
         style={{
@@ -933,17 +1168,17 @@ export default function ResultsMode({
           alignItems: "center",
           gap: ".75rem",
           padding: "0 12px",
-          marginBottom: "1rem",
+          marginBottom: tokens.spacing.md,
         }}
       >
-        <div style={{ display: "flex", flexWrap: "wrap", gap: ".5rem" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: tokens.spacing.sm }}>
           <div
             style={{
               display: "inline-flex",
-              border: "1px solid #ccc",
+              border: `${tokens.borders.thin} ${colors.gray.border}`,
               borderRadius: 999,
               overflow: "hidden",
-              background: "#fff",
+              background: colors.white,
             }}
             title="Choose scoring type"
           >
@@ -955,7 +1190,7 @@ export default function ResultsMode({
                 border: "none",
                 background:
                   scoringMode === "pub" ? theme.accent : "transparent",
-                color: scoringMode === "pub" ? "#fff" : theme.dark,
+                color: scoringMode === "pub" ? colors.white : theme.dark,
                 cursor: "pointer",
               }}
             >
@@ -969,7 +1204,7 @@ export default function ResultsMode({
                 border: "none",
                 background:
                   scoringMode === "pooled" ? theme.accent : "transparent",
-                color: scoringMode === "pooled" ? "#fff" : theme.dark,
+                color: scoringMode === "pooled" ? colors.white : theme.dark,
                 cursor: "pointer",
               }}
             >
@@ -995,7 +1230,7 @@ export default function ResultsMode({
                 style={{
                   width: 80,
                   padding: ".35rem .5rem",
-                  border: "1px solid #ccc",
+                  border: `${tokens.borders.thin} ${colors.gray.border}`,
                   borderRadius: ".35rem",
                 }}
               />
@@ -1020,7 +1255,7 @@ export default function ResultsMode({
                 style={{
                   width: 120,
                   padding: ".35rem .5rem",
-                  border: "1px solid #ccc",
+                  border: `${tokens.borders.thin} ${colors.gray.border}`,
                   borderRadius: ".35rem",
                 }}
               />
@@ -1032,10 +1267,10 @@ export default function ResultsMode({
       {/* Prizes control */}
       <div
         style={{
-          margin: "0 12px .5rem",
+          margin: `0 12px ${tokens.spacing.sm}`,
           display: "flex",
           alignItems: "center",
-          gap: ".5rem",
+          gap: tokens.spacing.sm,
         }}
       >
         <button
@@ -1043,8 +1278,8 @@ export default function ResultsMode({
           onClick={openPrizeEditor}
           style={{
             padding: ".45rem .7rem",
-            border: `1px solid ${theme.accent}`,
-            background: "#fff",
+            border: `${tokens.borders.thin} ${theme.accent}`,
+            background: colors.white,
             color: theme.accent,
             borderRadius: ".35rem",
             cursor: "pointer",
@@ -1055,15 +1290,72 @@ export default function ResultsMode({
           {showPrizeCol ? "Edit prizes" : "Set prizes"}
         </button>
 
+        {/* Archive/Re-open buttons */}
+        {!archiveStatus.isFinalized ? (
+          <button
+            type="button"
+            onClick={() => archiveShow(false)}
+            disabled={isArchiving || isPublishing}
+            style={{
+              padding: `${tokens.spacing.sm} .8rem`,
+              border: `${tokens.borders.thin} ${colors.success}`,
+              background: isArchiving ? "#e8f4ef" : colors.success,
+              color: isArchiving ? colors.success : colors.white,
+              borderRadius: ".35rem",
+              cursor: isArchiving ? "not-allowed" : "pointer",
+              fontFamily: tokens.font.body,
+              opacity: isArchiving ? 0.9 : 1,
+            }}
+            title="Archive this show permanently (creates backup, enables publish)"
+          >
+            {isArchiving ? "⏳ Archiving…" : "🗄️ Archive Show"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={reopenShow}
+            style={{
+              padding: `${tokens.spacing.sm} .8rem`,
+              border: `${tokens.borders.thin} ${theme.accent}`,
+              background: colors.white,
+              color: theme.accent,
+              borderRadius: ".35rem",
+              cursor: "pointer",
+              fontFamily: tokens.font.body,
+            }}
+            title="Re-open this archived show for editing"
+          >
+            🔓 Re-open for Editing
+          </button>
+        )}
+
+        {/* Export JSON backup */}
+        <button
+          type="button"
+          onClick={exportJSON}
+          style={{
+            padding: `${tokens.spacing.sm} .8rem`,
+            border: `${tokens.borders.thin} ${colors.gray.border}`,
+            background: colors.white,
+            color: theme.dark,
+            borderRadius: ".35rem",
+            cursor: "pointer",
+            fontFamily: tokens.font.body,
+          }}
+          title="Download a complete JSON backup of this show"
+        >
+          💾 Export Backup
+        </button>
+
         <button
           type="button"
           onClick={publishResults}
-          disabled={isPublishing}
+          disabled={isPublishing || (!archiveStatus.isFinalized && !isArchiving)}
           style={{
-            padding: ".5rem .8rem",
-            border: `1px solid ${theme.accent}`,
+            padding: `${tokens.spacing.sm} .8rem`,
+            border: `${tokens.borders.thin} ${theme.accent}`,
             background: isPublishing ? "#ffe8d8" : theme.accent,
-            color: isPublishing ? theme.accent : "#fff",
+            color: isPublishing ? theme.accent : colors.white,
             borderRadius: ".35rem",
             cursor: isPublishing ? "not-allowed" : "pointer",
             fontFamily: tokens.font.body,
@@ -1096,8 +1388,8 @@ export default function ResultsMode({
           }}
           style={{
             padding: ".45rem .7rem",
-            border: `1px solid ${theme.accent}`,
-            background: "#fff",
+            border: `${tokens.borders.thin} ${theme.accent}`,
+            background: colors.white,
             color: theme.accent,
             borderRadius: ".35rem",
             cursor: "pointer",
@@ -1115,7 +1407,7 @@ export default function ResultsMode({
               opacity: 0.9,
               padding: ".2rem .55rem",
               borderRadius: "999px",
-              border: `1px solid ${theme.accent}`,
+              border: `${tokens.borders.thin} ${theme.accent}`,
               background: "rgba(220,106,36,0.06)",
               color: theme.accent,
               fontFamily: tokens.font.body,
@@ -1134,21 +1426,21 @@ export default function ResultsMode({
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(43,57,74,.65)",
+            background: colors.overlay,
             zIndex: 9999,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            padding: "1rem",
+            padding: tokens.spacing.md,
           }}
         >
           <div
             onMouseDown={(e) => e.stopPropagation()}
             style={{
               width: "min(92vw, 560px)",
-              background: "#fff",
+              background: colors.white,
               borderRadius: ".6rem",
-              border: `1px solid ${theme.accent}`,
+              border: `${tokens.borders.thin} ${theme.accent}`,
               overflow: "hidden",
               boxShadow: "0 10px 30px rgba(0,0,0,.25)",
               fontFamily: tokens.font.body,
@@ -1158,9 +1450,9 @@ export default function ResultsMode({
             <div
               style={{
                 background: theme.dark,
-                color: "#fff",
+                color: colors.white,
                 padding: ".6rem .8rem",
-                borderBottom: `2px solid ${theme.accent}`,
+                borderBottom: `${tokens.borders.medium} ${theme.accent}`,
               }}
             >
               <div
@@ -1206,7 +1498,7 @@ export default function ResultsMode({
                   style={{
                     width: 90,
                     padding: ".45rem .55rem",
-                    border: "1px solid #ccc",
+                    border: `${tokens.borders.thin} ${colors.gray.border}`,
                     borderRadius: ".35rem",
                   }}
                 />
@@ -1217,8 +1509,8 @@ export default function ResultsMode({
                     style={{
                       marginLeft: "auto",
                       padding: ".35rem .6rem",
-                      border: "1px solid #ccc",
-                      background: "#f7f7f7",
+                      border: `${tokens.borders.thin} ${colors.gray.border}`,
+                      background: colors.gray.bg,
                       borderRadius: ".35rem",
                       cursor: "pointer",
                     }}
@@ -1265,7 +1557,7 @@ export default function ResultsMode({
                     style={{
                       flex: 1,
                       padding: ".45rem .55rem",
-                      border: "1px solid #ccc",
+                      border: `${tokens.borders.thin} ${colors.gray.border}`,
                       borderRadius: ".35rem",
                     }}
                   />
@@ -1277,19 +1569,19 @@ export default function ResultsMode({
             <div
               style={{
                 display: "flex",
-                gap: ".5rem",
+                gap: tokens.spacing.sm,
                 justifyContent: "flex-end",
                 padding: ".8rem .9rem .9rem",
-                borderTop: "1px solid #eee",
+                borderTop: `${tokens.borders.thin} ${colors.gray.borderLighter}`,
               }}
             >
               <button
                 type="button"
                 onClick={closePrizeEditor}
                 style={{
-                  padding: ".5rem .75rem",
-                  border: "1px solid #ccc",
-                  background: "#f7f7f7",
+                  padding: `${tokens.spacing.sm} .75rem`,
+                  border: `${tokens.borders.thin} ${colors.gray.border}`,
+                  background: colors.gray.bg,
                   borderRadius: ".35rem",
                   cursor: "pointer",
                 }}
@@ -1300,10 +1592,10 @@ export default function ResultsMode({
                 type="button"
                 onClick={applyPrizeEdits}
                 style={{
-                  padding: ".5rem .8rem",
-                  border: `1px solid ${theme.accent}`,
+                  padding: `${tokens.spacing.sm} .8rem`,
+                  border: `${tokens.borders.thin} ${theme.accent}`,
                   background: theme.accent,
-                  color: "#fff",
+                  color: colors.white,
                   borderRadius: ".35rem",
                   cursor: "pointer",
                   fontWeight: 700,
@@ -1320,9 +1612,9 @@ export default function ResultsMode({
       <div
         ref={finalStandingsRef}
         style={{
-          margin: `${tokens.spacing.md} 12px 2rem`,
-          background: "#fff",
-          border: "1px solid #ddd",
+          margin: `${tokens.spacing.md} 12px ${tokens.spacing.xl}`,
+          background: colors.white,
+          border: `${tokens.borders.thin} ${colors.gray.borderLight}`,
           borderRadius: tokens.radius.md,
           overflow: "hidden",
           boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
@@ -1331,7 +1623,7 @@ export default function ResultsMode({
         <div
           style={{
             background: theme.bg,
-            borderBottom: "1px solid #ddd",
+            borderBottom: `${tokens.borders.thin} ${colors.gray.borderLight}`,
             padding: `${tokens.spacing.sm} ${tokens.spacing.md}`,
             fontWeight: 700,
             letterSpacing: ".01em",
@@ -1346,14 +1638,57 @@ export default function ResultsMode({
           <div
             style={{
               padding: `${tokens.spacing.xs} ${tokens.spacing.md}`,
-              borderBottom: "1px solid #eee",
-              background: "rgba(220,106,36,0.07)",
+              borderBottom: `${tokens.borders.thin} ${colors.gray.borderLighter}`,
+              background: tiebreakerWasUsed ? "rgba(220,106,36,0.15)" : "rgba(220,106,36,0.07)",
               fontFamily: tokens.font.body,
               fontSize: ".95rem",
             }}
           >
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>
+            <div style={{ fontWeight: 700, marginBottom: 4, display: "flex", alignItems: "center", gap: ".5rem" }}>
               🎯 {otfApplied ? "On-the-fly tiebreaker" : "Tiebreaker"}
+              {tiebreakerWasUsed && (
+                <span
+                  style={{
+                    fontSize: ".75rem",
+                    fontWeight: 600,
+                    padding: ".15rem .5rem",
+                    borderRadius: "999px",
+                    background: theme.accent,
+                    color: colors.white,
+                  }}
+                >
+                  USED
+                </span>
+              )}
+              {!tiebreakerWasUsed && prizeCount > 0 && (
+                <span
+                  style={{
+                    fontSize: ".75rem",
+                    fontWeight: 600,
+                    padding: ".15rem .5rem",
+                    borderRadius: "999px",
+                    background: colors.gray.border,
+                    color: theme.dark,
+                    opacity: 0.7,
+                  }}
+                >
+                  NOT USED
+                </span>
+              )}
+              {!tiebreakerWasUsed && prizeCount === 0 && (
+                <span
+                  style={{
+                    fontSize: ".75rem",
+                    fontWeight: 600,
+                    padding: ".15rem .5rem",
+                    borderRadius: "999px",
+                    background: "#ffc107",
+                    color: theme.dark,
+                  }}
+                >
+                  ⚠️ SET PRIZES BELOW
+                </span>
+              )}
             </div>
             {otfApplied ? (
               <>
@@ -1394,7 +1729,7 @@ export default function ResultsMode({
               }}
             >
               <thead>
-                <tr style={{ background: theme.dark, color: "#fff" }}>
+                <tr style={{ background: theme.dark, color: colors.white }}>
                   {showPrizeCol && (
                     <th
                       style={{
@@ -1463,7 +1798,7 @@ export default function ResultsMode({
                       isEndOfTieGroup && next ? r.total - next.total : 0;
 
                     const bgColor =
-                      tieGroupIndex % 2 === 0 ? "#fff" : "rgba(255,165,0,0.07)";
+                      tieGroupIndex % 2 === 0 ? colors.white : "rgba(255,165,0,0.07)";
                     const prizeText =
                       showPrizeCol && r.place <= prizeCount
                         ? prizes[r.place - 1] || ""
@@ -1625,21 +1960,21 @@ export default function ResultsMode({
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(43,57,74,.65)",
+            background: colors.overlay,
             zIndex: 9999,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            padding: "1rem",
+            padding: tokens.spacing.md,
           }}
         >
           <div
             onMouseDown={(e) => e.stopPropagation()}
             style={{
               width: "min(92vw, 660px)",
-              background: "#fff",
+              background: colors.white,
               borderRadius: ".6rem",
-              border: `1px solid ${theme.accent}`,
+              border: `${tokens.borders.thin} ${theme.accent}`,
               overflow: "hidden",
               boxShadow: "0 10px 30px rgba(0,0,0,.25)",
               fontFamily: tokens.font.body,
@@ -1649,9 +1984,9 @@ export default function ResultsMode({
             <div
               style={{
                 background: theme.dark,
-                color: "#fff",
+                color: colors.white,
                 padding: ".6rem .8rem",
-                borderBottom: `2px solid ${theme.accent}`,
+                borderBottom: `${tokens.borders.medium} ${theme.accent}`,
               }}
             >
               <div
@@ -1681,7 +2016,7 @@ export default function ResultsMode({
                     style={{
                       maxHeight: 260,
                       overflow: "auto",
-                      border: "1px solid #eee",
+                      border: `${tokens.borders.thin} ${colors.gray.borderLighter}`,
                       borderRadius: ".35rem",
                     }}
                   >
@@ -1690,10 +2025,10 @@ export default function ResultsMode({
                         key={r.showTeamId}
                         style={{
                           display: "flex",
-                          gap: ".5rem",
+                          gap: tokens.spacing.sm,
                           alignItems: "center",
                           padding: ".4rem .6rem",
-                          borderBottom: "1px solid #f2f2f2",
+                          borderBottom: `${tokens.borders.thin} #f2f2f2`,
                         }}
                       >
                         <input
@@ -1736,7 +2071,7 @@ export default function ResultsMode({
                     style={{
                       display: "flex",
                       justifyContent: "flex-end",
-                      gap: ".5rem",
+                      gap: tokens.spacing.sm,
                       padding: ".8rem 0",
                     }}
                   >
@@ -1748,9 +2083,9 @@ export default function ResultsMode({
                       }}
                       style={{
                         padding: ".45rem .8rem",
-                        border: `1px solid ${theme.accent}`,
+                        border: `${tokens.borders.thin} ${theme.accent}`,
                         background: theme.accent,
-                        color: "#fff",
+                        color: colors.white,
                         borderRadius: ".35rem",
                         cursor:
                           otfSelectedTeams.length < 2
@@ -1771,7 +2106,7 @@ export default function ResultsMode({
                     Pick the tiebreaker source
                   </div>
 
-                  <div style={{ display: "grid", gap: ".5rem" }}>
+                  <div style={{ display: "grid", gap: tokens.spacing.sm }}>
                     <button
                       type="button"
                       onClick={async () => {
@@ -1831,8 +2166,8 @@ export default function ResultsMode({
                       }}
                       style={{
                         padding: ".45rem .7rem",
-                        border: "1px solid #ccc",
-                        background: "#f7f7f7",
+                        border: `${tokens.borders.thin} ${colors.gray.border}`,
+                        background: colors.gray.bg,
                         borderRadius: ".35rem",
                         cursor: "pointer",
                       }}
@@ -1854,8 +2189,8 @@ export default function ResultsMode({
                       }}
                       style={{
                         padding: ".45rem .7rem",
-                        border: "1px solid #ccc",
-                        background: "#f7f7f7",
+                        border: `${tokens.borders.thin} ${colors.gray.border}`,
+                        background: colors.gray.bg,
                         borderRadius: ".35rem",
                         cursor: "pointer",
                       }}
@@ -1876,11 +2211,11 @@ export default function ResultsMode({
                     (otfSource.question || otfSource.answerText) && (
                       <div
                         style={{
-                          marginBottom: ".5rem",
-                          padding: ".5rem",
-                          border: "1px solid #eee",
+                          marginBottom: tokens.spacing.sm,
+                          padding: tokens.spacing.sm,
+                          border: `${tokens.borders.thin} ${colors.gray.borderLighter}`,
                           borderRadius: ".35rem",
-                          background: "#fafafa",
+                          background: colors.gray.bgLightest,
                         }}
                       >
                         {otfSource.question ? (
@@ -1906,7 +2241,7 @@ export default function ResultsMode({
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      gap: ".5rem",
+                      gap: tokens.spacing.sm,
                       marginBottom: ".75rem",
                     }}
                   >
@@ -1926,7 +2261,7 @@ export default function ResultsMode({
                       style={{
                         width: 160,
                         padding: ".45rem .55rem",
-                        border: "1px solid #ccc",
+                        border: `${tokens.borders.thin} ${colors.gray.border}`,
                         borderRadius: ".35rem",
                       }}
                     />
@@ -1936,7 +2271,7 @@ export default function ResultsMode({
                     style={{
                       maxHeight: 260,
                       overflow: "auto",
-                      border: "1px solid #eee",
+                      border: `${tokens.borders.thin} ${colors.gray.borderLighter}`,
                       borderRadius: ".35rem",
                     }}
                   >
@@ -1950,9 +2285,9 @@ export default function ResultsMode({
                             display: "grid",
                             gridTemplateColumns: "1fr 180px",
                             alignItems: "center",
-                            gap: ".5rem",
+                            gap: tokens.spacing.sm,
                             padding: ".4rem .6rem",
-                            borderBottom: "1px solid #f2f2f2",
+                            borderBottom: `${tokens.borders.thin} #f2f2f2`,
                           }}
                         >
                           <div>{team.teamName}</div>
@@ -1967,7 +2302,7 @@ export default function ResultsMode({
                             placeholder="Guess"
                             style={{
                               padding: ".35rem .5rem",
-                              border: "1px solid #ccc",
+                              border: `${tokens.borders.thin} ${colors.gray.border}`,
                               borderRadius: ".35rem",
                             }}
                           />
@@ -1980,7 +2315,7 @@ export default function ResultsMode({
                     style={{
                       display: "flex",
                       justifyContent: "flex-end",
-                      gap: ".5rem",
+                      gap: tokens.spacing.sm,
                       padding: ".8rem 0",
                     }}
                   >
@@ -2008,9 +2343,9 @@ export default function ResultsMode({
                       }}
                       style={{
                         padding: ".45rem .8rem",
-                        border: `1px solid ${theme.accent}`,
+                        border: `${tokens.borders.thin} ${theme.accent}`,
                         background: theme.accent,
-                        color: "#fff",
+                        color: colors.white,
                         borderRadius: ".35rem",
                         cursor: Number.isFinite(otfSource.number)
                           ? "pointer"
@@ -2114,7 +2449,7 @@ export default function ResultsMode({
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
-                      gap: ".5rem",
+                      gap: tokens.spacing.sm,
                       paddingBottom: ".9rem",
                     }}
                   >
@@ -2122,14 +2457,14 @@ export default function ResultsMode({
                       Correct number:&nbsp;
                       <strong>{fmtFloat(otfApplied.number)}</strong>
                     </div>
-                    <div style={{ display: "flex", gap: ".5rem" }}>
+                    <div style={{ display: "flex", gap: tokens.spacing.sm }}>
                       <button
                         type="button"
                         onClick={() => setOtfStage("guesses")}
                         style={{
                           padding: ".45rem .7rem",
-                          border: "1px solid #ccc",
-                          background: "#f7f7f7",
+                          border: `${tokens.borders.thin} ${colors.gray.border}`,
+                          background: colors.gray.bg,
                           borderRadius: ".35rem",
                           cursor: "pointer",
                         }}
@@ -2141,9 +2476,9 @@ export default function ResultsMode({
                         onClick={() => setOtfOpen(false)}
                         style={{
                           padding: ".45rem .8rem",
-                          border: `1px solid ${theme.accent}`,
+                          border: `${tokens.borders.thin} ${theme.accent}`,
                           background: theme.accent,
-                          color: "#fff",
+                          color: colors.white,
                           borderRadius: ".35rem",
                           cursor: "pointer",
                         }}

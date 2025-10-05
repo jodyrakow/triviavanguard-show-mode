@@ -76,7 +76,9 @@ export default function ScoringMode({
 
     return bySort.map((q) => ({
       showQuestionId: q.id,
-      questionId: (Array.isArray(q.questionId) && q.questionId[0]) || null,
+      questionId: Array.isArray(q.questionId)
+        ? q.questionId[0]
+        : (q.questionId ?? null),
       order: q.questionOrder,
       text: q.questionText || "",
       flavor: q.flavorText || "",
@@ -86,7 +88,7 @@ export default function ScoringMode({
     }));
   }, [roundObj]);
 
-  // --- Tiebreaker detection (one per show) ---
+  // --- Tiebreaker detection ---
   const tiebreaker = React.useMemo(() => {
     const list = roundObj?.questions || [];
     // prefer explicit type, else "TB" order, else id that starts with tb-
@@ -366,6 +368,8 @@ export default function ScoringMode({
     // ✅ Broadcast with the precomputed values
     try {
       window.sendCellEdit?.({
+        showId: selectedShowId,
+        roundId: selectedRoundId,
         teamId: showTeamId,
         showQuestionId,
         questionBonus: nextBonus,
@@ -386,6 +390,7 @@ export default function ScoringMode({
       ? t.teamName[0]
       : t.teamName || "(Unnamed team)",
     showBonus: Number(t.showBonus || 0),
+    isLeague: Boolean(t.isLeague ?? t.league),
   });
 
   // Clear local state when the SHOW changes (not the round)
@@ -474,7 +479,10 @@ export default function ScoringMode({
       setTeams((prev) => {
         // skip if already present
         if (prev.some((t) => t.showTeamId === teamId)) return prev;
-        return [...prev, { showTeamId: teamId, teamName, showBonus: 0 }];
+        return [
+          ...prev,
+          { showTeamId: teamId, teamName, showBonus: 0, isLeague: false },
+        ];
       });
 
       setEntryOrder((prev) =>
@@ -575,6 +583,8 @@ export default function ScoringMode({
       // ✅ Broadcast with the already-computed value
       try {
         window.sendMark?.({
+          showId: selectedShowId,
+          roundId: selectedRoundId,
           teamId: t.showTeamId,
           teamName: t.teamName,
           showQuestionId: q.showQuestionId,
@@ -620,7 +630,7 @@ export default function ScoringMode({
             input.select?.();
             input.scrollIntoView?.({ block: "center", behavior: "smooth" });
             // brief highlight so you can SEE it moved
-            input.style.outline = "2px solid #DC6A24";
+            input.style.outline = `${tokens.borders.medium} ${theme.accent}`;
             setTimeout(() => (input.style.outline = ""), 600);
             return; // stop here so we don't advance to next column
           }
@@ -829,6 +839,18 @@ export default function ScoringMode({
     } catch {}
   };
 
+  const updateTeamLeague = (showTeamId, isOn) => {
+    const v = !!isOn;
+
+    // local update
+    setTeams((prev) =>
+      prev.map((t) => (t.showTeamId === showTeamId ? { ...t, isLeague: v } : t))
+    );
+
+    // (no realtime broadcast on purpose — keeping scope minimal so we don't touch App.js.
+    // it will still persist via onChangeState → debounced save to Supabase.)
+  };
+
   const addTeamLocal = (teamName, airtableId = null) => {
     const trimmed = (teamName || "").trim();
     if (!trimmed) return;
@@ -837,6 +859,7 @@ export default function ScoringMode({
       teamId: airtableId, // ✅ keep Airtable Team recordId if available
       teamName: trimmed,
       showBonus: 0,
+      isLeague: false,
     };
     setTeams((prev) => [...prev, newTeam]);
     setEntryOrder((prev) => [...prev, newTeam.showTeamId]);
@@ -937,17 +960,17 @@ export default function ScoringMode({
   // ---------------- Sticky & tile styles ----------------
   const COL_Q_WIDTH = 60;
   const TEAM_COL_WIDTH = 120;
-  const bonusBorder = "1px solid rgba(220,106,36,0.65)";
-  const thinRowBorder = "1px solid rgba(220,106,36,0.35)";
+  const bonusBorder = `${tokens.borders.thin} rgba(220,106,36,0.65)`;
+  const thinRowBorder = `${tokens.borders.thin} rgba(220,106,36,0.35)`;
   const focusColor = theme.dark;
 
   const sticky = {
-    thTop: { position: "sticky", top: 0, zIndex: 3, background: "#fff" },
+    thTop: { position: "sticky", top: 0, zIndex: 3, background: theme.white },
     qNumTh: {
       position: "sticky",
       left: 0,
       zIndex: 4,
-      background: "#fff",
+      background: theme.white,
       textAlign: "center",
       minWidth: COL_Q_WIDTH,
       width: COL_Q_WIDTH,
@@ -957,7 +980,7 @@ export default function ScoringMode({
       position: "sticky",
       left: 0,
       zIndex: 2,
-      background: "#fff",
+      background: theme.white,
       textAlign: "center",
       minWidth: COL_Q_WIDTH,
       width: COL_Q_WIDTH,
@@ -972,17 +995,17 @@ export default function ScoringMode({
     minWidth: 36,
     height: 30,
     borderRadius: 5,
-    border: "1px solid #DC6A24",
+    border: `${tokens.borders.thin} ${theme.accent}`,
     padding: "0 .25rem",
     userSelect: "none",
     fontSize: ".95rem",
   };
   const tileStates = {
-    correct: { background: "#DC6A24", color: "#fff", cursor: "pointer" },
-    wrong: { background: "#f8f8f8", color: "#2B394A", cursor: "pointer" },
+    correct: { background: theme.accent, color: theme.white, cursor: "pointer" },
+    wrong: { background: theme.gray.bgLight, color: theme.dark, cursor: "pointer" },
   };
   const tileFocus = {
-    boxShadow: `0 0 0 2px #fff, 0 0 0 4px ${focusColor}`,
+    boxShadow: `0 0 0 2px ${theme.white}, 0 0 0 4px ${focusColor}`,
     transform: "scale(1.04)",
     outline: "none",
     transition: "box-shadow 120ms ease, transform 120ms ease",
@@ -993,7 +1016,7 @@ export default function ScoringMode({
   return (
     <div
       style={{
-        marginTop: "1rem",
+        marginTop: tokens.spacing.md,
         fontFamily: "Questrial, sans-serif",
         color: theme.dark,
       }}
@@ -1002,9 +1025,9 @@ export default function ScoringMode({
       <div
         style={{
           backgroundColor: theme.dark,
-          padding: "0.5rem 0",
-          borderTop: `2px solid ${theme.accent}`,
-          borderBottom: `2px solid ${theme.accent}`,
+          padding: `${tokens.spacing.sm} 0`,
+          borderTop: `${tokens.borders.medium} ${theme.accent}`,
+          borderBottom: `${tokens.borders.medium} ${theme.accent}`,
           marginBottom: "0.75rem",
         }}
       >
@@ -1014,7 +1037,7 @@ export default function ScoringMode({
             fontFamily: "Antonio",
             fontSize: "1.6rem",
             margin: 0,
-            textIndent: "0.5rem",
+            textIndent: tokens.spacing.sm,
             letterSpacing: "0.015em",
           }}
         >
@@ -1036,7 +1059,7 @@ export default function ScoringMode({
           <div
             style={{
               display: "flex",
-              gap: "0.5rem",
+              gap: tokens.spacing.sm,
               flexWrap: "nowrap",
               minWidth: 0,
             }}
@@ -1073,14 +1096,14 @@ export default function ScoringMode({
           </div>
 
           {/* Scoring controls */}
-          <div style={{ display: "flex", gap: ".5rem", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: tokens.spacing.sm, alignItems: "center" }}>
             <div
               style={{
                 display: "inline-flex",
-                border: "1px solid #ccc",
+                border: `${tokens.borders.thin} ${theme.gray.border}`,
                 borderRadius: 999,
                 overflow: "hidden",
-                background: "#fff",
+                background: theme.white,
               }}
               title="Choose scoring type"
             >
@@ -1116,7 +1139,7 @@ export default function ScoringMode({
                   style={{
                     width: 70,
                     padding: ".3rem .4rem",
-                    border: "1px solid #ccc",
+                    border: `${tokens.borders.thin} ${theme.gray.border}`,
                     borderRadius: ".35rem",
                   }}
                   onKeyDown={onEnterBlur}
@@ -1143,7 +1166,7 @@ export default function ScoringMode({
                   style={{
                     width: 110,
                     padding: ".3rem .4rem",
-                    border: "1px solid #ccc",
+                    border: `${tokens.borders.thin} ${theme.gray.border}`,
                     borderRadius: ".35rem",
                   }}
                 />
@@ -1172,9 +1195,9 @@ export default function ScoringMode({
       <div
         style={{
           overflowX: "auto",
-          background: "#fff",
-          border: "1px solid #ddd",
-          borderRadius: "0.5rem",
+          background: theme.white,
+          border: `${tokens.borders.thin} ${theme.gray.borderLight}`,
+          borderRadius: tokens.spacing.sm,
           display: "block",
           maxWidth: "100%",
           width: "100%",
@@ -1187,12 +1210,12 @@ export default function ScoringMode({
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "0.5rem",
-              padding: "0.4rem 0.5rem",
-              borderBottom: "1px solid #eee",
+              gap: tokens.spacing.sm,
+              padding: `0.4rem ${tokens.spacing.sm}`,
+              borderBottom: `${tokens.borders.thin} ${theme.gray.borderLighter}`,
               position: "sticky",
               top: 0,
-              background: "#fff",
+              background: theme.white,
               zIndex: 5,
             }}
           >
@@ -1217,7 +1240,7 @@ export default function ScoringMode({
               <button
                 style={{
                   ...ui.segBtn(false),
-                  borderLeft: "1px solid rgba(220,106,36,0.35)", // thin light orange divider
+                  borderLeft: `${tokens.borders.thin} rgba(220,106,36,0.35)`, // thin light orange divider
                 }}
                 onClick={nextTeam}
                 title="Next team"
@@ -1230,8 +1253,8 @@ export default function ScoringMode({
               value={teamIdxSolo}
               onChange={(e) => setTeamIdxSolo(Number(e.target.value))}
               style={{
-                padding: "0.35rem 0.5rem",
-                border: "1px solid #ccc",
+                padding: `0.35rem ${tokens.spacing.sm}`,
+                border: `${tokens.borders.thin} ${theme.gray.border}`,
                 borderRadius: "0.35rem",
                 minWidth: 180,
                 maxWidth: 360,
@@ -1316,7 +1339,7 @@ export default function ScoringMode({
                     >
                       <ui.Segmented
                         style={{
-                          border: "1px solid rgba(220,106,36,0.65)", // thin orange border all around
+                          border: `${tokens.borders.thin} rgba(220,106,36,0.65)`, // thin orange border all around
                           borderRadius: "999px", // keep pill shape
                           overflow: "hidden",
                         }}
@@ -1331,7 +1354,7 @@ export default function ScoringMode({
                         <button
                           style={{
                             ...ui.segBtn(false),
-                            borderLeft: "1px solid rgba(220,106,36,0.65)", // thin orange divider
+                            borderLeft: `${tokens.borders.thin} rgba(220,106,36,0.65)`, // thin orange divider
                           }}
                           onClick={() => moveTeam(t.showTeamId, +1)}
                           title="Move right"
@@ -1354,7 +1377,7 @@ export default function ScoringMode({
                       width: 20,
                       height: 20,
                       borderRadius: "50%",
-                      border: `1px solid ${theme.accent}`,
+                      border: `${tokens.borders.thin} ${theme.accent}`,
                       background: theme.bg,
                       color: theme.accent,
                       cursor: "pointer",
@@ -1390,6 +1413,53 @@ export default function ScoringMode({
             </tr>
           </thead>
           <tbody>
+            {/* League row */}
+            <tr>
+              <td
+                style={{
+                  padding: "0.3rem",
+                  ...sticky.qNumTd,
+                  fontWeight: "bold",
+                  color: theme.accent,
+                  borderTop: bonusBorder,
+                  borderBottom: bonusBorder,
+                  whiteSpace: "normal",
+                  wordBreak: "break-word",
+                  overflowWrap: "anywhere",
+                  lineHeight: 1.1,
+                  fontSize: ".9rem",
+                }}
+              >
+                League
+              </td>
+
+              {renderTeams.map((t) => (
+                <td
+                  key={t.showTeamId}
+                  style={{
+                    textAlign: "center",
+                    padding: "0.2rem",
+                    borderTop: bonusBorder,
+                    borderBottom: bonusBorder,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!t.isLeague}
+                    onChange={(e) =>
+                      updateTeamLeague(t.showTeamId, e.target.checked)
+                    }
+                    title="Include this team in league standings"
+                    style={{
+                      width: 18,
+                      height: 18,
+                      accentColor: theme.accent, // keeps visual vibe consistent
+                      cursor: "pointer",
+                    }}
+                  />
+                </td>
+              ))}
+            </tr>
             {/* Team bonus row */}
             <tr>
               <td
@@ -1401,7 +1471,7 @@ export default function ScoringMode({
                   borderTop: bonusBorder,
                   borderBottom: bonusBorder,
                   whiteSpace: "normal",
-                  wordBreak: "word-break",
+                  wordBreak: "break-word",
                   overflowWrap: "anywhere",
                   lineHeight: 1.1,
                   fontSize: ".9rem",
@@ -1431,7 +1501,7 @@ export default function ScoringMode({
                       width: 40,
                       textAlign: "center",
                       padding: "0.2rem",
-                      border: `1px solid ${theme.accent}`,
+                      border: `${tokens.borders.thin} ${theme.accent}`,
                       borderRadius: "0.25rem",
                       fontSize: ".85rem",
                       color: theme.accent,
@@ -1623,7 +1693,7 @@ export default function ScoringMode({
         </table>
       </div>
 
-      <div style={{ marginTop: ".5rem", fontSize: ".9rem" }}>
+      <div style={{ marginTop: tokens.spacing.sm, fontSize: ".9rem" }}>
         Keyboard: <code>1</code> / <code>Space</code> toggle • <code>Tab</code>/
         <code>Shift+Tab</code> next/prev question • <code>←/→</code> team •{" "}
         <code>↑/↓</code> question
@@ -1636,21 +1706,21 @@ export default function ScoringMode({
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(43,57,74,.65)",
+            background: theme.overlay,
             zIndex: 9999,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            padding: "1rem",
+            padding: tokens.spacing.md,
           }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
               width: "min(92vw, 460px)",
-              background: "#fff",
+              background: theme.white,
               borderRadius: ".6rem",
-              border: `1px solid ${theme.accent}`,
+              border: `${tokens.borders.thin} ${theme.accent}`,
               overflow: "hidden",
               boxShadow: "0 10px 30px rgba(0,0,0,.25)",
               fontFamily: "Questrial, sans-serif",
@@ -1660,9 +1730,9 @@ export default function ScoringMode({
             <div
               style={{
                 background: theme.dark,
-                color: "#fff",
+                color: theme.white,
                 padding: ".6rem .8rem",
-                borderBottom: `2px solid ${theme.accent}`,
+                borderBottom: `${tokens.borders.medium} ${theme.accent}`,
               }}
             >
               <div
@@ -1688,7 +1758,7 @@ export default function ScoringMode({
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: ".5rem",
+                  gap: tokens.spacing.sm,
                   marginBottom: ".6rem",
                 }}
               >
@@ -1715,7 +1785,7 @@ export default function ScoringMode({
                   style={{
                     width: 120,
                     padding: ".45rem .55rem",
-                    border: "1px solid #ccc",
+                    border: `${tokens.borders.thin} ${theme.gray.border}`,
                     borderRadius: ".35rem",
                   }}
                 />
@@ -1725,7 +1795,7 @@ export default function ScoringMode({
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: ".5rem",
+                  gap: tokens.spacing.sm,
                   marginBottom: ".6rem",
                 }}
               >
@@ -1752,7 +1822,7 @@ export default function ScoringMode({
                   style={{
                     width: 160,
                     padding: ".45rem .55rem",
-                    border: "1px solid #ccc",
+                    border: `${tokens.borders.thin} ${theme.gray.border}`,
                     borderRadius: ".35rem",
                   }}
                 />
@@ -1763,18 +1833,18 @@ export default function ScoringMode({
             <div
               style={{
                 display: "flex",
-                gap: ".5rem",
+                gap: tokens.spacing.sm,
                 justifyContent: "flex-end",
                 padding: ".8rem .9rem .9rem",
-                borderTop: "1px solid #eee",
+                borderTop: `${tokens.borders.thin} ${theme.gray.borderLighter}`,
               }}
             >
               <button
                 onClick={closeCellEditor}
                 style={{
-                  padding: ".5rem .75rem",
-                  border: "1px solid #ccc",
-                  background: "#f7f7f7",
+                  padding: `${tokens.spacing.sm} .75rem`,
+                  border: `${tokens.borders.thin} ${theme.gray.border}`,
+                  background: theme.gray.bg,
                   borderRadius: ".35rem",
                   cursor: "pointer",
                 }}
@@ -1784,10 +1854,10 @@ export default function ScoringMode({
               <button
                 onClick={applyCellEditor}
                 style={{
-                  padding: ".5rem .8rem",
-                  border: `1px solid ${theme.accent}`,
+                  padding: `${tokens.spacing.sm} .8rem`,
+                  border: `${tokens.borders.thin} ${theme.accent}`,
                   background: theme.accent,
-                  color: "#fff",
+                  color: theme.white,
                   borderRadius: ".35rem",
                   cursor: "pointer",
                   fontWeight: 700,
@@ -1801,184 +1871,165 @@ export default function ScoringMode({
       )}
 
       {/* Add Team Modal (local or Airtable search) */}
-      {addingTeam && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(43,57,74,.65)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 9999,
+      <ui.Modal
+        isOpen={addingTeam}
+        onClose={() => setAddingTeam(false)}
+        style={{ minWidth: 420 }}
+        contentStyle={{ padding: tokens.spacing.md }}
+      >
+        <h3 style={{ marginTop: 0, color: theme.dark }}>
+          Add team to this show
+        </h3>
+
+        {/* Search field */}
+        <input
+          autoFocus
+          value={teamInput}
+          onChange={async (e) => {
+            const val = e.target.value;
+            setTeamInput(val);
+
+            if (val.length >= 2) {
+              try {
+                const res = await fetch(
+                  `/.netlify/functions/searchTeams?q=${encodeURIComponent(val)}`
+                );
+                const json = await res.json();
+                console.log("searchTeams matches (raw):", json.matches);
+
+                // Normalize to { id, name, recentShowTeams: [{id,label}] }
+                const normalized = (json.matches || []).map((m) => {
+                  const id = m.teamId ?? m.id ?? "";
+                  const name = m.teamName ?? m.name ?? "";
+                  // If backend returns strings in m.showTeams, convert to [{id,label}]
+                  const recentShowTeams = Array.isArray(m.showTeams)
+                    ? m.showTeams.map((label, idx) => ({
+                        id: `${id}::${idx}`, // unique key for React
+                        label: String(label || ""),
+                      }))
+                    : Array.isArray(m.recentShowTeams)
+                      ? m.recentShowTeams.map((r, idx) => ({
+                          id: r.id ?? `${id}::${idx}`,
+                          label: r.label ?? String(r || ""),
+                        }))
+                      : [];
+
+                  return { id, name, recentShowTeams };
+                });
+
+                setSearchResults(normalized);
+              } catch (err) {
+                console.error("searchTeams error:", err);
+                setSearchResults([]);
+              }
+            } else {
+              setSearchResults([]);
+            }
           }}
-          onClick={() => setAddingTeam(false)}
-        >
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (searchResults.length > 0) {
+                const t = searchResults[0];
+                addTeamLocal(t.name, t.id);
+              } else if (teamInput.trim()) {
+                addTeamLocal(teamInput.trim());
+              }
+              setTeamInput("");
+              setAddingTeam(false);
+              setSearchResults([]);
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              setAddingTeam(false);
+            }
+          }}
+          placeholder="Enter team name"
+          style={{
+            width: "100%",
+            marginBottom: tokens.spacing.sm,
+            padding: tokens.spacing.sm,
+            border: `${tokens.borders.thin} ${theme.gray.border}`,
+            borderRadius: "0.25rem",
+          }}
+        />
+
+        {searchResults.map((t) => (
           <div
-            onClick={(e) => e.stopPropagation()}
+            key={t.id}
+            onClick={() => {
+              addTeamLocal(t.name, t.id);
+              setTeamInput("");
+              setAddingTeam(false);
+              setSearchResults([]);
+            }}
             style={{
-              background: "#fff",
-              padding: "1rem",
-              borderRadius: "0.5rem",
-              minWidth: 420,
-              border: `1px solid ${theme.accent}`,
+              padding: ".45rem .6rem",
+              cursor: "pointer",
+              borderBottom: `${tokens.borders.thin} ${theme.gray.borderLighter}`,
+            }}
+            title={
+              Array.isArray(t.recentShowTeams) && t.recentShowTeams.length
+                ? `Recent: ${t.recentShowTeams.map((r) => r.label).join(" • ")}`
+                : ""
+            }
+          >
+            <div style={{ fontWeight: 600 }}>{t.name}</div>
+
+            {Array.isArray(t.recentShowTeams) &&
+              t.recentShowTeams.length > 0 && (
+                <div
+                  style={{ fontSize: ".85rem", opacity: 0.8, marginTop: 4 }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 2 }}>
+                    Recent:
+                  </div>
+                  <div>
+                    {t.recentShowTeams.slice(0, 3).map((r) => (
+                      <div key={r.id} style={{ lineHeight: 1.2 }}>
+                        {r.label}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+          </div>
+        ))}
+
+        {/* Manual add fallback */}
+        <div style={{ display: "flex", gap: tokens.spacing.sm }}>
+          <button
+            onClick={() => {
+              addTeamLocal(teamInput); // no Airtable ID
+              setTeamInput("");
+              setAddingTeam(false);
+              setSearchResults([]);
+            }}
+            style={{
+              padding: `${tokens.spacing.sm} 0.75rem`,
+              border: `${tokens.borders.thin} ${theme.accent}`,
+              background: theme.accent,
+              color: theme.white,
+              borderRadius: "0.25rem",
+              cursor: "pointer",
+              flex: 1,
             }}
           >
-            <h3 style={{ marginTop: 0, color: theme.dark }}>
-              Add team to this show
-            </h3>
-
-            {/* Search field */}
-            <input
-              autoFocus
-              value={teamInput}
-              onChange={async (e) => {
-                const val = e.target.value;
-                setTeamInput(val);
-
-                if (val.length >= 2) {
-                  try {
-                    const res = await fetch(
-                      `/.netlify/functions/searchTeams?q=${encodeURIComponent(val)}`
-                    );
-                    const json = await res.json();
-                    console.log("searchTeams matches (raw):", json.matches);
-
-                    // Normalize to { id, name, recentShowTeams: [{id,label}] }
-                    const normalized = (json.matches || []).map((m) => {
-                      const id = m.teamId ?? m.id ?? "";
-                      const name = m.teamName ?? m.name ?? "";
-                      // If backend returns strings in m.showTeams, convert to [{id,label}]
-                      const recentShowTeams = Array.isArray(m.showTeams)
-                        ? m.showTeams.map((label, idx) => ({
-                            id: `${id}::${idx}`, // unique key for React
-                            label: String(label || ""),
-                          }))
-                        : Array.isArray(m.recentShowTeams)
-                          ? m.recentShowTeams.map((r, idx) => ({
-                              id: r.id ?? `${id}::${idx}`,
-                              label: r.label ?? String(r || ""),
-                            }))
-                          : [];
-
-                      return { id, name, recentShowTeams };
-                    });
-
-                    setSearchResults(normalized);
-                  } catch (err) {
-                    console.error("searchTeams error:", err);
-                    setSearchResults([]);
-                  }
-                } else {
-                  setSearchResults([]);
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  if (searchResults.length > 0) {
-                    const t = searchResults[0];
-                    addTeamLocal(t.name, t.id);
-                  } else if (teamInput.trim()) {
-                    addTeamLocal(teamInput.trim());
-                  }
-                  setTeamInput("");
-                  setAddingTeam(false);
-                  setSearchResults([]);
-                } else if (e.key === "Escape") {
-                  e.preventDefault();
-                  setAddingTeam(false);
-                }
-              }}
-              placeholder="Enter team name"
-              style={{
-                width: "100%",
-                marginBottom: ".5rem",
-                padding: "0.5rem",
-                border: "1px solid #ccc",
-                borderRadius: "0.25rem",
-              }}
-            />
-
-            {searchResults.map((t) => (
-              <div
-                key={t.id} // ✅ unique team key
-                onClick={() => {
-                  addTeamLocal(t.name, t.id);
-                  setTeamInput("");
-                  setAddingTeam(false);
-                  setSearchResults([]);
-                }}
-                style={{
-                  padding: ".45rem .6rem",
-                  cursor: "pointer",
-                  borderBottom: "1px solid #eee",
-                }}
-                title={
-                  Array.isArray(t.recentShowTeams) && t.recentShowTeams.length
-                    ? `Recent: ${t.recentShowTeams.map((r) => r.label).join(" • ")}`
-                    : ""
-                }
-              >
-                <div style={{ fontWeight: 600 }}>{t.name}</div>
-
-                {Array.isArray(t.recentShowTeams) &&
-                  t.recentShowTeams.length > 0 && (
-                    <div
-                      style={{ fontSize: ".85rem", opacity: 0.8, marginTop: 4 }}
-                    >
-                      <div style={{ fontWeight: 600, marginBottom: 2 }}>
-                        Recent:
-                      </div>
-                      <div>
-                        {t.recentShowTeams.slice(0, 3).map((r) => (
-                          <div key={r.id} style={{ lineHeight: 1.2 }}>
-                            {r.label}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-              </div>
-            ))}
-
-            {/* Manual add fallback */}
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              <button
-                onClick={() => {
-                  addTeamLocal(teamInput); // no Airtable ID
-                  setTeamInput("");
-                  setAddingTeam(false);
-                  setSearchResults([]);
-                }}
-                style={{
-                  padding: "0.5rem 0.75rem",
-                  border: `1px solid ${theme.accent}`,
-                  background: theme.accent,
-                  color: "#fff",
-                  borderRadius: "0.25rem",
-                  cursor: "pointer",
-                  flex: 1,
-                }}
-              >
-                Add “{teamInput || "Unnamed"}”
-              </button>
-              <button
-                onClick={() => setAddingTeam(false)}
-                style={{
-                  padding: "0.5rem 0.75rem",
-                  border: "1px solid #ccc",
-                  background: "#f7f7f7",
-                  borderRadius: "0.25rem",
-                  cursor: "pointer",
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
+            Add "{teamInput || "Unnamed"}"
+          </button>
+          <button
+            onClick={() => setAddingTeam(false)}
+            style={{
+              padding: `${tokens.spacing.sm} 0.75rem`,
+              border: `${tokens.borders.thin} ${theme.gray.border}`,
+              background: theme.gray.bg,
+              borderRadius: "0.25rem",
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
         </div>
-      )}
+      </ui.Modal>
     </div>
   );
 }

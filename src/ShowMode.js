@@ -10,6 +10,7 @@ import {
   overlayImg,
   colors as theme,
   tokens,
+  ui,
 } from "./styles";
 
 export default function ShowMode({
@@ -445,6 +446,26 @@ export default function ShowMode({
           categoryInfo?.["Category description"]?.trim() || "";
         const isSuperSecret = !!categoryInfo?.["Super secret"];
 
+        // Check if this is a visual category or tiebreaker
+        const isVisualCategory = Object.values(questions).some((q) =>
+          (q?.["Question type"] || "").includes("Visual")
+        );
+        const isTiebreaker = categoryName.toLowerCase().includes("tiebreaker");
+
+        // Calculate category number (only for non-visual, non-tiebreaker spoken/audio categories)
+        const categoryNumber = !isVisualCategory && !isTiebreaker
+          ? sortedGroupedEntries
+              .slice(0, index)
+              .filter(([, data]) => {
+                const catName = data.categoryName || "";
+                const hasVisual = Object.values(data.questions || {}).some(
+                  (q) => (q?.["Question type"] || "").includes("Visual")
+                );
+                const isTB = catName.toLowerCase().includes("tiebreaker");
+                return !hasVisual && !isTB;
+              }).length + 1
+          : null;
+
         // Category images
         const groupKey = `${categoryName}|||${categoryDescription}`;
         const catImages = categoryInfo?.["Category image"];
@@ -463,7 +484,7 @@ export default function ShowMode({
             : [];
 
         const CategoryHeader = ({ secret }) => (
-          <div style={{ backgroundColor: theme.dark, padding: 0 }}>
+          <div style={{ backgroundColor: secret ? theme.accentLight : theme.dark, padding: 0 }}>
             <hr
               style={{
                 border: "none",
@@ -471,37 +492,63 @@ export default function ShowMode({
                 margin: "0 0 0.3rem 0",
               }}
             />
-            <h2
-              style={{
-                color: theme.accent,
-                fontFamily: tokens.font.display,
-                fontSize: "1.85rem",
-                margin: 0,
-                textAlign: "left",
-                letterSpacing: "0.015em",
-                textIndent: "0.5rem",
-              }}
-              dangerouslySetInnerHTML={{
-                __html: marked.parseInline(categoryName || ""),
-              }}
-            />
-            <p
-              style={{
-                color: "#fff",
-                fontStyle: "italic",
-                fontFamily: tokens.font.flavor,
-                margin: "0 0 0.5rem 0",
-                textAlign: "left",
-                textIndent: "1rem",
-              }}
-              dangerouslySetInnerHTML={{
-                __html: marked.parseInline(categoryDescription || ""),
-              }}
-            />
+            <div style={{ display: "flex", alignItems: "stretch" }}>
+              {/* Category number section (orange) - only for spoken/audio categories */}
+              {categoryNumber !== null && (
+                <div
+                  style={{
+                    backgroundColor: theme.accent,
+                    color: theme.white,
+                    fontFamily: tokens.font.display,
+                    fontSize: "2.5rem",
+                    fontWeight: "bold",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    minWidth: "3.5rem",
+                    padding: "0.5rem",
+                    clipPath: "polygon(0 0, 100% 0, calc(100% - 1rem) 100%, 0 100%)",
+                  }}
+                >
+                  {categoryNumber}
+                </div>
+              )}
+
+              {/* Category name and description */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <h2
+                  style={{
+                    color: theme.accent,
+                    fontFamily: tokens.font.display,
+                    fontSize: "1.85rem",
+                    margin: 0,
+                    textAlign: "left",
+                    letterSpacing: "0.015em",
+                    textIndent: categoryNumber !== null ? "0.5rem" : "0.5rem",
+                  }}
+                  dangerouslySetInnerHTML={{
+                    __html: marked.parseInline(categoryName || ""),
+                  }}
+                />
+                <p
+                  style={{
+                    color: secret ? theme.dark : theme.white,
+                    fontStyle: "italic",
+                    fontFamily: tokens.font.flavor,
+                    margin: "0 0 0.5rem 0",
+                    textAlign: "left",
+                    textIndent: categoryNumber !== null ? "0.5rem" : tokens.spacing.md,
+                  }}
+                  dangerouslySetInnerHTML={{
+                    __html: marked.parseInline(categoryDescription || ""),
+                  }}
+                />
+              </div>
+            </div>
 
             {/* Category images (optional) */}
             {catImagesArr.length > 0 && (
-              <div style={{ marginTop: "0.25rem", marginLeft: "1rem" }}>
+              <div style={{ marginTop: "0.25rem", marginLeft: tokens.spacing.md }}>
                 <Button
                   onClick={() =>
                     setVisibleCategoryImages((prev) => ({
@@ -545,9 +592,9 @@ export default function ShowMode({
             {catAudioArr.length > 0 && (
               <div
                 style={{
-                  marginTop: "0.5rem",
-                  marginLeft: "1rem",
-                  marginRight: "1rem",
+                  marginTop: tokens.spacing.sm,
+                  marginLeft: tokens.spacing.md,
+                  marginRight: tokens.spacing.md,
                 }}
               >
                 {catAudioArr.map(
@@ -557,10 +604,10 @@ export default function ShowMode({
                         key={i}
                         className="audio-player-wrapper"
                         style={{
-                          marginTop: "0.5rem",
+                          marginTop: tokens.spacing.sm,
                           maxWidth: "600px",
-                          border: "1px solid #ccc",
-                          borderRadius: "1.5rem",
+                          border: `${tokens.borders.thin} ${theme.gray.border}`,
+                          borderRadius: tokens.spacing.lg,
                           overflow: "hidden",
                           backgroundColor: theme.bg,
                           boxShadow: "0 0 10px rgba(0, 0, 0, 0.15)",
@@ -582,7 +629,7 @@ export default function ShowMode({
                             fontFamily: tokens.font.body,
                             padding: "0.4rem 0.6rem",
                             backgroundColor: theme.bg,
-                            borderTop: "1px solid #ccc",
+                            borderTop: `${tokens.borders.thin} ${theme.gray.border}`,
                           }}
                         >
                           🎵{" "}
@@ -615,7 +662,7 @@ export default function ShowMode({
                   borderStyle: "dashed",
                   borderWidth: "3px",
                   borderColor: theme.accent,
-                  backgroundColor: theme.bg,
+                  backgroundColor: theme.accentLight,
                   borderRadius: ".75rem",
                   padding: "0.5rem",
                 }}
@@ -764,7 +811,7 @@ export default function ShowMode({
                             }}
                             style={{
                               marginBottom: "0.25rem",
-                              marginLeft: "1.5rem",
+                              marginLeft: tokens.spacing.lg,
                             }}
                           >
                             Show image
@@ -849,9 +896,9 @@ export default function ShowMode({
                       {Array.isArray(q.Audio) && q.Audio.length > 0 && (
                         <div
                           style={{
-                            marginTop: "0.5rem",
-                            marginLeft: "1.5rem",
-                            marginRight: "1.5rem",
+                            marginTop: tokens.spacing.sm,
+                            marginLeft: tokens.spacing.lg,
+                            marginRight: tokens.spacing.lg,
                           }}
                         >
                           {q.Audio.map(
@@ -861,10 +908,10 @@ export default function ShowMode({
                                   key={index}
                                   className="audio-player-wrapper"
                                   style={{
-                                    marginTop: "0.5rem",
+                                    marginTop: tokens.spacing.sm,
                                     maxWidth: "600px",
-                                    border: "1px solid #ccc",
-                                    borderRadius: "1.5rem",
+                                    border: `${tokens.borders.thin} ${theme.gray.border}`,
+                                    borderRadius: tokens.spacing.lg,
                                     overflow: "hidden",
                                     backgroundColor: theme.bg,
                                     boxShadow: "0 0 10px rgba(0, 0, 0, 0.15)",
@@ -886,7 +933,7 @@ export default function ShowMode({
                                       fontFamily: tokens.font.body,
                                       padding: "0.4rem 0.6rem",
                                       backgroundColor: theme.bg,
-                                      borderTop: "1px solid #ccc",
+                                      borderTop: `${tokens.borders.thin} ${theme.gray.border}`,
                                     }}
                                   >
                                     🎵{" "}
@@ -907,10 +954,10 @@ export default function ShowMode({
                           style={{
                             fontFamily: tokens.font.body,
                             fontSize: "1.125rem",
-                            marginTop: "0.5rem",
-                            marginBottom: "1rem",
-                            marginLeft: "1.5rem",
-                            marginRight: "1.5rem",
+                            marginTop: tokens.spacing.sm,
+                            marginBottom: tokens.spacing.md,
+                            marginLeft: tokens.spacing.lg,
+                            marginRight: tokens.spacing.lg,
                           }}
                         >
                           <span
@@ -934,214 +981,114 @@ export default function ShowMode({
         );
       })}
 
-      {scriptOpen && (
-        <div
-          onMouseDown={() => setScriptOpen(false)}
+      <ui.Modal
+        isOpen={scriptOpen}
+        onClose={() => setScriptOpen(false)}
+        title="Host Script"
+        style={{ width: "min(92vw, 720px)", maxHeight: "85vh" }}
+        contentStyle={{ padding: 0 }}
+      >
+        <textarea
+          readOnly
+          value={hostScript}
           style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(43,57,74,.65)",
-            zIndex: 9999,
+            width: "100%",
+            minHeight: "40vh",
+            resize: "vertical",
+            padding: tokens.spacing.md,
+            border: `${tokens.borders.thin} ${theme.gray.borderLight}`,
+            borderRadius: ".35rem",
+            fontFamily: tokens.font.body,
+            lineHeight: 1.35,
+            fontSize: "1.25rem",
+            whiteSpace: "pre-wrap",
+            wordWrap: "break-word",
+            boxSizing: "border-box",
+          }}
+        />
+        <div
+          style={{
             display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "1rem",
+            gap: tokens.spacing.sm,
+            justifyContent: "flex-end",
+            padding: ".8rem .9rem .9rem",
+            borderTop: `${tokens.borders.thin} ${theme.gray.borderLighter}`,
           }}
         >
-          <div
-            onMouseDown={(e) => e.stopPropagation()}
-            style={{
-              width: "min(92vw, 720px)",
-              background: "#fff",
-              borderRadius: ".6rem",
-              border: `1px solid ${theme.accent}`,
-              overflow: "hidden",
-              boxShadow: "0 10px 30px rgba(0,0,0,.25)",
-              fontFamily: tokens.font.body,
-              display: "flex",
-              flexDirection: "column",
-              maxHeight: "85vh",
-            }}
-          >
-            <div
-              style={{
-                background: theme.dark,
-                color: "#fff",
-                padding: ".6rem .8rem",
-                borderBottom: `2px solid ${theme.accent}`,
-                fontFamily: tokens.font.display,
-                fontSize: "1.5rem",
-                letterSpacing: ".01em",
-              }}
-            >
-              Host Script
-            </div>
-
-            <textarea
-              readOnly
-              value={hostScript}
-              style={{
-                width: "100%",
-                minHeight: "40vh",
-                resize: "vertical",
-                padding: "1rem",
-                border: "1px solid #ddd",
-                borderRadius: ".35rem",
-                fontFamily: tokens.font.body,
-                lineHeight: 1.35,
-                fontSize: "1.25rem",
-                whiteSpace: "pre-wrap",
-                wordWrap: "break-word",
-                boxSizing: "border-box",
-              }}
-            />
-
-            <div
-              style={{
-                display: "flex",
-                gap: ".5rem",
-                justifyContent: "flex-end",
-                padding: ".8rem .9rem .9rem",
-                borderTop: "1px solid #eee",
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => setScriptOpen(false)}
-                style={{
-                  padding: ".5rem .75rem",
-                  border: "1px solid #ccc",
-                  background: "#f7f7f7",
-                  borderRadius: ".35rem",
-                  cursor: "pointer",
-                }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
+          <Button onClick={() => setScriptOpen(false)}>Close</Button>
         </div>
-      )}
+      </ui.Modal>
 
-      {hostModalOpen && (
+      <ui.Modal
+        isOpen={hostModalOpen}
+        onClose={() => setHostModalOpen(false)}
+        title="Hosts & Location"
+        style={{ width: "min(92vw, 560px)" }}
+        contentStyle={{ padding: ".9rem .9rem 0" }}
+      >
+        <label style={{ display: "block", marginBottom: ".6rem" }}>
+          <div style={{ marginBottom: 4 }}>Host name</div>
+          <input
+            type="text"
+            value={hostInfo.host}
+            onChange={(e) =>
+              saveHostInfo({ ...hostInfo, host: e.target.value })
+            }
+            style={{
+              width: "100%",
+              padding: ".45rem .55rem",
+              border: `${tokens.borders.thin} ${theme.gray.border}`,
+              borderRadius: ".35rem",
+            }}
+          />
+        </label>
+
+        <label style={{ display: "block", marginBottom: ".6rem" }}>
+          <div style={{ marginBottom: 4 }}>Co-host name</div>
+          <input
+            type="text"
+            value={hostInfo.cohost}
+            onChange={(e) =>
+              saveHostInfo({ ...hostInfo, cohost: e.target.value })
+            }
+            style={{
+              width: "100%",
+              padding: ".45rem .55rem",
+              border: `${tokens.borders.thin} ${theme.gray.border}`,
+              borderRadius: ".35rem",
+            }}
+          />
+        </label>
+
+        <label style={{ display: "block", marginBottom: ".6rem" }}>
+          <div style={{ marginBottom: 4 }}>Location</div>
+          <input
+            type="text"
+            value={hostInfo.location}
+            onChange={(e) =>
+              saveHostInfo({ ...hostInfo, location: e.target.value })
+            }
+            style={{
+              width: "100%",
+              padding: ".45rem .55rem",
+              border: `${tokens.borders.thin} ${theme.gray.border}`,
+              borderRadius: ".35rem",
+            }}
+          />
+        </label>
+
         <div
-          onMouseDown={() => setHostModalOpen(false)}
           style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(43,57,74,.65)",
-            zIndex: 9999,
             display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "1rem",
+            gap: tokens.spacing.sm,
+            justifyContent: "flex-end",
+            padding: ".8rem .9rem .9rem",
+            borderTop: `${tokens.borders.thin} ${theme.gray.borderLighter}`,
           }}
         >
-          <div
-            onMouseDown={(e) => e.stopPropagation()}
-            style={{
-              width: "min(92vw, 560px)",
-              background: "#fff",
-              borderRadius: ".6rem",
-              border: `1px solid ${theme.accent}`,
-              overflow: "hidden",
-              boxShadow: "0 10px 30px rgba(0,0,0,.25)",
-              fontFamily: tokens.font.body,
-            }}
-          >
-            <div
-              style={{
-                background: theme.dark,
-                color: "#fff",
-                padding: ".6rem .8rem",
-                borderBottom: `2px solid ${theme.accent}`,
-                fontFamily: tokens.font.display,
-                fontSize: "1.25rem",
-                letterSpacing: ".01em",
-              }}
-            >
-              Hosts & Location
-            </div>
-
-            <div style={{ padding: ".9rem .9rem 0" }}>
-              <label style={{ display: "block", marginBottom: ".6rem" }}>
-                <div style={{ marginBottom: 4 }}>Host name</div>
-                <input
-                  type="text"
-                  value={hostInfo.host}
-                  onChange={(e) =>
-                    saveHostInfo({ ...hostInfo, host: e.target.value })
-                  }
-                  style={{
-                    width: "100%",
-                    padding: ".45rem .55rem",
-                    border: "1px solid #ccc",
-                    borderRadius: ".35rem",
-                  }}
-                />
-              </label>
-
-              <label style={{ display: "block", marginBottom: ".6rem" }}>
-                <div style={{ marginBottom: 4 }}>Co-host name</div>
-                <input
-                  type="text"
-                  value={hostInfo.cohost}
-                  onChange={(e) =>
-                    saveHostInfo({ ...hostInfo, cohost: e.target.value })
-                  }
-                  style={{
-                    width: "100%",
-                    padding: ".45rem .55rem",
-                    border: "1px solid #ccc",
-                    borderRadius: ".35rem",
-                  }}
-                />
-              </label>
-
-              <label style={{ display: "block", marginBottom: ".6rem" }}>
-                <div style={{ marginBottom: 4 }}>Location</div>
-                <input
-                  type="text"
-                  value={hostInfo.location}
-                  onChange={(e) =>
-                    saveHostInfo({ ...hostInfo, location: e.target.value })
-                  }
-                  style={{
-                    width: "100%",
-                    padding: ".45rem .55rem",
-                    border: "1px solid #ccc",
-                    borderRadius: ".35rem",
-                  }}
-                />
-              </label>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                gap: ".5rem",
-                justifyContent: "flex-end",
-                padding: ".8rem .9rem .9rem",
-                borderTop: "1px solid #eee",
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => setHostModalOpen(false)}
-                style={{
-                  padding: ".5rem .75rem",
-                  border: "1px solid #ccc",
-                  background: "#f7f7f7",
-                  borderRadius: ".35rem",
-                  cursor: "pointer",
-                }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
+          <Button onClick={() => setHostModalOpen(false)}>Close</Button>
         </div>
-      )}
+      </ui.Modal>
 
       {/* Countdown Timer Floating Box */}
       {showTimer && (
@@ -1170,10 +1117,10 @@ export default function ShowMode({
               style={{
                 position: "absolute",
                 backgroundColor: theme.dark,
-                color: "#fff",
-                padding: "1rem",
-                borderRadius: "0.5rem",
-                border: `1px solid ${theme.accent}`,
+                color: theme.white,
+                padding: tokens.spacing.md,
+                borderRadius: tokens.spacing.sm,
+                border: `${tokens.borders.thin} ${theme.accent}`,
                 boxShadow: "0 0 10px rgba(0,0,0,0.3)",
                 fontFamily: tokens.font.body,
                 width: "180px",
@@ -1188,7 +1135,7 @@ export default function ShowMode({
                 style={{
                   fontSize: "2rem",
                   fontWeight: "bold",
-                  marginBottom: "0.5rem",
+                  marginBottom: tokens.spacing.sm,
                 }}
               >
                 {timeLeft}s
@@ -1198,8 +1145,8 @@ export default function ShowMode({
                 style={{
                   display: "flex",
                   justifyContent: "center",
-                  gap: "0.5rem",
-                  marginBottom: "0.5rem",
+                  gap: tokens.spacing.sm,
+                  marginBottom: tokens.spacing.sm,
                 }}
               >
                 <ButtonPrimary
@@ -1221,7 +1168,7 @@ export default function ShowMode({
                   width: "80px",
                   padding: "0.25rem",
                   borderRadius: "0.25rem",
-                  border: "1px solid #ccc",
+                  border: `${tokens.borders.thin} ${theme.gray.border}`,
                   fontSize: "0.9rem",
                   textAlign: "center",
                 }}

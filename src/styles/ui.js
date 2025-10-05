@@ -5,16 +5,36 @@ export const colors = {
   dark: "#2B394A",
   accent: "#DC6A24",
   bg: "#eef1f4",
+  white: "#fff",
+  gray: {
+    border: "#ccc",
+    borderLight: "#ddd",
+    borderLighter: "#eee",
+    bg: "#f7f7f7",
+    bgLight: "#f9f9f9",
+    bgLightest: "#fafafa",
+    pill: "#f3f3f3",
+  },
+  overlay: "rgba(43, 57, 74, 0.65)",
+  overlayDark: "rgba(43, 57, 74, 0.7)",
+  success: "#1ca46d",
+  error: "#dc3545",
+  accentLight: "rgba(220, 106, 36, 0.1)", // Light orange tint
 };
 
 export const tokens = {
   radius: { sm: 4, md: 8, pill: 999 },
-  spacing: { xs: "0.25rem", sm: "0.5rem", md: "1rem" },
+  spacing: { xs: "0.25rem", sm: "0.5rem", md: "1rem", lg: "1.5rem", xl: "2rem" },
   font: {
     body: "Questrial, sans-serif",
     display: "Antonio, sans-serif",
     flavor: "Sanchez, serif",
     size: "1rem",
+  },
+  borders: {
+    thin: "1px solid",
+    medium: "2px solid",
+    thick: "4px solid",
   },
 };
 
@@ -25,8 +45,8 @@ const baseBtn = {
   fontFamily: tokens.font.body,
   borderRadius: "0.25rem",
   cursor: "pointer",
-  border: "1px solid #ccc",
-  background: "#fff",
+  border: `${tokens.borders.thin} ${colors.gray.border}`,
+  background: colors.white,
   color: colors.dark,
 };
 
@@ -35,8 +55,8 @@ export const Button = ({ style, children, type = "button", ...props }) => (
     type={type}
     style={{
       ...baseBtn,
-      border: `1px solid ${colors.accent}`,
-      background: "#fff",
+      border: `${tokens.borders.thin} ${colors.accent}`,
+      background: colors.white,
       color: colors.dark,
       ...style,
     }}
@@ -50,9 +70,9 @@ export const ButtonPrimary = ({ style, children, ...props }) => (
   <button
     style={{
       ...baseBtn,
-      border: `1px solid ${colors.accent}`,
+      border: `${tokens.borders.thin} ${colors.accent}`,
       background: colors.accent,
-      color: "#fff",
+      color: colors.white,
       ...style,
     }}
     {...props}
@@ -67,9 +87,9 @@ export const ButtonTab = ({ active, style, children, ...props }) => (
     style={{
       ...baseBtn,
       borderRadius: tokens.radius.pill,
-      border: `1px solid ${active ? colors.accent : "#ccc"}`,
-      background: active ? colors.accent : "#fff",
-      color: active ? "#fff" : colors.dark,
+      border: `${tokens.borders.thin} ${active ? colors.accent : colors.gray.border}`,
+      background: active ? colors.accent : colors.white,
+      color: active ? colors.white : colors.dark,
       padding: ".35rem .6rem",
       ...style,
     }}
@@ -86,7 +106,7 @@ export const overlayStyle = {
   left: 0,
   width: "100vw",
   height: "100vh",
-  backgroundColor: "rgba(43, 57, 74, 0.7)",
+  backgroundColor: colors.overlayDark,
   backdropFilter: "blur(10px)",
   WebkitBackdropFilter: "blur(8px)",
   display: "flex",
@@ -101,9 +121,9 @@ export const overlayImg = {
   maxWidth: "90vw",
   maxHeight: "80vh",
   objectFit: "contain",
-  border: "4px solid white",
+  border: `${tokens.borders.thick} ${colors.white}`,
   boxShadow: "0 0 20px rgba(0,0,0,0.5)",
-  marginBottom: "1rem",
+  marginBottom: tokens.spacing.md,
 };
 
 // --- Layout primitives ------------------------------------------
@@ -113,10 +133,10 @@ export const ui = {
     <div
       style={{
         display: "inline-flex",
-        border: "1px solid #ccc",
+        border: `${tokens.borders.thin} ${colors.gray.border}`,
         borderRadius: tokens.radius.pill,
         overflow: "hidden",
-        background: "#fff",
+        background: colors.white,
         flex: "0 1 auto",
         minWidth: 0,
         ...style,
@@ -129,33 +149,33 @@ export const ui = {
   // Back-compat aliases (use Segmented going forward)
   seg: {
     display: "inline-flex",
-    border: "1px solid #ccc",
+    border: `${tokens.borders.thin} ${colors.gray.border}`,
     borderRadius: tokens.radius.pill,
     overflow: "hidden",
-    background: "#fff",
+    background: colors.white,
   },
   segBtn: (active) => ({
     padding: ".35rem .6rem",
     border: "none",
     background: active ? colors.accent : "transparent",
-    color: active ? "#fff" : colors.dark,
+    color: active ? colors.white : colors.dark,
     cursor: "pointer",
   }),
   segWrap: {
     display: "inline-flex",
-    border: "1px solid #ccc",
+    border: `${tokens.borders.thin} ${colors.gray.border}`,
     borderRadius: tokens.radius.pill,
     overflow: "hidden",
-    background: "#fff",
+    background: colors.white,
   },
   Group: ({ style, children }) => (
     <div
       style={{
         display: "inline-flex",
-        border: "1px solid #ccc",
+        border: `${tokens.borders.thin} ${colors.gray.border}`,
         borderRadius: tokens.radius.pill,
         overflow: "hidden",
-        background: "#fff",
+        background: colors.white,
         ...style,
       }}
     >
@@ -201,7 +221,7 @@ export const ui = {
       style={{
         padding: "0.125rem 0.5rem",
         borderRadius: tokens.radius.pill,
-        background: "#f3f3f3",
+        background: colors.gray.pill,
         fontSize: ".85rem",
         ...style,
       }}
@@ -226,8 +246,8 @@ export const ui = {
   Card: ({ style, children }) => (
     <div
       style={{
-        background: "#fff",
-        border: "1px solid #ddd",
+        background: colors.white,
+        border: `${tokens.borders.thin} ${colors.gray.borderLight}`,
         borderRadius: tokens.radius.md,
         padding: tokens.spacing.sm,
         boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
@@ -242,12 +262,88 @@ export const ui = {
   btnToggle: (active) => ({
     padding: "0.4rem 0.75rem",
     borderRadius: "4px",
-    border: `1px solid ${active ? colors.accent : "#ccc"}`,
-    background: active ? colors.accent : "#fff",
-    color: active ? "#fff" : colors.dark,
+    border: `${tokens.borders.thin} ${active ? colors.accent : colors.gray.border}`,
+    background: active ? colors.accent : colors.white,
+    color: active ? colors.white : colors.dark,
     fontSize: "0.95rem",
     fontWeight: 600,
     cursor: "pointer",
   }),
   statText: { fontSize: ".95rem", opacity: 0.9 },
+
+  // Modal component - unified modal pattern
+  Modal: ({ isOpen, onClose, title, subtitle, children, style, contentStyle }) =>
+    isOpen ? (
+      <div
+        onMouseDown={onClose}
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: colors.overlay,
+          zIndex: 9999,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: tokens.spacing.md,
+        }}
+      >
+        <div
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{
+            background: colors.white,
+            borderRadius: tokens.radius.md,
+            border: `${tokens.borders.thin} ${colors.accent}`,
+            maxWidth: "90vw",
+            maxHeight: "90vh",
+            overflow: "auto",
+            ...style,
+          }}
+        >
+          {title && (
+            <div
+              style={{
+                background: colors.dark,
+                color: colors.white,
+                padding: ".6rem .8rem",
+                borderBottom: `${tokens.borders.medium} ${colors.accent}`,
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: tokens.font.display,
+                  fontSize: "1.25rem",
+                }}
+              >
+                {title}
+              </div>
+              {subtitle && (
+                <div style={{ fontSize: ".9rem", opacity: 0.9 }}>
+                  {subtitle}
+                </div>
+              )}
+            </div>
+          )}
+          <div style={{ padding: tokens.spacing.md, ...contentStyle }}>
+            {children}
+          </div>
+        </div>
+      </div>
+    ) : null,
+
+  // Image overlay component
+  ImageOverlay: ({ isOpen, onClose, src, alt }) =>
+    isOpen ? (
+      <div onMouseDown={onClose} style={overlayStyle}>
+        <img src={src} alt={alt || ""} style={overlayImg} />
+        <ButtonPrimary
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          style={{ fontSize: "1.1rem" }}
+        >
+          Close
+        </ButtonPrimary>
+      </div>
+    ) : null,
 };

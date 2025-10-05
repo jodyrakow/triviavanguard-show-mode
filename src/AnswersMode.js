@@ -88,8 +88,10 @@ function buildShowAnswerKeyText(showBundle, { withLabels = true } = {}) {
 
 export default function AnswersMode({
   showBundle, // { rounds:[{round, questions:[...] }], teams:[...] }
+  selectedShowId,
   selectedRoundId, // round number or string (e.g. "1")
   cachedState, // { teams, grid, entryOrder }
+  cachedByRound, // for cumulative tiebreaker detection
   scoringMode, // "pub" | "pooled"
   pubPoints, // (not displayed here, only pooled uses poolPerQuestion)
   poolPerQuestion,
@@ -147,6 +149,129 @@ export default function AnswersMode({
   }, [cachedState]);
 
   const grid = useMemo(() => cachedState?.grid ?? {}, [cachedState]); // {[showTeamId]: {[showQuestionId]: {isCorrect, questionBonus, overridePoints}}}
+
+  // --------- Prize state (load from localStorage) ---------
+  const [prizeCount, setPrizeCount] = useState(0);
+
+  React.useEffect(() => {
+    const showKey = String(selectedShowId || showBundle?.showId || "").trim();
+    if (!showKey) return;
+
+    const rawCount = localStorage.getItem(`tv_prizeCount_${showKey}`);
+    if (rawCount !== null) {
+      const n = Math.max(0, parseInt(rawCount, 10) || 0);
+      setPrizeCount(n);
+    }
+  }, [selectedShowId, showBundle?.showId]);
+
+  // --------- Tiebreaker detection (similar to ResultsMode) ---------
+  const tbQ = useMemo(() => {
+    const allRounds = Array.isArray(showBundle?.rounds) ? showBundle.rounds : [];
+    for (const r of allRounds) {
+      for (const q of r?.questions || []) {
+        const type = (q.questionType || "").toLowerCase();
+        if (
+          type === "tiebreaker" ||
+          String(q.questionOrder).toUpperCase() === "TB" ||
+          String(q.id || "").startsWith("tb-")
+        ) {
+          return q;
+        }
+      }
+    }
+    return null;
+  }, [showBundle]);
+
+  // Check if tiebreaker was used (need full show logic from ResultsMode)
+  const tiebreakerWasUsed = useMemo(() => {
+    if (!prizeCount || prizeCount <= 0 || !tbQ || !cachedByRound) return false;
+
+    // Build standings similar to ResultsMode to check if TB was used
+    const allRounds = Array.isArray(showBundle?.rounds) ? showBundle.rounds : [];
+    const allQuestions = [];
+    for (const r of allRounds) {
+      for (const q of r?.questions || []) {
+        allQuestions.push({
+          showQuestionId: q.id,
+          questionType: q.questionType || null,
+        });
+      }
+    }
+
+    // Get cell from any round
+    const getCell = (showTeamId, showQuestionId) => {
+      for (const rid of Object.keys(cachedByRound)) {
+        const cell = cachedByRound[rid]?.grid?.[showTeamId]?.[showQuestionId];
+        if (cell) return cell;
+      }
+      return null;
+    };
+
+    // Merge teams across rounds
+    const byId = new Map();
+    for (const rid of Object.keys(cachedByRound)) {
+      const arr = cachedByRound[rid]?.teams || [];
+      for (const t of arr) {
+        const norm = normalizeTeam(t);
+        if (!byId.has(norm.showTeamId)) {
+          byId.set(norm.showTeamId, norm);
+        }
+      }
+    }
+    const teams = [...byId.values()];
+
+    // Calculate totals
+    const totalByTeam = new Map(
+      teams.map((t) => [t.showTeamId, Number(t.showBonus || 0)])
+    );
+
+    for (const t of teams) {
+      for (const q of allQuestions) {
+        if (q.showQuestionId === tbQ.id) continue; // Skip TB for scoring
+
+        const cell = getCell(t.showTeamId, q.showQuestionId);
+        if (!cell?.isCorrect) continue;
+
+        // Simplified scoring - just add points
+        const base = scoringMode === "pub" ? Number(pubPoints) : 10; // simplified
+        totalByTeam.set(
+          t.showTeamId,
+          (totalByTeam.get(t.showTeamId) || 0) + base
+        );
+      }
+    }
+
+    // Build rows
+    const rows = teams.map((t) => ({
+      showTeamId: t.showTeamId,
+      total: totalByTeam.get(t.showTeamId) || 0,
+    }));
+
+    // Sort by total
+    rows.sort((a, b) => b.total - a.total);
+
+    // Assign provisional places
+    let place = 0,
+      prevTotal = null,
+      cnt = 0;
+    for (const r of rows) {
+      cnt++;
+      if (prevTotal === null || r.total !== prevTotal) {
+        place = cnt;
+        prevTotal = r.total;
+      }
+      r.place = place;
+    }
+
+    // Check if there's a tie in the prize band
+    const tieInPrizeBand = rows.some((r, i) => {
+      if (r.place > prizeCount) return false;
+      const next = rows[i + 1];
+      return next && next.total === r.total && r.place <= prizeCount;
+    });
+
+    return tieInPrizeBand;
+  }, [prizeCount, tbQ, cachedByRound, showBundle, scoringMode, pubPoints]);
 
   // --------- UI state for images (overlay) ---------
   const [visibleImages, setVisibleImages] = useState({}); // keyed by showQuestionId
@@ -294,8 +419,8 @@ export default function AnswersMode({
             marginTop: "0.75rem",
             marginBottom: "0.75rem",
             padding: "0.75rem",
-            background: "#fff",
-            border: "1px solid #ddd",
+            background: theme.white,
+            border: `${tokens.borders.thin} ${theme.gray.borderLight}`,
             borderRadius: 8,
           }}
         >
@@ -303,7 +428,7 @@ export default function AnswersMode({
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "0.5rem",
+              gap: tokens.spacing.sm,
               flexWrap: "wrap",
             }}
           >
@@ -320,7 +445,7 @@ export default function AnswersMode({
               Include labels (A., 1., etc.)
             </label>
 
-            <div style={{ marginLeft: "auto", display: "flex", gap: "0.4rem" }}>
+            <div style={{ marginLeft: "auto", display: "flex", gap: tokens.spacing.sm }}>
               <button onClick={copyAnswerKey}>Copy</button>
               <button onClick={downloadAnswerKey}>Download .txt</button>
             </div>
@@ -331,8 +456,8 @@ export default function AnswersMode({
             style={{
               marginTop: 8,
               marginBottom: 0,
-              background: "#fafafa",
-              border: "1px solid #eee",
+              background: theme.gray.bgLightest,
+              border: `${tokens.borders.thin} ${theme.gray.borderLighter}`,
               borderRadius: 6,
               padding: "0.6rem 0.75rem",
               whiteSpace: "pre-wrap",
@@ -361,14 +486,14 @@ export default function AnswersMode({
         return (
           <div
             key={groupKey}
-            style={{ marginTop: idx === 0 ? "1rem" : "3rem" }}
+            style={{ marginTop: idx === 0 ? tokens.spacing.md : "3rem" }}
           >
             {/* Category header */}
             <div style={{ background: theme.dark, padding: 0 }}>
               <hr
                 style={{
                   border: "none",
-                  borderTop: `2px solid ${theme.accent}`,
+                  borderTop: `${tokens.borders.medium} ${theme.accent}`,
                   margin: "0 0 .3rem 0",
                 }}
               />
@@ -378,7 +503,7 @@ export default function AnswersMode({
                   fontFamily: tokens.font.display,
                   fontSize: "1.85rem",
                   margin: 0,
-                  textIndent: "0.5rem",
+                  textIndent: tokens.spacing.sm,
                   letterSpacing: "0.015em",
                 }}
                 dangerouslySetInnerHTML={{
@@ -388,11 +513,11 @@ export default function AnswersMode({
               {categoryDescription?.trim() && (
                 <p
                   style={{
-                    color: "#fff",
+                    color: theme.white,
                     fontStyle: "italic",
                     fontFamily: tokens.font.flavor,
                     margin: "0 0 .5rem 0",
-                    textIndent: "1rem",
+                    textIndent: tokens.spacing.md,
                   }}
                   dangerouslySetInnerHTML={{
                     __html: marked.parseInline(categoryDescription),
@@ -448,10 +573,10 @@ export default function AnswersMode({
                           style={{
                             marginTop: ".5rem",
                             maxWidth: 600,
-                            border: "1px solid #ccc",
-                            borderRadius: "1.5rem",
+                            border: `${tokens.borders.thin} ${theme.gray.border}`,
+                            borderRadius: tokens.spacing.lg,
                             overflow: "hidden",
-                            background: "#f9f9f9",
+                            background: theme.gray.bgLight,
                             boxShadow: "0 0 10px rgba(0,0,0,0.15)",
                           }}
                         >
@@ -462,8 +587,8 @@ export default function AnswersMode({
                               fontSize: ".9rem",
                               fontFamily: tokens.font.body,
                               padding: ".4rem .6rem",
-                              background: "#f9f9f9",
-                              borderTop: "1px solid #ccc",
+                              background: theme.gray.bgLight,
+                              borderTop: `${tokens.borders.thin} ${theme.gray.border}`,
                             }}
                           >
                             🎵 {(a.filename || "").replace(/\.[^/.]+$/, "")}
@@ -477,7 +602,7 @@ export default function AnswersMode({
               <hr
                 style={{
                   border: "none",
-                  borderTop: `2px solid ${theme.accent}`,
+                  borderTop: `${tokens.borders.medium} ${theme.accent}`,
                   margin: ".3rem 0 0 0",
                 }}
               />
@@ -486,9 +611,10 @@ export default function AnswersMode({
             {/* Questions */}
             {cat.items.map((q) => {
               const stats = statsByShowQuestionId[q.showQuestionId] || null;
+              const isTiebreaker = String(q.order).toUpperCase() === "TB";
 
               return (
-                <div key={q.showQuestionId} style={{ marginTop: "1rem" }}>
+                <div key={q.showQuestionId} style={{ marginTop: tokens.spacing.md }}>
                   {/* Question text */}
                   <p
                     style={{
@@ -498,11 +624,61 @@ export default function AnswersMode({
                     }}
                   >
                     <strong>Question {q.order}:</strong>
+                    {isTiebreaker && (
+                      <>
+                        {tiebreakerWasUsed && (
+                          <span
+                            style={{
+                              fontSize: ".75rem",
+                              fontWeight: 600,
+                              padding: ".15rem .5rem",
+                              borderRadius: "999px",
+                              background: theme.accent,
+                              color: theme.white,
+                              marginLeft: ".5rem",
+                            }}
+                          >
+                            USED
+                          </span>
+                        )}
+                        {!tiebreakerWasUsed && prizeCount > 0 && (
+                          <span
+                            style={{
+                              fontSize: ".75rem",
+                              fontWeight: 600,
+                              padding: ".15rem .5rem",
+                              borderRadius: "999px",
+                              background: theme.gray.border,
+                              color: theme.dark,
+                              opacity: 0.7,
+                              marginLeft: ".5rem",
+                            }}
+                          >
+                            NOT USED
+                          </span>
+                        )}
+                        {!tiebreakerWasUsed && prizeCount === 0 && (
+                          <span
+                            style={{
+                              fontSize: ".75rem",
+                              fontWeight: 600,
+                              padding: ".15rem .5rem",
+                              borderRadius: "999px",
+                              background: "#ffc107",
+                              color: theme.dark,
+                              marginLeft: ".5rem",
+                            }}
+                          >
+                            ⚠️ SET PRIZES IN RESULTS
+                          </span>
+                        )}
+                      </>
+                    )}
                     <br />
                     <span
                       style={{
                         display: "block",
-                        paddingLeft: "1.5rem",
+                        paddingLeft: tokens.spacing.lg,
                         paddingTop: ".25rem",
                       }}
                       dangerouslySetInnerHTML={{
@@ -519,7 +695,7 @@ export default function AnswersMode({
                         fontSize: "1rem",
                         fontStyle: "italic",
                         margin: ".15rem 0 .25rem 0",
-                        paddingLeft: "1.5rem",
+                        paddingLeft: tokens.spacing.lg,
                       }}
                       dangerouslySetInnerHTML={{
                         __html: marked.parseInline(
@@ -545,7 +721,7 @@ export default function AnswersMode({
                             }));
                           }}
                           style={{
-                            marginLeft: "1.5rem",
+                            marginLeft: tokens.spacing.lg,
                             marginBottom: ".25rem",
                             fontFamily: tokens.font.body,
                           }}
@@ -576,7 +752,7 @@ export default function AnswersMode({
                               style={overlayImg}
                             />
                             {q.questionImages.length > 1 && (
-                              <div style={{ display: "flex", gap: "1rem" }}>
+                              <div style={{ display: "flex", gap: tokens.spacing.md }}>
                                 <Button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -621,8 +797,8 @@ export default function AnswersMode({
                       <div
                         style={{
                           marginTop: ".5rem",
-                          marginLeft: "1.5rem",
-                          marginRight: "1.5rem",
+                          marginLeft: tokens.spacing.lg,
+                          marginRight: tokens.spacing.lg,
                           maxWidth: 600,
                         }}
                       >
@@ -633,10 +809,10 @@ export default function AnswersMode({
                                 key={i}
                                 style={{
                                   marginTop: ".5rem",
-                                  border: "1px solid #ccc",
-                                  borderRadius: "1.5rem",
+                                  border: `${tokens.borders.thin} ${theme.gray.border}`,
+                                  borderRadius: tokens.spacing.lg,
                                   overflow: "hidden",
-                                  background: "#f9f9f9",
+                                  background: theme.gray.bgLight,
                                   boxShadow: "0 0 10px rgba(0,0,0,0.15)",
                                 }}
                               >
@@ -650,8 +826,8 @@ export default function AnswersMode({
                                     fontSize: ".9rem",
                                     fontFamily: tokens.font.body,
                                     padding: ".4rem .6rem",
-                                    background: "#f9f9f9",
-                                    borderTop: "1px solid #ccc",
+                                    background: theme.gray.bgLight,
+                                    borderTop: `${tokens.borders.thin} ${theme.gray.border}`,
                                   }}
                                 >
                                   🎵{" "}
@@ -672,8 +848,8 @@ export default function AnswersMode({
                       fontSize: "1.05rem",
                       marginTop: ".4rem",
                       marginBottom: ".25rem",
-                      marginLeft: "1.5rem",
-                      marginRight: "1.5rem",
+                      marginLeft: tokens.spacing.lg,
+                      marginRight: tokens.spacing.lg,
                       fontFamily: tokens.font.body,
                     }}
                   >
@@ -686,19 +862,19 @@ export default function AnswersMode({
                     />
                   </p>
 
-                  {/* Stats pill (X/Y correct, pooled share, SOLO) */}
-                  {stats && (
+                  {/* Stats pill (X/Y correct, pooled share, SOLO) - skip for tiebreaker */}
+                  {stats && !isTiebreaker && (
                     <div
-                      style={{ marginLeft: "1.5rem", marginBottom: ".75rem" }}
+                      style={{ marginLeft: tokens.spacing.lg, marginBottom: ".75rem" }}
                     >
                       <span
                         style={{
                           display: "inline-block",
                           padding: "0.2rem 0.75rem",
                           borderRadius: tokens.radius.pill,
-                          background: "#fff",
+                          background: theme.white,
                           fontSize: "1.05rem",
-                          border: `2px solid ${theme.accent}`,
+                          border: `${tokens.borders.medium} ${theme.accent}`,
                         }}
                       >
                         {stats.correctCount} / {stats.totalTeams} teams correct

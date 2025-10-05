@@ -7,7 +7,7 @@ import ShowMode from "./ShowMode";
 import ScoringMode from "./ScoringMode";
 import ResultsMode from "./ResultsMode";
 import AnswersMode from "./AnswersMode";
-import { ButtonTab, ButtonPrimary, colors, tokens } from "./styles/index.js";
+import { ButtonTab, ButtonPrimary, colors, tokens, ui, Button } from "./styles/index.js";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
@@ -35,6 +35,8 @@ export default function App() {
   // Core app state
   const [shows, setShows] = useState([]);
   const [selectedShowId, setSelectedShowId] = useState("");
+  const [olderShowsOpen, setOlderShowsOpen] = useState(false);
+  const [olderShows, setOlderShows] = useState([]);
   const [selectedRoundId, setSelectedRoundId] = useState(""); // string (e.g. "1")
   const [showDetails, setshowDetails] = useState(true);
   const [visibleImages, setVisibleImages] = useState({});
@@ -173,10 +175,83 @@ export default function App() {
     ch.on("broadcast", { event: "mark" }, (msg) => {
       const data = msg?.payload ?? msg;
       window.dispatchEvent(new CustomEvent("tv:mark", { detail: data }));
+
+      // Also update scoringCache so isCorrect persists
+      const { showId, roundId, teamId, showQuestionId, nowCorrect } = data || {};
+      if (!showId || !roundId || !teamId || !showQuestionId) return;
+
+      setScoringCache((prev) => {
+        const show = prev[showId] || {};
+        const round = show[roundId] || { grid: {} };
+        const byTeam = round.grid?.[teamId] ? { ...round.grid[teamId] } : {};
+        const cell = byTeam[showQuestionId] || {
+          isCorrect: false,
+          questionBonus: 0,
+          overridePoints: null,
+        };
+
+        byTeam[showQuestionId] = {
+          ...cell,
+          isCorrect: !!nowCorrect,
+        };
+
+        const next = {
+          ...prev,
+          [showId]: {
+            ...show,
+            [roundId]: {
+              ...round,
+              grid: { ...(round.grid || {}), [teamId]: byTeam },
+            },
+          },
+        };
+
+        try {
+          localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
     });
     ch.on("broadcast", { event: "cellEdit" }, (msg) => {
       const data = msg?.payload ?? msg;
       window.dispatchEvent(new CustomEvent("tv:cellEdit", { detail: data }));
+
+      // Also update scoringCache so bonus/override persists
+      const { showId, roundId, teamId, showQuestionId, questionBonus, overridePoints } = data || {};
+      if (!showId || !roundId || !teamId || !showQuestionId) return;
+
+      setScoringCache((prev) => {
+        const show = prev[showId] || {};
+        const round = show[roundId] || { grid: {} };
+        const byTeam = round.grid?.[teamId] ? { ...round.grid[teamId] } : {};
+        const cell = byTeam[showQuestionId] || {
+          isCorrect: false,
+          questionBonus: 0,
+          overridePoints: null,
+        };
+
+        byTeam[showQuestionId] = {
+          ...cell,
+          questionBonus: Number(questionBonus || 0),
+          overridePoints: overridePoints === null || overridePoints === undefined ? null : Number(overridePoints),
+        };
+
+        const next = {
+          ...prev,
+          [showId]: {
+            ...show,
+            [roundId]: {
+              ...round,
+              grid: { ...(round.grid || {}), [teamId]: byTeam },
+            },
+          },
+        };
+
+        try {
+          localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
     });
     ch.on("broadcast", { event: "teamBonus" }, (msg) => {
       const data = msg?.payload ?? msg;
@@ -661,7 +736,7 @@ export default function App() {
     <div
       style={{
         fontFamily: tokens.font.display,
-        padding: "2rem",
+        padding: tokens.spacing.xl,
         backgroundColor: colors.bg,
       }}
     >
@@ -669,7 +744,7 @@ export default function App() {
         style={{
           fontSize: "3rem",
           color: colors.dark,
-          marginTop: "2rem",
+          marginTop: tokens.spacing.xl,
           marginBottom: "0",
         }}
       >
@@ -694,9 +769,9 @@ export default function App() {
         style={{
           display: "flex",
           justifyContent: "left",
-          gap: "0.5rem",
-          marginTop: "1rem",
-          marginBottom: "1rem",
+          gap: tokens.spacing.sm,
+          marginTop: tokens.spacing.md,
+          marginBottom: tokens.spacing.md,
         }}
       >
         <ButtonTab
@@ -736,7 +811,7 @@ export default function App() {
           style={{
             fontSize: "1.25rem",
             color: colors.dark,
-            marginRight: "1rem",
+            marginRight: tokens.spacing.md,
           }}
         >
           Select Show:
@@ -744,6 +819,12 @@ export default function App() {
             value={selectedShowId}
             onChange={(e) => {
               const newId = e.target.value;
+
+              // Special case: "View older shows" option
+              if (newId === "__OLDER__") {
+                setOlderShowsOpen(true);
+                return;
+              }
 
               if (!selectedShowId || selectedShowId === newId) {
                 setSelectedShowId(newId);
@@ -767,7 +848,7 @@ export default function App() {
             style={{
               fontSize: "1.25rem",
               fontFamily: tokens.font.body,
-              marginLeft: "0.5rem",
+              marginLeft: tokens.spacing.sm,
               verticalAlign: "middle",
             }}
           >
@@ -781,6 +862,9 @@ export default function App() {
                 {s.Show?.Show}
               </option>
             ))}
+            <option value="__OLDER__" style={{ fontFamily: tokens.font.body, fontStyle: "italic" }}>
+              📚 View older shows...
+            </option>
           </select>
         </label>
       </div>
@@ -791,7 +875,7 @@ export default function App() {
             style={{
               fontSize: "1.25rem",
               color: colors.dark,
-              marginRight: "1rem",
+              marginRight: tokens.spacing.md,
             }}
           >
             Select Round:
@@ -801,7 +885,7 @@ export default function App() {
               style={{
                 fontSize: "1.25rem",
                 fontFamily: tokens.font.body,
-                marginLeft: "0.5rem",
+                marginLeft: tokens.spacing.sm,
                 verticalAlign: "middle",
               }}
             >
@@ -815,9 +899,9 @@ export default function App() {
         </div>
       )}
 
-      {bundleLoading && <div style={{ padding: "1rem" }}>Loading show…</div>}
+      {bundleLoading && <div style={{ padding: tokens.spacing.md }}>Loading show…</div>}
       {bundleError && (
-        <div style={{ padding: "1rem", color: "red" }}>
+        <div style={{ padding: tokens.spacing.md, color: colors.error }}>
           Error loading show: {String(bundleError)}
         </div>
       )}
@@ -929,19 +1013,11 @@ export default function App() {
 
       {activeMode === "answers" && (
         <AnswersMode
-          showBundle={
-            showBundle
-              ? {
-                  ...showBundle,
-                  rounds: (showBundle.rounds || []).filter(
-                    (r) => Number(r.round) === Number(selectedRoundId)
-                  ),
-                }
-              : { rounds: [], teams: [] }
-          }
+          showBundle={showBundle}
           selectedShowId={selectedShowId}
           selectedRoundId={selectedRoundId}
           cachedState={composedCachedState}
+          cachedByRound={scoringCache[selectedShowId]}
           scoringMode={scoringMode}
           pubPoints={pubPoints}
           poolPerQuestion={poolPerQuestion}
@@ -968,10 +1044,87 @@ export default function App() {
 
       <ButtonPrimary
         onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-        style={{ margin: "2rem auto", display: "block" }}
+        style={{ margin: `${tokens.spacing.xl} auto`, display: "block" }}
       >
         ↑ Back to Top
       </ButtonPrimary>
+
+      {/* Older Shows Modal */}
+      <ui.Modal
+        isOpen={olderShowsOpen}
+        onClose={() => setOlderShowsOpen(false)}
+        title="Browse Older Shows"
+        subtitle="Select a show from the past 50 shows"
+        style={{ width: "min(92vw, 600px)", maxHeight: "80vh" }}
+      >
+        {olderShows.length === 0 ? (
+          <div style={{ textAlign: "center", padding: tokens.spacing.md }}>
+            <Button
+              onClick={async () => {
+                try {
+                  const res = await axios.get("/.netlify/functions/fetchOlderShows");
+                  setOlderShows(res.data?.Shows || []);
+                } catch (err) {
+                  console.error("Error fetching older shows:", err);
+                  alert("Failed to load older shows");
+                }
+              }}
+            >
+              Load Older Shows
+            </Button>
+          </div>
+        ) : (
+          <div style={{ maxHeight: "50vh", overflowY: "auto" }}>
+            {olderShows.map((s) => (
+              <div
+                key={s.id}
+                onClick={() => {
+                  const ok = selectedShowId
+                    ? window.confirm(
+                        "Switch to this show? This will delete all scores and data you've entered for the current show."
+                      )
+                    : true;
+                  if (!ok) return;
+
+                  setSelectedShowId(s.id);
+                  setSelectedRoundId("");
+                  setVisibleImages({});
+                  setVisibleCategoryImages({});
+                  setCurrentImageIndex({});
+                  setOlderShowsOpen(false);
+                }}
+                style={{
+                  padding: tokens.spacing.sm,
+                  borderBottom: `${tokens.borders.thin} ${colors.gray.borderLight}`,
+                  cursor: "pointer",
+                  fontFamily: tokens.font.body,
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = colors.gray.bgLightest)}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = colors.white)}
+              >
+                <strong>{s.Show?.Show}</strong>
+                {s.Show?.Date && (
+                  <div style={{ fontSize: ".9rem", opacity: 0.7 }}>
+                    {new Date(s.Show.Date).toLocaleDateString()}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        <div
+          style={{
+            display: "flex",
+            gap: tokens.spacing.sm,
+            justifyContent: "flex-end",
+            padding: `${tokens.spacing.sm} 0`,
+            borderTop: `${tokens.borders.thin} ${colors.gray.borderLighter}`,
+            marginTop: tokens.spacing.sm,
+          }}
+        >
+          <Button onClick={() => setOlderShowsOpen(false)}>Close</Button>
+        </div>
+      </ui.Modal>
     </div>
   );
 }
