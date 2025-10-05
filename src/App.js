@@ -172,7 +172,7 @@ export default function App() {
       } catch {}
       return next;
     });
-  }, [scoringMode, selectedShowId]);
+  }, [scoringMode, selectedShowId, poolPerQuestion, pubPoints]);
 
   useEffect(() => {
     const savedPosition = localStorage.getItem("timerPosition");

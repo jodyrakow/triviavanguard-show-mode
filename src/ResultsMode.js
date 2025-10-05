@@ -615,24 +615,6 @@ export default function ResultsMode({
   const [loadingArchiveStatus, setLoadingArchiveStatus] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
 
-  {
-    loadingArchiveStatus && (
-      <div
-        style={{
-          margin: "0 12px",
-          marginBottom: tokens.spacing.sm,
-          padding: tokens.spacing.xs,
-          fontSize: ".9rem",
-          background: "rgba(220,106,36,0.08)",
-          border: `${tokens.borders.thin} ${theme.accent}`,
-          borderRadius: ".35rem",
-        }}
-      >
-        ⏳ Fetching archive status…
-      </div>
-    );
-  }
-
   const hideTimerRef = React.useRef(null);
   React.useEffect(() => () => clearTimeout(hideTimerRef.current), []);
 
