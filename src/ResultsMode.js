@@ -615,6 +615,24 @@ export default function ResultsMode({
   const [loadingArchiveStatus, setLoadingArchiveStatus] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
 
+  {
+    loadingArchiveStatus && (
+      <div
+        style={{
+          margin: "0 12px",
+          marginBottom: tokens.spacing.sm,
+          padding: tokens.spacing.xs,
+          fontSize: ".9rem",
+          background: "rgba(220,106,36,0.08)",
+          border: `${tokens.borders.thin} ${theme.accent}`,
+          borderRadius: ".35rem",
+        }}
+      >
+        ⏳ Fetching archive status…
+      </div>
+    );
+  }
+
   const hideTimerRef = React.useRef(null);
   React.useEffect(() => () => clearTimeout(hideTimerRef.current), []);
 
@@ -650,8 +668,12 @@ export default function ResultsMode({
 
   // ---------- Export JSON Backup ----------
   const exportJSON = () => {
-    const showName = showBundle?.showName || showBundle?.rounds?.[0]?.questions?.[0]?.showName || "show";
-    const showDate = showBundle?.showDate || new Date().toISOString().split('T')[0];
+    const showName =
+      showBundle?.showName ||
+      showBundle?.rounds?.[0]?.questions?.[0]?.showName ||
+      "show";
+    const showDate =
+      showBundle?.showDate || new Date().toISOString().split("T")[0];
 
     const exportData = {
       showId: selectedShowId,
@@ -663,7 +685,7 @@ export default function ResultsMode({
       poolPerQuestion,
       showBundle,
       cachedByRound,
-      standings: standings.map(s => ({
+      standings: standings.map((s) => ({
         teamName: s.teamName,
         total: s.total,
         place: s.place,
@@ -680,7 +702,7 @@ export default function ResultsMode({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `trivia-backup-${showName.replace(/[^a-z0-9]/gi, '-')}-${showDate}.json`;
+    a.download = `trivia-backup-${showName.replace(/[^a-z0-9]/gi, "-")}-${showDate}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -787,8 +809,12 @@ export default function ResultsMode({
       return false;
     }
 
-    const showName = showBundle?.showName || showBundle?.rounds?.[0]?.questions?.[0]?.showName || "Unknown Show";
-    const showDate = showBundle?.showDate || new Date().toISOString().split('T')[0];
+    const showName =
+      showBundle?.showName ||
+      showBundle?.rounds?.[0]?.questions?.[0]?.showName ||
+      "Unknown Show";
+    const showDate =
+      showBundle?.showDate || new Date().toISOString().split("T")[0];
 
     setIsArchiving(true);
     setPublishDetail("Archiving show...");
@@ -835,8 +861,8 @@ export default function ResultsMode({
 
     const ok = window.confirm(
       "⚠️ Re-open this show for editing?\n\n" +
-      "This will allow you to make changes to the scores.\n" +
-      "Remember to re-archive when you're done!"
+        "This will allow you to make changes to the scores.\n" +
+        "Remember to re-archive when you're done!"
     );
     if (!ok) return;
 
@@ -1138,7 +1164,13 @@ export default function ResultsMode({
             fontSize: ".95rem",
           }}
         >
-          <div style={{ display: "flex", gap: tokens.spacing.sm, flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: tokens.spacing.sm,
+              flexWrap: "wrap",
+            }}
+          >
             {archiveStatus.isFinalized && (
               <span style={{ fontFamily: tokens.font.body }}>
                 🗄️ <strong>Archived</strong>
@@ -1147,12 +1179,20 @@ export default function ResultsMode({
               </span>
             )}
             {archiveStatus.publishedToAirtable && (
-              <span style={{ fontFamily: tokens.font.body, color: colors.success }}>
+              <span
+                style={{ fontFamily: tokens.font.body, color: colors.success }}
+              >
                 ✅ <strong>Published to Airtable</strong>
               </span>
             )}
             {archiveStatus.reopenedAt && (
-              <span style={{ fontFamily: tokens.font.body, fontStyle: "italic", opacity: 0.8 }}>
+              <span
+                style={{
+                  fontFamily: tokens.font.body,
+                  fontStyle: "italic",
+                  opacity: 0.8,
+                }}
+              >
                 (Re-opened for editing)
               </span>
             )}
@@ -1171,7 +1211,9 @@ export default function ResultsMode({
           marginBottom: tokens.spacing.md,
         }}
       >
-        <div style={{ display: "flex", flexWrap: "wrap", gap: tokens.spacing.sm }}>
+        <div
+          style={{ display: "flex", flexWrap: "wrap", gap: tokens.spacing.sm }}
+        >
           <div
             style={{
               display: "inline-flex",
@@ -1350,7 +1392,9 @@ export default function ResultsMode({
         <button
           type="button"
           onClick={publishResults}
-          disabled={isPublishing || (!archiveStatus.isFinalized && !isArchiving)}
+          disabled={
+            isPublishing || (!archiveStatus.isFinalized && !isArchiving)
+          }
           style={{
             padding: `${tokens.spacing.sm} .8rem`,
             border: `${tokens.borders.thin} ${theme.accent}`,
@@ -1639,12 +1683,22 @@ export default function ResultsMode({
             style={{
               padding: `${tokens.spacing.xs} ${tokens.spacing.md}`,
               borderBottom: `${tokens.borders.thin} ${colors.gray.borderLighter}`,
-              background: tiebreakerWasUsed ? "rgba(220,106,36,0.15)" : "rgba(220,106,36,0.07)",
+              background: tiebreakerWasUsed
+                ? "rgba(220,106,36,0.15)"
+                : "rgba(220,106,36,0.07)",
               fontFamily: tokens.font.body,
               fontSize: ".95rem",
             }}
           >
-            <div style={{ fontWeight: 700, marginBottom: 4, display: "flex", alignItems: "center", gap: ".5rem" }}>
+            <div
+              style={{
+                fontWeight: 700,
+                marginBottom: 4,
+                display: "flex",
+                alignItems: "center",
+                gap: ".5rem",
+              }}
+            >
               🎯 {otfApplied ? "On-the-fly tiebreaker" : "Tiebreaker"}
               {tiebreakerWasUsed && (
                 <span
@@ -1798,7 +1852,9 @@ export default function ResultsMode({
                       isEndOfTieGroup && next ? r.total - next.total : 0;
 
                     const bgColor =
-                      tieGroupIndex % 2 === 0 ? colors.white : "rgba(255,165,0,0.07)";
+                      tieGroupIndex % 2 === 0
+                        ? colors.white
+                        : "rgba(255,165,0,0.07)";
                     const prizeText =
                       showPrizeCol && r.place <= prizeCount
                         ? prizes[r.place - 1] || ""

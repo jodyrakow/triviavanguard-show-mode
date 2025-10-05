@@ -7,7 +7,14 @@ import ShowMode from "./ShowMode";
 import ScoringMode from "./ScoringMode";
 import ResultsMode from "./ResultsMode";
 import AnswersMode from "./AnswersMode";
-import { ButtonTab, ButtonPrimary, colors, tokens, ui, Button } from "./styles/index.js";
+import {
+  ButtonTab,
+  ButtonPrimary,
+  colors,
+  tokens,
+  ui,
+  Button,
+} from "./styles/index.js";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
@@ -103,6 +110,8 @@ export default function App() {
   // Persist scoring settings to localStorage, scoringCache, and Supabase
   useEffect(() => {
     localStorage.setItem("tv_scoringMode", scoringMode);
+    localStorage.setItem("tv_pubPoints", String(pubPoints));
+    localStorage.setItem("tv_poolPerQuestion", String(poolPerQuestion));
 
     if (!selectedShowId) return;
 
@@ -117,7 +126,7 @@ export default function App() {
         poolPerQuestion: 500,
       };
 
-      const nextShared = { ...shared, scoringMode };
+      const nextShared = { ...shared, scoringMode, pubPoints, poolPerQuestion };
 
       const next = {
         ...prev,
@@ -164,134 +173,6 @@ export default function App() {
       return next;
     });
   }, [scoringMode, selectedShowId]);
-
-  useEffect(() => {
-    localStorage.setItem("tv_pubPoints", String(pubPoints));
-
-    if (!selectedShowId) return;
-
-    setScoringCache((prev) => {
-      const show = prev[selectedShowId] || {};
-      const shared = show._shared || {
-        teams: [],
-        entryOrder: [],
-        prizes: "",
-        scoringMode: "pub",
-        pubPoints: 10,
-        poolPerQuestion: 500,
-      };
-
-      const nextShared = { ...shared, pubPoints };
-
-      const next = {
-        ...prev,
-        [selectedShowId]: {
-          ...show,
-          _shared: nextShared,
-        },
-      };
-
-      // Save to Supabase
-      saveDebounced("shared", () => {
-        fetch("/.netlify/functions/supaSaveScoring", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            showId: selectedShowId,
-            roundId: "shared",
-            payload: {
-              teams: nextShared.teams ?? [],
-              entryOrder: nextShared.entryOrder ?? [],
-              prizes: nextShared.prizes ?? "",
-              scoringMode: nextShared.scoringMode ?? "pub",
-              pubPoints: nextShared.pubPoints ?? 10,
-              poolPerQuestion: nextShared.poolPerQuestion ?? 500,
-            },
-          }),
-        }).catch(() => {});
-      });
-
-      // Broadcast to other hosts
-      try {
-        window.tvSend?.("scoringSettingsUpdate", {
-          showId: selectedShowId,
-          scoringMode,
-          pubPoints,
-          poolPerQuestion,
-          ts: Date.now(),
-        });
-      } catch {}
-
-      try {
-        localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
-      } catch {}
-      return next;
-    });
-  }, [pubPoints, selectedShowId]);
-
-  useEffect(() => {
-    localStorage.setItem("tv_poolPerQuestion", String(poolPerQuestion));
-
-    if (!selectedShowId) return;
-
-    setScoringCache((prev) => {
-      const show = prev[selectedShowId] || {};
-      const shared = show._shared || {
-        teams: [],
-        entryOrder: [],
-        prizes: "",
-        scoringMode: "pub",
-        pubPoints: 10,
-        poolPerQuestion: 500,
-      };
-
-      const nextShared = { ...shared, poolPerQuestion };
-
-      const next = {
-        ...prev,
-        [selectedShowId]: {
-          ...show,
-          _shared: nextShared,
-        },
-      };
-
-      // Save to Supabase
-      saveDebounced("shared", () => {
-        fetch("/.netlify/functions/supaSaveScoring", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            showId: selectedShowId,
-            roundId: "shared",
-            payload: {
-              teams: nextShared.teams ?? [],
-              entryOrder: nextShared.entryOrder ?? [],
-              prizes: nextShared.prizes ?? "",
-              scoringMode: nextShared.scoringMode ?? "pub",
-              pubPoints: nextShared.pubPoints ?? 10,
-              poolPerQuestion: nextShared.poolPerQuestion ?? 500,
-            },
-          }),
-        }).catch(() => {});
-      });
-
-      // Broadcast to other hosts
-      try {
-        window.tvSend?.("scoringSettingsUpdate", {
-          showId: selectedShowId,
-          scoringMode,
-          pubPoints,
-          poolPerQuestion,
-          ts: Date.now(),
-        });
-      } catch {}
-
-      try {
-        localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
-      } catch {}
-      return next;
-    });
-  }, [poolPerQuestion, selectedShowId]);
 
   useEffect(() => {
     const savedPosition = localStorage.getItem("timerPosition");
@@ -354,7 +235,8 @@ export default function App() {
       window.dispatchEvent(new CustomEvent("tv:mark", { detail: data }));
 
       // Also update scoringCache so isCorrect persists
-      const { showId, roundId, teamId, showQuestionId, nowCorrect } = data || {};
+      const { showId, roundId, teamId, showQuestionId, nowCorrect } =
+        data || {};
       if (!showId || !roundId || !teamId || !showQuestionId) return;
 
       setScoringCache((prev) => {
@@ -394,7 +276,14 @@ export default function App() {
       window.dispatchEvent(new CustomEvent("tv:cellEdit", { detail: data }));
 
       // Also update scoringCache so bonus/override persists
-      const { showId, roundId, teamId, showQuestionId, questionBonus, overridePoints } = data || {};
+      const {
+        showId,
+        roundId,
+        teamId,
+        showQuestionId,
+        questionBonus,
+        overridePoints,
+      } = data || {};
       if (!showId || !roundId || !teamId || !showQuestionId) return;
 
       setScoringCache((prev) => {
@@ -410,7 +299,10 @@ export default function App() {
         byTeam[showQuestionId] = {
           ...cell,
           questionBonus: Number(questionBonus || 0),
-          overridePoints: overridePoints === null || overridePoints === undefined ? null : Number(overridePoints),
+          overridePoints:
+            overridePoints === null || overridePoints === undefined
+              ? null
+              : Number(overridePoints),
         };
 
         const next = {
@@ -682,7 +574,12 @@ export default function App() {
 
     ch.on("broadcast", { event: "scoringSettingsUpdate" }, (msg) => {
       const data = msg?.payload ?? msg;
-      const { showId, scoringMode: mode, pubPoints: pub, poolPerQuestion: pool } = data || {};
+      const {
+        showId,
+        scoringMode: mode,
+        pubPoints: pub,
+        poolPerQuestion: pool,
+      } = data || {};
       if (!showId) return;
       if (showId !== currentShowIdRef.current) return;
 
@@ -791,19 +688,23 @@ export default function App() {
 
         setScoringCache((prev) => {
           const prevShow = prev[selectedShowId] || {};
-          const loadedShared = json.shared ?? prevShow._shared ?? {
-            teams: [],
-            entryOrder: [],
-            prizes: "",
-            scoringMode: "pub",
-            pubPoints: 10,
-            poolPerQuestion: 500,
-          };
+          const loadedShared = json.shared ??
+            prevShow._shared ?? {
+              teams: [],
+              entryOrder: [],
+              prizes: "",
+              scoringMode: "pub",
+              pubPoints: 10,
+              poolPerQuestion: 500,
+            };
 
           // Update local scoring state from loaded data
-          if (loadedShared.scoringMode) setScoringMode(loadedShared.scoringMode);
-          if (loadedShared.pubPoints !== undefined) setPubPoints(Number(loadedShared.pubPoints));
-          if (loadedShared.poolPerQuestion !== undefined) setPoolPerQuestion(Number(loadedShared.poolPerQuestion));
+          if (loadedShared.scoringMode)
+            setScoringMode(loadedShared.scoringMode);
+          if (loadedShared.pubPoints !== undefined)
+            setPubPoints(Number(loadedShared.pubPoints));
+          if (loadedShared.poolPerQuestion !== undefined)
+            setPoolPerQuestion(Number(loadedShared.poolPerQuestion));
 
           return {
             ...prev,
@@ -1117,7 +1018,10 @@ export default function App() {
                 {s.Show?.Show}
               </option>
             ))}
-            <option value="__OLDER__" style={{ fontFamily: tokens.font.body, fontStyle: "italic" }}>
+            <option
+              value="__OLDER__"
+              style={{ fontFamily: tokens.font.body, fontStyle: "italic" }}
+            >
               📚 View older shows...
             </option>
           </select>
@@ -1154,7 +1058,9 @@ export default function App() {
         </div>
       )}
 
-      {bundleLoading && <div style={{ padding: tokens.spacing.md }}>Loading show…</div>}
+      {bundleLoading && (
+        <div style={{ padding: tokens.spacing.md }}>Loading show…</div>
+      )}
       {bundleError && (
         <div style={{ padding: tokens.spacing.md, color: colors.error }}>
           Error loading show: {String(bundleError)}
@@ -1318,7 +1224,9 @@ export default function App() {
             <Button
               onClick={async () => {
                 try {
-                  const res = await axios.get("/.netlify/functions/fetchOlderShows");
+                  const res = await axios.get(
+                    "/.netlify/functions/fetchOlderShows"
+                  );
                   setOlderShows(res.data?.Shows || []);
                 } catch (err) {
                   console.error("Error fetching older shows:", err);
@@ -1355,8 +1263,13 @@ export default function App() {
                   cursor: "pointer",
                   fontFamily: tokens.font.body,
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = colors.gray.bgLightest)}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = colors.white)}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.backgroundColor =
+                    colors.gray.bgLightest)
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.backgroundColor = colors.white)
+                }
               >
                 <strong>{s.Show?.Show}</strong>
                 {s.Show?.Date && (

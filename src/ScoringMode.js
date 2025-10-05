@@ -204,9 +204,7 @@ export default function ScoringMode({
           ...cell,
           questionBonus: Number(questionBonus || 0),
           overridePoints:
-            overridePoints === null || overridePoints === undefined
-              ? null
-              : Number(overridePoints),
+            overridePoints == null ? null : Number(overridePoints),
         };
         return { ...prev, [teamId]: byTeam };
       });
@@ -214,7 +212,7 @@ export default function ScoringMode({
 
     window.addEventListener("tv:cellEdit", onCellEdit);
     return () => window.removeEventListener("tv:cellEdit", onCellEdit);
-  }, []);
+  }, [selectedShowId, selectedRoundId]);
 
   useEffect(() => {
     const onTBEdit = (e) => {
@@ -577,40 +575,41 @@ export default function ScoringMode({
     }));
   }, [renderTeams, questions.length]);
 
-  const toggleCell = useCallback((renderTeamIdx, qIdx) => {
-    const t = renderTeams[renderTeamIdx];
-    const q = questions[qIdx];
-    if (!t || !q) return;
+  const toggleCell = useCallback(
+    (renderTeamIdx, qIdx) => {
+      const t = renderTeams[renderTeamIdx];
+      const q = questions[qIdx];
+      if (!t || !q) return;
 
-    // ✅ Decide next state BEFORE setGrid
-    const prevCell = grid[t.showTeamId]?.[q.showQuestionId];
-    const nextOn = !prevCell?.isCorrect;
+      setGrid((prev) => {
+        const byTeam = prev[t.showTeamId] ? { ...prev[t.showTeamId] } : {};
+        const cell = byTeam[q.showQuestionId] || {
+          isCorrect: false,
+          questionBonus: 0,
+          overridePoints: null,
+        };
+        const nextOn = !cell.isCorrect; // ✅ computed from *prev*, no stale closure
+        byTeam[q.showQuestionId] = { ...cell, isCorrect: nextOn };
 
-    setGrid((prev) => {
-      const byTeam = prev[t.showTeamId] ? { ...prev[t.showTeamId] } : {};
-      const cell = byTeam[q.showQuestionId] || {
-        isCorrect: false,
-        questionBonus: 0,
-        overridePoints: null,
-      };
-      byTeam[q.showQuestionId] = { ...cell, isCorrect: nextOn };
-      return { ...prev, [t.showTeamId]: byTeam };
-    });
+        // Broadcast inside the same scope so it sees the correct nextOn value:
+        try {
+          window.sendMark?.({
+            showId: selectedShowId,
+            roundId: selectedRoundId,
+            teamId: t.showTeamId,
+            teamName: t.teamName,
+            showQuestionId: q.showQuestionId,
+            questionOrder: q.order,
+            nowCorrect: nextOn,
+            ts: Date.now(),
+          });
+        } catch {}
 
-    // ✅ Broadcast with the already-computed value
-    try {
-      window.sendMark?.({
-        showId: selectedShowId,
-        roundId: selectedRoundId,
-        teamId: t.showTeamId,
-        teamName: t.teamName,
-        showQuestionId: q.showQuestionId,
-        questionOrder: q.order,
-        nowCorrect: nextOn,
-        ts: Date.now(),
+        return { ...prev, [t.showTeamId]: byTeam };
       });
-    } catch {}
-  }, []);
+    },
+    [renderTeams, questions, selectedShowId, selectedRoundId]
+  );
 
   useEffect(() => {
     const onKey = (e) => {
