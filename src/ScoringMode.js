@@ -747,7 +747,8 @@ export default function ScoringMode({
     requestAnimationFrame(() => {
       const r = el.getBoundingClientRect();
 
-      const baseTopGuard = 76; // header + padding you already tuned for grid mode
+      // Increased to show full header + controls bar (including Team Scoring Mode button)
+      const baseTopGuard = 180; // header (~55px) + controls bar (~100px) + margin/padding (~25px)
       const extraTeamBar =
         teamMode && teamBarRef.current
           ? teamBarRef.current.getBoundingClientRect().height || 0

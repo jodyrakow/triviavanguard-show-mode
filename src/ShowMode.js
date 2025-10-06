@@ -643,7 +643,7 @@ export default function ShowMode({
                 fontFamily: tokens.font.flavor,
                 margin: "0 0 0.5rem 0",
                 textAlign: "left",
-                textIndent: "1rem",
+                paddingLeft: "1rem",
               }}
               dangerouslySetInnerHTML={{
                 __html: marked.parseInline(categoryDescription || ""),
@@ -766,7 +766,7 @@ export default function ShowMode({
                   borderStyle: "dashed",
                   borderWidth: "3px",
                   borderColor: theme.accent,
-                  backgroundColor: theme.bg,
+                  backgroundColor: "rgba(220,106,36,0.15)",
                   borderRadius: ".75rem",
                   padding: "0.5rem",
                 }}
@@ -780,7 +780,7 @@ export default function ShowMode({
                   style={{
                     margin: "0.5rem 1rem",
                     padding: "0.5rem 0.75rem",
-                    backgroundColor: theme.bg,
+                    backgroundColor: "#fff",
                     border: `1px solid ${theme.accent}`,
                     borderRadius: "0.5rem",
                     fontFamily: tokens.font.body,
