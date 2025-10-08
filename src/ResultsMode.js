@@ -31,6 +31,7 @@ export default function ResultsMode({
   poolPerQuestion,
   setPoolPerQuestion,
   selectedShowId,
+  questionEdits = {}, // { [showQuestionId]: { question?, flavorText?, answer? } }
 }) {
   const roundNumber = Number(selectedRoundId);
   const usingCumulative =
@@ -999,6 +1000,42 @@ export default function ResultsMode({
       const json = await res.json();
       console.log("Publish OK:", json);
 
+      // Update question edits if any exist
+      let editsUpdated = 0;
+      if (questionEdits && Object.keys(questionEdits).length > 0) {
+        try {
+          setPublishDetail("Updating edited questions…");
+
+          const editsPayload = Object.entries(questionEdits).map(
+            ([showQuestionId, edit]) => ({
+              showQuestionId,
+              question: edit.question,
+              flavorText: edit.flavorText,
+              answer: edit.answer,
+            })
+          );
+
+          const editsRes = await fetch(
+            "/.netlify/functions/updateShowQuestionEdits",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ edits: editsPayload }),
+            }
+          );
+
+          if (editsRes.ok) {
+            const editsJson = await editsRes.json();
+            editsUpdated = editsJson.updatedCount || 0;
+            console.log("Question edits updated:", editsJson);
+          } else {
+            console.error("Failed to update question edits:", await editsRes.text());
+          }
+        } catch (e) {
+          console.error("Error updating question edits:", e);
+        }
+      }
+
       // Mark as published in archive
       try {
         await fetch("/.netlify/functions/supaMarkPublished", {
@@ -1015,9 +1052,14 @@ export default function ResultsMode({
       }
 
       setPublishStatus("ok");
-      setPublishDetail(
-        `✅ Published! Upserted ${json.teamsUpserted} ShowTeams and created ${json.scoresCreated} Scores rows.`
-      );
+      const detailParts = [
+        `Upserted ${json.teamsUpserted} ShowTeams`,
+        `created ${json.scoresCreated} Scores`,
+      ];
+      if (editsUpdated > 0) {
+        detailParts.push(`updated ${editsUpdated} question edit(s)`);
+      }
+      setPublishDetail(`✅ Published! ${detailParts.join(", ")}.`);
       clearBannerSoon();
     } catch (err) {
       console.error("Publish error:", err);
@@ -1376,15 +1418,37 @@ export default function ResultsMode({
           style={{
             padding: `${tokens.spacing.sm} .8rem`,
             border: `${tokens.borders.thin} ${theme.accent}`,
-            background: isPublishing ? "#ffe8d8" : theme.accent,
-            color: isPublishing ? theme.accent : colors.white,
+            background:
+              !archiveStatus.isFinalized && !isArchiving
+                ? colors.gray.border
+                : isPublishing
+                ? "#ffe8d8"
+                : theme.accent,
+            color:
+              !archiveStatus.isFinalized && !isArchiving
+                ? colors.gray.text
+                : isPublishing
+                ? theme.accent
+                : colors.white,
             borderRadius: ".35rem",
-            cursor: isPublishing ? "not-allowed" : "pointer",
+            cursor:
+              !archiveStatus.isFinalized && !isArchiving
+                ? "not-allowed"
+                : isPublishing
+                ? "not-allowed"
+                : "pointer",
             fontFamily: tokens.font.body,
-            opacity: isPublishing ? 0.9 : 1,
+            opacity:
+              !archiveStatus.isFinalized && !isArchiving
+                ? 0.6
+                : isPublishing
+                ? 0.9
+                : 1,
           }}
           title={
-            isPublishing
+            !archiveStatus.isFinalized && !isArchiving
+              ? "⚠️ You must archive the show first (click 'Archive Show' button above)"
+              : isPublishing
               ? "Publishing in progress… please wait"
               : "Create ShowTeams as needed and write all Scores for this show"
           }

@@ -81,6 +81,23 @@ export default function App() {
     }
   }, []);
 
+  // Question edits cache: { [showId]: { [showQuestionId]: { question?, flavorText?, answer? } } }
+  const [questionEdits, setQuestionEdits] = useState({});
+  // Restore question edits backup (if any) on app load
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("trivia.questionEdits.backup");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          setQuestionEdits(parsed);
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to load question edits backup:", err);
+    }
+  }, []);
+
   // Timer state
   const [timerPosition, setTimerPosition] = useState({ x: 0, y: 0 });
   const [timerDuration, setTimerDuration] = useState(60);
@@ -612,6 +629,39 @@ export default function App() {
       });
     });
 
+    // QUESTION EDIT
+    ch.on("broadcast", { event: "questionEdit" }, (msg) => {
+      const data = msg?.payload ?? msg;
+      const { showId, showQuestionId, question, flavorText, answer } = data || {};
+      if (!showId || !showQuestionId) return;
+      if (showId !== currentShowIdRef.current) return;
+
+      setQuestionEdits((prev) => {
+        const showEdits = prev[showId] || {};
+        const questionEdit = showEdits[showQuestionId] || {};
+
+        const updatedEdit = {
+          ...questionEdit,
+          ...(question !== undefined && { question }),
+          ...(flavorText !== undefined && { flavorText }),
+          ...(answer !== undefined && { answer }),
+        };
+
+        const next = {
+          ...prev,
+          [showId]: {
+            ...showEdits,
+            [showQuestionId]: updatedEdit,
+          },
+        };
+
+        try {
+          localStorage.setItem("trivia.questionEdits.backup", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    });
+
     // expose helpers (safe via tvSend queue)
     window.sendMark = (payload) => window.tvSend("mark", payload);
     // App.js (right after window.tvSend is defined)
@@ -621,6 +671,7 @@ export default function App() {
     window.sendTeamAdd = (payload) => window.tvSend("teamAdd", payload);
     window.sendTeamRename = (payload) => window.tvSend("teamRename", payload);
     window.sendTeamRemove = (payload) => window.tvSend("teamRemove", payload);
+    window.sendQuestionEdit = (payload) => window.tvSend("questionEdit", payload);
 
     setRtStatus("SUBSCRIBING");
     ch.subscribe((status) => {
@@ -648,6 +699,7 @@ export default function App() {
         delete window.sendTeamRemove;
         delete window.tvSend;
         delete window.sendTBEdit;
+        delete window.sendQuestionEdit;
       } catch {}
       window._tvReady = false;
       window._tvQueue = [];
@@ -706,13 +758,15 @@ export default function App() {
           if (loadedShared.poolPerQuestion !== undefined)
             setPoolPerQuestion(Number(loadedShared.poolPerQuestion));
 
+          // 🔧 FIX: Merge the new round data instead of replacing the entire show cache
+          const updatedRound = json.round ?? prevShow[selectedRoundId] ?? { grid: {} };
+
           return {
             ...prev,
             [selectedShowId]: {
-              ...prevShow,
+              ...prevShow, // preserve all existing rounds
               _shared: loadedShared,
-              [selectedRoundId]: json.round ??
-                prevShow[selectedRoundId] ?? { grid: {} },
+              [selectedRoundId]: updatedRound, // update only the current round
             },
           };
         });
@@ -886,6 +940,71 @@ export default function App() {
       prizes: shared?.prizes ?? "",
     };
   })();
+
+  // 🔸 Merge question edits into showBundle for display
+  const showBundleWithEdits = useMemo(() => {
+    if (!showBundle) return null;
+    const edits = questionEdits[selectedShowId];
+    if (!edits || Object.keys(edits).length === 0) return showBundle;
+
+    // Deep clone and apply edits
+    const updatedBundle = {
+      ...showBundle,
+      rounds: (showBundle.rounds || []).map((round) => ({
+        ...round,
+        questions: (round.questions || []).map((q) => {
+          const edit = edits[q.id];
+          if (!edit) return q;
+
+          return {
+            ...q,
+            ...(edit.question !== undefined && { questionText: edit.question }),
+            ...(edit.flavorText !== undefined && { flavorText: edit.flavorText }),
+            ...(edit.answer !== undefined && { answer: edit.answer }),
+            _edited: true, // flag for UI to show indicator
+          };
+        }),
+      })),
+    };
+
+    return updatedBundle;
+  }, [showBundle, questionEdits, selectedShowId]);
+
+  // Helper function to edit a question field
+  const editQuestionField = (showQuestionId, field, value) => {
+    setQuestionEdits((prev) => {
+      const showEdits = prev[selectedShowId] || {};
+      const questionEdit = showEdits[showQuestionId] || {};
+
+      const updatedEdit = {
+        ...questionEdit,
+        [field]: value,
+      };
+
+      const next = {
+        ...prev,
+        [selectedShowId]: {
+          ...showEdits,
+          [showQuestionId]: updatedEdit,
+        },
+      };
+
+      try {
+        localStorage.setItem("trivia.questionEdits.backup", JSON.stringify(next));
+      } catch {}
+
+      // Broadcast to other hosts
+      try {
+        window.sendQuestionEdit?.({
+          showId: selectedShowId,
+          showQuestionId,
+          [field]: value,
+        });
+      } catch {}
+
+      return next;
+    });
+  };
 
   // UI
   return (
@@ -1069,7 +1188,7 @@ export default function App() {
 
       {activeMode === "show" && (
         <ShowMode
-          showBundle={showBundle || { rounds: [], teams: [] }}
+          showBundle={showBundleWithEdits || { rounds: [], teams: [] }}
           selectedRoundId={selectedRoundId}
           showDetails={showDetails}
           setshowDetails={setshowDetails}
@@ -1095,6 +1214,7 @@ export default function App() {
           prizes={composedCachedState?.prizes ?? ""}
           setShowTimer={setShowTimer}
           setPrizes={(val) => patchShared({ prizes: String(val || "") })}
+          editQuestionField={editQuestionField}
         />
       )}
 
@@ -1117,11 +1237,18 @@ export default function App() {
           onChangeState={(payload) => {
             setScoringCache((prev) => {
               const { teams = [], entryOrder = [], grid = {} } = payload;
+              const prevShow = prev[selectedShowId] || {};
+              const prevShared = prevShow._shared || {};
+
               const next = {
                 ...prev,
                 [selectedShowId]: {
-                  ...(prev[selectedShowId] || {}),
-                  _shared: { teams, entryOrder },
+                  ...prevShow, // preserve all rounds
+                  _shared: {
+                    ...prevShared, // preserve scoring settings, prizes, etc.
+                    teams,
+                    entryOrder
+                  },
                   [selectedRoundId]: { grid },
                 },
               };
@@ -1175,7 +1302,7 @@ export default function App() {
 
       {activeMode === "answers" && (
         <AnswersMode
-          showBundle={showBundle}
+          showBundle={showBundleWithEdits}
           selectedShowId={selectedShowId}
           selectedRoundId={selectedRoundId}
           cachedState={composedCachedState}
@@ -1183,12 +1310,13 @@ export default function App() {
           scoringMode={scoringMode}
           pubPoints={pubPoints}
           poolPerQuestion={poolPerQuestion}
+          editQuestionField={editQuestionField}
         />
       )}
 
       {activeMode === "results" && (
         <ResultsMode
-          showBundle={showBundle || { rounds: [], teams: [] }}
+          showBundle={showBundleWithEdits || { rounds: [], teams: [] }}
           selectedRoundId={selectedRoundId}
           selectedShowId={selectedShowId}
           cachedState={composedCachedState}
@@ -1201,6 +1329,7 @@ export default function App() {
           setPoolPerQuestion={setPoolPerQuestion}
           prizes={composedCachedState?.prizes ?? ""}
           setPrizes={(val) => patchShared({ prizes: String(val || "") })}
+          questionEdits={questionEdits[selectedShowId] ?? {}}
         />
       )}
 

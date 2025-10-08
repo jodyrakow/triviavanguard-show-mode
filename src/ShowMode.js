@@ -11,6 +11,7 @@ import {
   colors as theme,
   tokens,
 } from "./styles";
+import EditableText from "./components/EditableText";
 
 export default function ShowMode({
   showBundle = { rounds: [], teams: [] },
@@ -42,6 +43,7 @@ export default function ShowMode({
   poolPerQuestion = 100,
   prizes = "",
   setPrizes,
+  editQuestionField,
 }) {
   const [scriptOpen, setScriptOpen] = React.useState(false);
 
@@ -207,6 +209,7 @@ export default function ShowMode({
         }
 
         grouped[key].questions[q.id] = {
+          "Show Question ID": q.id, // needed for editing
           "Question ID": q?.questionId?.[0] || q?.id,
           "Question order": q?.questionOrder,
           "Question text": q?.questionText || "",
@@ -215,6 +218,7 @@ export default function ShowMode({
           "Question type": q?.questionType || "",
           Images: Array.isArray(q?.questionImages) ? q.questionImages : [],
           Audio: Array.isArray(q?.questionAudio) ? q.questionAudio : [],
+          _edited: q._edited || false, // flag if question has been edited
         };
 
         // Keep first non-empty category media we see
@@ -864,22 +868,40 @@ export default function ShowMode({
                           )}
                         </strong>
                         <br />
-                        <span
+                        <div
                           style={{
                             display: "block",
                             paddingLeft: "1.5rem",
                             paddingTop: "0.25rem",
                           }}
-                          dangerouslySetInnerHTML={{
-                            __html: marked.parseInline(
-                              q["Question text"] || ""
-                            ),
-                          }}
-                        />
+                        >
+                          {editQuestionField ? (
+                            <EditableText
+                              value={q["Question text"] || ""}
+                              onSave={(newValue) =>
+                                editQuestionField(
+                                  q["Show Question ID"],
+                                  "question",
+                                  newValue
+                                )
+                              }
+                              placeholder="Enter question text"
+                              isEdited={q._edited}
+                            />
+                          ) : (
+                            <span
+                              dangerouslySetInnerHTML={{
+                                __html: marked.parseInline(
+                                  q["Question text"] || ""
+                                ),
+                              }}
+                            />
+                          )}
+                        </div>
                       </p>
 
                       {/* FLAVOR TEXT */}
-                      {q["Flavor text"]?.trim() && showDetails && (
+                      {(q["Flavor text"]?.trim() || editQuestionField) && showDetails && (
                         <p
                           style={{
                             fontFamily: tokens.font.flavor,
@@ -892,13 +914,41 @@ export default function ShowMode({
                             marginBottom: "0.01rem",
                           }}
                         >
-                          <span
-                            dangerouslySetInnerHTML={{
-                              __html: marked.parseInline(
-                                `<span style="font-size:1em; position: relative; top: 1px; margin-right:-1px;">💭</span> ${q["Flavor text"]}`
-                              ),
-                            }}
-                          />
+                          {editQuestionField ? (
+                            <>
+                              <span
+                                style={{
+                                  fontSize: "1em",
+                                  position: "relative",
+                                  top: "1px",
+                                  marginRight: "4px",
+                                }}
+                              >
+                                💭
+                              </span>
+                              <EditableText
+                                value={q["Flavor text"] || ""}
+                                onSave={(newValue) =>
+                                  editQuestionField(
+                                    q["Show Question ID"],
+                                    "flavorText",
+                                    newValue
+                                  )
+                                }
+                                placeholder="Enter flavor text (optional)"
+                                multiline
+                                isEdited={q._edited}
+                              />
+                            </>
+                          ) : (
+                            <span
+                              dangerouslySetInnerHTML={{
+                                __html: marked.parseInline(
+                                  `<span style="font-size:1em; position: relative; top: 1px; margin-right:-1px;">💭</span> ${q["Flavor text"]}`
+                                ),
+                              }}
+                            />
+                          )}
                         </p>
                       )}
 

@@ -10,6 +10,7 @@ import {
   overlayStyle,
   overlayImg,
 } from "./styles/index.js";
+import EditableText from "./components/EditableText";
 import "react-h5-audio-player/lib/styles.css";
 
 // Normalize team shapes coming from cache (same as ScoringMode)
@@ -95,6 +96,7 @@ export default function AnswersMode({
   scoringMode, // "pub" | "pooled"
   pubPoints, // (not displayed here, only pooled uses poolPerQuestion)
   poolPerQuestion,
+  editQuestionField,
 }) {
   // --------- derive round + questions (same fields ScoringMode uses) ---------
   const roundNumber = Number(selectedRoundId);
@@ -129,6 +131,7 @@ export default function AnswersMode({
       text: q.questionText || "",
       flavor: q.flavorText || "",
       answer: q.answer || "",
+      _edited: q._edited || false, // flag if question has been edited
       // category
       categoryName: q.categoryName || "Uncategorized",
       categoryDescription: q.categoryDescription || "",
@@ -843,7 +846,7 @@ export default function AnswersMode({
                     )}
 
                   {/* Answer */}
-                  <p
+                  <div
                     style={{
                       fontSize: "1.05rem",
                       marginTop: ".4rem",
@@ -854,13 +857,33 @@ export default function AnswersMode({
                     }}
                   >
                     <span
-                      dangerouslySetInnerHTML={{
-                        __html: marked.parseInline(
-                          `<span style="font-size:.7em; position: relative; top:-1px;">🟢</span> **Answer:** ${q.answer || ""}`
-                        ),
+                      style={{
+                        fontSize: ".7em",
+                        position: "relative",
+                        top: "-1px",
+                        marginRight: ".3rem",
                       }}
-                    />
-                  </p>
+                    >
+                      🟢
+                    </span>
+                    <strong>Answer: </strong>
+                    {editQuestionField ? (
+                      <EditableText
+                        value={q.answer || ""}
+                        onSave={(newValue) =>
+                          editQuestionField(q.showQuestionId, "answer", newValue)
+                        }
+                        placeholder="Enter answer"
+                        isEdited={q._edited}
+                      />
+                    ) : (
+                      <span
+                        dangerouslySetInnerHTML={{
+                          __html: marked.parseInline(q.answer || ""),
+                        }}
+                      />
+                    )}
+                  </div>
 
                   {/* Stats pill (X/Y correct, pooled share, SOLO) - skip for tiebreaker */}
                   {stats && !isTiebreaker && (
