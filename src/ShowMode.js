@@ -938,6 +938,30 @@ export default function ShowMode({
                             paddingTop: "0.25rem",
                             marginTop: 0,
                             marginBottom: "0.01rem",
+                            cursor: editQuestionField ? "pointer" : "default",
+                          }}
+                          title={editQuestionField ? "Right-click or Ctrl+Click to edit" : ""}
+                          onContextMenu={(e) => {
+                            if (editQuestionField) {
+                              e.preventDefault();
+                              setEditingQuestion({
+                                showQuestionId: q["Show Question ID"],
+                                questionText: q["Question text"] || "",
+                                flavorText: q["Flavor text"] || "",
+                                answer: q["Answer"] || "",
+                              });
+                            }
+                          }}
+                          onClick={(e) => {
+                            if (editQuestionField && (e.ctrlKey || e.metaKey)) {
+                              e.preventDefault();
+                              setEditingQuestion({
+                                showQuestionId: q["Show Question ID"],
+                                questionText: q["Question text"] || "",
+                                flavorText: q["Flavor text"] || "",
+                                answer: q["Answer"] || "",
+                              });
+                            }
                           }}
                         >
                           <span
@@ -1115,7 +1139,29 @@ export default function ShowMode({
                             marginRight: "1.5rem",
                             cursor: editQuestionField ? "pointer" : "default",
                           }}
-                          title={editQuestionField ? "Right-click on question to edit" : ""}
+                          title={editQuestionField ? "Right-click or Ctrl+Click to edit" : ""}
+                          onContextMenu={(e) => {
+                            if (editQuestionField) {
+                              e.preventDefault();
+                              setEditingQuestion({
+                                showQuestionId: q["Show Question ID"],
+                                questionText: q["Question text"] || "",
+                                flavorText: q["Flavor text"] || "",
+                                answer: q["Answer"] || "",
+                              });
+                            }
+                          }}
+                          onClick={(e) => {
+                            if (editQuestionField && (e.ctrlKey || e.metaKey)) {
+                              e.preventDefault();
+                              setEditingQuestion({
+                                showQuestionId: q["Show Question ID"],
+                                questionText: q["Question text"] || "",
+                                flavorText: q["Flavor text"] || "",
+                                answer: q["Answer"] || "",
+                              });
+                            }
+                          }}
                         >
                           <span
                             dangerouslySetInnerHTML={{

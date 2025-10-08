@@ -10,7 +10,6 @@ import {
   overlayStyle,
   overlayImg,
 } from "./styles/index.js";
-import EditableText from "./components/EditableText";
 import "react-h5-audio-player/lib/styles.css";
 
 // Normalize team shapes coming from cache (same as ScoringMode)
@@ -98,6 +97,9 @@ export default function AnswersMode({
   poolPerQuestion,
   editQuestionField,
 }) {
+  // Unified question editor modal state
+  const [editingQuestion, setEditingQuestion] = React.useState(null);
+  // { showQuestionId, questionText, flavorText, answer }
   // --------- derive round + questions (same fields ScoringMode uses) ---------
   const roundNumber = Number(selectedRoundId);
   const roundObj = useMemo(() => {
@@ -624,9 +626,47 @@ export default function AnswersMode({
                       fontSize: "1.05rem",
                       margin: "0 0 .25rem 0",
                       fontFamily: tokens.font.body,
+                      cursor: editQuestionField ? "pointer" : "default",
+                    }}
+                    title={editQuestionField ? "Right-click or Ctrl+Click to edit" : ""}
+                    onContextMenu={(e) => {
+                      if (editQuestionField) {
+                        e.preventDefault();
+                        setEditingQuestion({
+                          showQuestionId: q.showQuestionId,
+                          questionText: q.text || "",
+                          flavorText: q.flavor || "",
+                          answer: q.answer || "",
+                        });
+                      }
+                    }}
+                    onClick={(e) => {
+                      if (editQuestionField && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        setEditingQuestion({
+                          showQuestionId: q.showQuestionId,
+                          questionText: q.text || "",
+                          flavorText: q.flavor || "",
+                          answer: q.answer || "",
+                        });
+                      }
                     }}
                   >
                     <strong>Question {q.order}:</strong>
+                    {q._edited && (
+                      <span
+                        style={{
+                          marginLeft: ".4rem",
+                          fontSize: ".75rem",
+                          fontWeight: 600,
+                          color: theme.accent,
+                          opacity: 0.8,
+                        }}
+                        title="This question has been edited by the host"
+                      >
+                        ✏️ edited
+                      </span>
+                    )}
                     {isTiebreaker && (
                       <>
                         {tiebreakerWasUsed && (
@@ -699,6 +739,30 @@ export default function AnswersMode({
                         fontStyle: "italic",
                         margin: ".15rem 0 .25rem 0",
                         paddingLeft: tokens.spacing.lg,
+                        cursor: editQuestionField ? "pointer" : "default",
+                      }}
+                      title={editQuestionField ? "Right-click or Ctrl+Click to edit" : ""}
+                      onContextMenu={(e) => {
+                        if (editQuestionField) {
+                          e.preventDefault();
+                          setEditingQuestion({
+                            showQuestionId: q.showQuestionId,
+                            questionText: q.text || "",
+                            flavorText: q.flavor || "",
+                            answer: q.answer || "",
+                          });
+                        }
+                      }}
+                      onClick={(e) => {
+                        if (editQuestionField && (e.ctrlKey || e.metaKey)) {
+                          e.preventDefault();
+                          setEditingQuestion({
+                            showQuestionId: q.showQuestionId,
+                            questionText: q.text || "",
+                            flavorText: q.flavor || "",
+                            answer: q.answer || "",
+                          });
+                        }
                       }}
                       dangerouslySetInnerHTML={{
                         __html: marked.parseInline(
@@ -854,6 +918,30 @@ export default function AnswersMode({
                       marginLeft: tokens.spacing.lg,
                       marginRight: tokens.spacing.lg,
                       fontFamily: tokens.font.body,
+                      cursor: editQuestionField ? "pointer" : "default",
+                    }}
+                    title={editQuestionField ? "Right-click or Ctrl+Click to edit" : ""}
+                    onContextMenu={(e) => {
+                      if (editQuestionField) {
+                        e.preventDefault();
+                        setEditingQuestion({
+                          showQuestionId: q.showQuestionId,
+                          questionText: q.text || "",
+                          flavorText: q.flavor || "",
+                          answer: q.answer || "",
+                        });
+                      }
+                    }}
+                    onClick={(e) => {
+                      if (editQuestionField && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        setEditingQuestion({
+                          showQuestionId: q.showQuestionId,
+                          questionText: q.text || "",
+                          flavorText: q.flavor || "",
+                          answer: q.answer || "",
+                        });
+                      }
                     }}
                   >
                     <span
@@ -867,22 +955,11 @@ export default function AnswersMode({
                       🟢
                     </span>
                     <strong>Answer: </strong>
-                    {editQuestionField ? (
-                      <EditableText
-                        value={q.answer || ""}
-                        onSave={(newValue) =>
-                          editQuestionField(q.showQuestionId, "answer", newValue)
-                        }
-                        placeholder="Enter answer"
-                        isEdited={q._edited}
-                      />
-                    ) : (
-                      <span
-                        dangerouslySetInnerHTML={{
-                          __html: marked.parseInline(q.answer || ""),
-                        }}
-                      />
-                    )}
+                    <span
+                      dangerouslySetInnerHTML={{
+                        __html: marked.parseInline(q.answer || ""),
+                      }}
+                    />
                   </div>
 
                   {/* Stats pill (X/Y correct, pooled share, SOLO) - skip for tiebreaker */}
@@ -936,6 +1013,191 @@ export default function AnswersMode({
           </div>
         );
       })}
+
+      {/* Unified Question Editor Modal */}
+      {editingQuestion && (
+        <div
+          onClick={() => setEditingQuestion(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(43,57,74,.65)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(92vw, 720px)",
+              background: "#fff",
+              borderRadius: ".6rem",
+              border: `1px solid ${theme.accent}`,
+              overflow: "hidden",
+              boxShadow: "0 10px 30px rgba(0,0,0,.25)",
+              fontFamily: tokens.font.body,
+            }}
+          >
+            {/* Header */}
+            <div
+              style={{
+                background: theme.dark,
+                color: "#fff",
+                padding: ".6rem .8rem",
+                borderBottom: `2px solid ${theme.accent}`,
+                fontFamily: tokens.font.display,
+                fontSize: "1.25rem",
+                letterSpacing: ".01em",
+              }}
+            >
+              Edit Question
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: ".9rem .9rem .2rem" }}>
+              <label style={{ display: "block", marginBottom: ".6rem" }}>
+                <div style={{ marginBottom: 4, fontWeight: 600 }}>
+                  Question text
+                </div>
+                <textarea
+                  value={editingQuestion.questionText}
+                  onChange={(e) =>
+                    setEditingQuestion((prev) => ({
+                      ...prev,
+                      questionText: e.target.value,
+                    }))
+                  }
+                  rows={3}
+                  style={{
+                    width: "100%",
+                    padding: ".55rem .65rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                    resize: "vertical",
+                    fontFamily: tokens.font.body,
+                    fontSize: "1rem",
+                  }}
+                />
+              </label>
+
+              <label style={{ display: "block", marginBottom: ".6rem" }}>
+                <div style={{ marginBottom: 4, fontWeight: 600 }}>
+                  Flavor text (optional)
+                </div>
+                <textarea
+                  value={editingQuestion.flavorText}
+                  onChange={(e) =>
+                    setEditingQuestion((prev) => ({
+                      ...prev,
+                      flavorText: e.target.value,
+                    }))
+                  }
+                  rows={2}
+                  placeholder="Optional context or additional info..."
+                  style={{
+                    width: "100%",
+                    padding: ".55rem .65rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                    resize: "vertical",
+                    fontFamily: tokens.font.body,
+                    fontSize: "1rem",
+                    fontStyle: "italic",
+                  }}
+                />
+              </label>
+
+              <label style={{ display: "block", marginBottom: ".6rem" }}>
+                <div style={{ marginBottom: 4, fontWeight: 600 }}>
+                  Answer
+                </div>
+                <textarea
+                  value={editingQuestion.answer}
+                  onChange={(e) =>
+                    setEditingQuestion((prev) => ({
+                      ...prev,
+                      answer: e.target.value,
+                    }))
+                  }
+                  rows={2}
+                  style={{
+                    width: "100%",
+                    padding: ".55rem .65rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                    resize: "vertical",
+                    fontFamily: tokens.font.body,
+                    fontSize: "1rem",
+                  }}
+                />
+              </label>
+            </div>
+
+            {/* Footer */}
+            <div
+              style={{
+                display: "flex",
+                gap: ".5rem",
+                justifyContent: "flex-end",
+                padding: ".8rem .9rem .9rem",
+                borderTop: "1px solid #eee",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setEditingQuestion(null)}
+                style={{
+                  padding: ".5rem .75rem",
+                  border: "1px solid #ccc",
+                  background: "#f7f7f7",
+                  borderRadius: ".35rem",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (editQuestionField) {
+                    // Save all three fields
+                    editQuestionField(
+                      editingQuestion.showQuestionId,
+                      "question",
+                      editingQuestion.questionText.trim()
+                    );
+                    editQuestionField(
+                      editingQuestion.showQuestionId,
+                      "flavorText",
+                      editingQuestion.flavorText.trim()
+                    );
+                    editQuestionField(
+                      editingQuestion.showQuestionId,
+                      "answer",
+                      editingQuestion.answer.trim()
+                    );
+                  }
+                  setEditingQuestion(null);
+                }}
+                style={{
+                  padding: ".5rem .75rem",
+                  border: `1px solid ${theme.accent}`,
+                  background: theme.accent,
+                  color: "#fff",
+                  borderRadius: ".35rem",
+                  cursor: "pointer",
+                  fontWeight: 700,
+                }}
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
