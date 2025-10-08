@@ -43,12 +43,18 @@ export default function ShowMode({
   prizes = "",
   setPrizes,
   editQuestionField,
+  addTiebreaker,
 }) {
   const [scriptOpen, setScriptOpen] = React.useState(false);
 
   // Unified question editor modal state
   const [editingQuestion, setEditingQuestion] = React.useState(null);
   // { showQuestionId, questionText, flavorText, answer }
+
+  // Add Tiebreaker modal state
+  const [addingTiebreaker, setAddingTiebreaker] = React.useState(false);
+  const [tbQuestion, setTbQuestion] = React.useState("");
+  const [tbAnswer, setTbAnswer] = React.useState("");
 
   // under other React.useState(...) lines near the top:
   const [hostModalOpen, setHostModalOpen] = React.useState(false);
@@ -255,6 +261,24 @@ export default function ShowMode({
     groupedQuestionsProp && Object.keys(groupedQuestionsProp).length
       ? groupedQuestionsProp
       : groupedQuestionsFromRounds;
+
+  // Check if current round has a tiebreaker
+  const hasTiebreaker = React.useMemo(() => {
+    const entries = Object.entries(groupedQuestions);
+    for (const [, catData] of entries) {
+      const hasT = Object.values(catData?.questions || {}).some((q) => isTB(q));
+      if (hasT) return true;
+    }
+    return false;
+  }, [groupedQuestions]);
+
+  // Check if current round is the final round
+  const isFinalRound = React.useMemo(() => {
+    const rounds = showBundle?.rounds || [];
+    if (rounds.length === 0) return false;
+    const maxRound = Math.max(...rounds.map((r) => Number(r.round)));
+    return Number(selectedRoundId) === maxRound;
+  }, [showBundle, selectedRoundId]);
 
   const sortedGroupedEntries = React.useMemo(() => {
     const entries = Object.entries(groupedQuestions);
@@ -590,6 +614,15 @@ export default function ShowMode({
           >
             Set host(s), location, & prizes
           </ButtonPrimary>
+
+          {!hasTiebreaker && isFinalRound && addTiebreaker && (
+            <ButtonPrimary
+              onClick={() => setAddingTiebreaker(true)}
+              title="Add a tiebreaker question to the final round"
+            >
+              + Add Tiebreaker
+            </ButtonPrimary>
+          )}
         </div>
       )}
 
@@ -1784,6 +1817,157 @@ export default function ShowMode({
                 }}
               >
                 Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Tiebreaker Modal */}
+      {addingTiebreaker && (
+        <div
+          onClick={() => setAddingTiebreaker(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(43,57,74,.65)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(92vw, 620px)",
+              background: "#fff",
+              borderRadius: ".6rem",
+              border: `1px solid ${theme.accent}`,
+              overflow: "hidden",
+              boxShadow: "0 10px 30px rgba(0,0,0,.25)",
+              fontFamily: tokens.font.body,
+            }}
+          >
+            {/* Header */}
+            <div
+              style={{
+                background: theme.dark,
+                color: "#fff",
+                padding: ".6rem .8rem",
+                borderBottom: `2px solid ${theme.accent}`,
+                fontFamily: tokens.font.display,
+                fontSize: "1.25rem",
+                letterSpacing: ".01em",
+              }}
+            >
+              Add Tiebreaker Question
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: ".9rem .9rem .2rem" }}>
+              <div style={{ marginBottom: ".75rem", fontSize: ".95rem", opacity: 0.9 }}>
+                Add a tiebreaker question for this round. Teams will guess a number, and the closest answer wins if there's a tie.
+              </div>
+
+              <label style={{ display: "block", marginBottom: ".6rem" }}>
+                <div style={{ marginBottom: 4, fontWeight: 600 }}>
+                  Tiebreaker Question
+                </div>
+                <textarea
+                  autoFocus
+                  value={tbQuestion}
+                  onChange={(e) => setTbQuestion(e.target.value)}
+                  placeholder="e.g., How many feet tall is the Statue of Liberty?"
+                  rows={3}
+                  style={{
+                    width: "100%",
+                    padding: ".55rem .65rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                    resize: "vertical",
+                    fontFamily: tokens.font.body,
+                    fontSize: "1rem",
+                  }}
+                />
+              </label>
+
+              <label style={{ display: "block", marginBottom: ".6rem" }}>
+                <div style={{ marginBottom: 4, fontWeight: 600 }}>
+                  Answer (number)
+                </div>
+                <input
+                  type="text"
+                  value={tbAnswer}
+                  onChange={(e) => setTbAnswer(e.target.value)}
+                  placeholder="e.g., 305"
+                  style={{
+                    width: "200px",
+                    padding: ".45rem .55rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                    fontFamily: tokens.font.body,
+                    fontSize: "1rem",
+                  }}
+                />
+              </label>
+            </div>
+
+            {/* Footer */}
+            <div
+              style={{
+                display: "flex",
+                gap: ".5rem",
+                justifyContent: "flex-end",
+                padding: ".8rem .9rem .9rem",
+                borderTop: "1px solid #eee",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setAddingTiebreaker(false);
+                  setTbQuestion("");
+                  setTbAnswer("");
+                }}
+                style={{
+                  padding: ".5rem .75rem",
+                  border: "1px solid #ccc",
+                  background: "#f7f7f7",
+                  borderRadius: ".35rem",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!tbQuestion.trim()) {
+                    alert("Please enter a tiebreaker question.");
+                    return;
+                  }
+                  if (!tbAnswer.trim()) {
+                    alert("Please enter the answer.");
+                    return;
+                  }
+                  addTiebreaker(tbQuestion.trim(), tbAnswer.trim());
+                  setAddingTiebreaker(false);
+                  setTbQuestion("");
+                  setTbAnswer("");
+                }}
+                style={{
+                  padding: ".5rem .75rem",
+                  border: `1px solid ${theme.accent}`,
+                  background: theme.accent,
+                  color: "#fff",
+                  borderRadius: ".35rem",
+                  cursor: "pointer",
+                  fontWeight: 700,
+                }}
+              >
+                Add Tiebreaker
               </button>
             </div>
           </div>

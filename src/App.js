@@ -1006,6 +1006,73 @@ export default function App() {
     });
   };
 
+  // Helper function to add a tiebreaker question
+  const addTiebreaker = (questionText, answer) => {
+    if (!showBundle || !selectedRoundId) return;
+
+    const tiebreakerQuestion = {
+      id: `tb-${Date.now()}`,
+      questionId: [`tb-${Date.now()}`],
+      questionOrder: "TB",
+      questionText,
+      flavorText: "",
+      answer,
+      questionType: "Tiebreaker",
+      sortOrder: 9999, // Put it at the end
+      categoryName: "Tiebreaker",
+      categoryDescription: "",
+      categoryOrder: 9999,
+      categoryImages: [],
+      categoryAudio: [],
+      questionImages: [],
+      questionAudio: [],
+      pointsPerQuestion: null,
+      _edited: false,
+      _addedByHost: true, // Flag to indicate it was added during the show
+    };
+
+    setShowBundle((prev) => {
+      if (!prev) return prev;
+
+      const updatedRounds = prev.rounds.map((r) => {
+        if (Number(r.round) === Number(selectedRoundId)) {
+          // Check if tiebreaker already exists
+          const hasTB = r.questions.some(
+            (q) =>
+              (q.questionType || "").toLowerCase() === "tiebreaker" ||
+              String(q.questionOrder).toUpperCase() === "TB"
+          );
+          if (hasTB) {
+            alert("This round already has a tiebreaker.");
+            return r;
+          }
+          return {
+            ...r,
+            questions: [...r.questions, tiebreakerQuestion],
+          };
+        }
+        return r;
+      });
+
+      return { ...prev, rounds: updatedRounds };
+    });
+
+    // Store in localStorage for persistence
+    try {
+      const key = `trivia.addedTiebreaker.${selectedShowId}.${selectedRoundId}`;
+      localStorage.setItem(key, JSON.stringify(tiebreakerQuestion));
+    } catch {}
+
+    // Broadcast to other hosts
+    try {
+      window.sendTiebreakerAdded?.({
+        showId: selectedShowId,
+        roundId: selectedRoundId,
+        tiebreaker: tiebreakerQuestion,
+      });
+    } catch {}
+  };
+
   // UI
   return (
     <div
@@ -1215,6 +1282,7 @@ export default function App() {
           setShowTimer={setShowTimer}
           setPrizes={(val) => patchShared({ prizes: String(val || "") })}
           editQuestionField={editQuestionField}
+          addTiebreaker={addTiebreaker}
         />
       )}
 
