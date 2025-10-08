@@ -1310,10 +1310,15 @@ export default function ScoringMode({
                       wordBreak: "break-word",
                       overflowWrap: "anywhere",
                       lineHeight: 1.1,
-                      cursor: "text",
+                      cursor: "pointer",
                     }}
-                    title="Double-click to rename"
+                    title="Right-click or double-click to rename"
                     onDoubleClick={() => {
+                      const v = window.prompt("Rename team:", t.teamName);
+                      if (v !== null) renameTeam(t.showTeamId, v);
+                    }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
                       const v = window.prompt("Rename team:", t.teamName);
                       if (v !== null) renameTeam(t.showTeamId, v);
                     }}
@@ -1519,8 +1524,13 @@ export default function ScoringMode({
                         }}
                         role="button"
                         aria-pressed={!!cell?.isCorrect}
-                        // 👇 use renderIndex here too so clicks match the rendered column
-                        onClick={() => toggleCell(renderIndex, qi)}
+                        // 👇 clicking outer area selects the cell without toggling
+                        onClick={() => {
+                          setFocus({
+                            teamIdx: renderIndex,
+                            qIdx: qi,
+                          });
+                        }}
                         onDoubleClick={(e) => {
                           e.preventDefault();
                           openCellEditor(t.showTeamId, q.showQuestionId);
@@ -1532,11 +1542,19 @@ export default function ScoringMode({
                         style={style}
                         title={
                           on
-                            ? `Correct — ${pts} pts\n(⇧ Double-click or Right-click for bonus/override)`
-                            : `Incorrect\n(⇧ Double-click or Right-click for bonus/override)`
+                            ? `Correct — ${pts} pts\n(Click center to toggle • 1/Space to toggle • Double-click or Right-click for bonus/override)`
+                            : `Incorrect\n(Click center to toggle • 1/Space to toggle • Double-click or Right-click for bonus/override)`
                         }
                       >
-                        {on ? `✓ ${pts}` : "○"}
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleCell(renderIndex, qi);
+                          }}
+                          style={{ cursor: "pointer", display: "block" }}
+                        >
+                          {on ? `✓ ${pts}` : "○"}
+                        </span>
                       </div>
                     </td>
                   );

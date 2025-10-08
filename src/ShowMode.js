@@ -11,7 +11,6 @@ import {
   colors as theme,
   tokens,
 } from "./styles";
-import EditableText from "./components/EditableText";
 
 export default function ShowMode({
   showBundle = { rounds: [], teams: [] },
@@ -46,6 +45,10 @@ export default function ShowMode({
   editQuestionField,
 }) {
   const [scriptOpen, setScriptOpen] = React.useState(false);
+
+  // Unified question editor modal state
+  const [editingQuestion, setEditingQuestion] = React.useState(null);
+  // { showQuestionId, questionText, flavorText, answer }
 
   // under other React.useState(...) lines near the top:
   const [hostModalOpen, setHostModalOpen] = React.useState(false);
@@ -848,6 +851,28 @@ export default function ShowMode({
                           marginTop: "1.75rem",
                           marginBottom: 0,
                         }}
+                        onContextMenu={(e) => {
+                          if (editQuestionField) {
+                            e.preventDefault();
+                            setEditingQuestion({
+                              showQuestionId: q["Show Question ID"],
+                              questionText: q["Question text"] || "",
+                              flavorText: q["Flavor text"] || "",
+                              answer: q["Answer"] || "",
+                            });
+                          }
+                        }}
+                        onClick={(e) => {
+                          if (editQuestionField && (e.ctrlKey || e.metaKey)) {
+                            e.preventDefault();
+                            setEditingQuestion({
+                              showQuestionId: q["Show Question ID"],
+                              questionText: q["Question text"] || "",
+                              flavorText: q["Flavor text"] || "",
+                              answer: q["Answer"] || "",
+                            });
+                          }
+                        }}
                       >
                         <strong>
                           {(q["Question type"] || "") === "Tiebreaker" ? (
@@ -867,41 +892,42 @@ export default function ShowMode({
                             <>Question {q["Question order"]}:</>
                           )}
                         </strong>
+                        {q._edited && (
+                          <span
+                            style={{
+                              marginLeft: ".4rem",
+                              fontSize: ".75rem",
+                              fontWeight: 600,
+                              color: theme.accent,
+                              opacity: 0.8,
+                            }}
+                            title="This question has been edited by the host"
+                          >
+                            ✏️ edited
+                          </span>
+                        )}
                         <br />
                         <div
                           style={{
                             display: "block",
                             paddingLeft: "1.5rem",
                             paddingTop: "0.25rem",
+                            cursor: editQuestionField ? "pointer" : "default",
                           }}
+                          title={editQuestionField ? "Right-click or Ctrl+Click to edit" : ""}
                         >
-                          {editQuestionField ? (
-                            <EditableText
-                              value={q["Question text"] || ""}
-                              onSave={(newValue) =>
-                                editQuestionField(
-                                  q["Show Question ID"],
-                                  "question",
-                                  newValue
-                                )
-                              }
-                              placeholder="Enter question text"
-                              isEdited={q._edited}
-                            />
-                          ) : (
-                            <span
-                              dangerouslySetInnerHTML={{
-                                __html: marked.parseInline(
-                                  q["Question text"] || ""
-                                ),
-                              }}
-                            />
-                          )}
+                          <span
+                            dangerouslySetInnerHTML={{
+                              __html: marked.parseInline(
+                                q["Question text"] || ""
+                              ),
+                            }}
+                          />
                         </div>
                       </p>
 
                       {/* FLAVOR TEXT */}
-                      {(q["Flavor text"]?.trim() || editQuestionField) && showDetails && (
+                      {q["Flavor text"]?.trim() && showDetails && (
                         <p
                           style={{
                             fontFamily: tokens.font.flavor,
@@ -914,41 +940,13 @@ export default function ShowMode({
                             marginBottom: "0.01rem",
                           }}
                         >
-                          {editQuestionField ? (
-                            <>
-                              <span
-                                style={{
-                                  fontSize: "1em",
-                                  position: "relative",
-                                  top: "1px",
-                                  marginRight: "4px",
-                                }}
-                              >
-                                💭
-                              </span>
-                              <EditableText
-                                value={q["Flavor text"] || ""}
-                                onSave={(newValue) =>
-                                  editQuestionField(
-                                    q["Show Question ID"],
-                                    "flavorText",
-                                    newValue
-                                  )
-                                }
-                                placeholder="Enter flavor text (optional)"
-                                multiline
-                                isEdited={q._edited}
-                              />
-                            </>
-                          ) : (
-                            <span
-                              dangerouslySetInnerHTML={{
-                                __html: marked.parseInline(
-                                  `<span style="font-size:1em; position: relative; top: 1px; margin-right:-1px;">💭</span> ${q["Flavor text"]}`
-                                ),
-                              }}
-                            />
-                          )}
+                          <span
+                            dangerouslySetInnerHTML={{
+                              __html: marked.parseInline(
+                                `<span style="font-size:1em; position: relative; top: 1px; margin-right:-1px;">💭</span> ${q["Flavor text"]}`
+                              ),
+                            }}
+                          />
                         </p>
                       )}
 
@@ -1115,7 +1113,9 @@ export default function ShowMode({
                             marginBottom: "1rem",
                             marginLeft: "1.5rem",
                             marginRight: "1.5rem",
+                            cursor: editQuestionField ? "pointer" : "default",
                           }}
+                          title={editQuestionField ? "Right-click on question to edit" : ""}
                         >
                           <span
                             dangerouslySetInnerHTML={{
@@ -1556,6 +1556,191 @@ export default function ShowMode({
               />
             </div>
           </Draggable>
+        </div>
+      )}
+
+      {/* Unified Question Editor Modal */}
+      {editingQuestion && (
+        <div
+          onClick={() => setEditingQuestion(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(43,57,74,.65)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(92vw, 720px)",
+              background: "#fff",
+              borderRadius: ".6rem",
+              border: `1px solid ${theme.accent}`,
+              overflow: "hidden",
+              boxShadow: "0 10px 30px rgba(0,0,0,.25)",
+              fontFamily: tokens.font.body,
+            }}
+          >
+            {/* Header */}
+            <div
+              style={{
+                background: theme.dark,
+                color: "#fff",
+                padding: ".6rem .8rem",
+                borderBottom: `2px solid ${theme.accent}`,
+                fontFamily: tokens.font.display,
+                fontSize: "1.25rem",
+                letterSpacing: ".01em",
+              }}
+            >
+              Edit Question
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: ".9rem .9rem .2rem" }}>
+              <label style={{ display: "block", marginBottom: ".6rem" }}>
+                <div style={{ marginBottom: 4, fontWeight: 600 }}>
+                  Question text
+                </div>
+                <textarea
+                  value={editingQuestion.questionText}
+                  onChange={(e) =>
+                    setEditingQuestion((prev) => ({
+                      ...prev,
+                      questionText: e.target.value,
+                    }))
+                  }
+                  rows={3}
+                  style={{
+                    width: "100%",
+                    padding: ".55rem .65rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                    resize: "vertical",
+                    fontFamily: tokens.font.body,
+                    fontSize: "1rem",
+                  }}
+                />
+              </label>
+
+              <label style={{ display: "block", marginBottom: ".6rem" }}>
+                <div style={{ marginBottom: 4, fontWeight: 600 }}>
+                  Flavor text (optional)
+                </div>
+                <textarea
+                  value={editingQuestion.flavorText}
+                  onChange={(e) =>
+                    setEditingQuestion((prev) => ({
+                      ...prev,
+                      flavorText: e.target.value,
+                    }))
+                  }
+                  rows={2}
+                  placeholder="Optional context or additional info..."
+                  style={{
+                    width: "100%",
+                    padding: ".55rem .65rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                    resize: "vertical",
+                    fontFamily: tokens.font.body,
+                    fontSize: "1rem",
+                    fontStyle: "italic",
+                  }}
+                />
+              </label>
+
+              <label style={{ display: "block", marginBottom: ".6rem" }}>
+                <div style={{ marginBottom: 4, fontWeight: 600 }}>
+                  Answer
+                </div>
+                <textarea
+                  value={editingQuestion.answer}
+                  onChange={(e) =>
+                    setEditingQuestion((prev) => ({
+                      ...prev,
+                      answer: e.target.value,
+                    }))
+                  }
+                  rows={2}
+                  style={{
+                    width: "100%",
+                    padding: ".55rem .65rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                    resize: "vertical",
+                    fontFamily: tokens.font.body,
+                    fontSize: "1rem",
+                  }}
+                />
+              </label>
+            </div>
+
+            {/* Footer */}
+            <div
+              style={{
+                display: "flex",
+                gap: ".5rem",
+                justifyContent: "flex-end",
+                padding: ".8rem .9rem .9rem",
+                borderTop: "1px solid #eee",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setEditingQuestion(null)}
+                style={{
+                  padding: ".5rem .75rem",
+                  border: "1px solid #ccc",
+                  background: "#f7f7f7",
+                  borderRadius: ".35rem",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (editQuestionField) {
+                    // Save all three fields
+                    editQuestionField(
+                      editingQuestion.showQuestionId,
+                      "question",
+                      editingQuestion.questionText.trim()
+                    );
+                    editQuestionField(
+                      editingQuestion.showQuestionId,
+                      "flavorText",
+                      editingQuestion.flavorText.trim()
+                    );
+                    editQuestionField(
+                      editingQuestion.showQuestionId,
+                      "answer",
+                      editingQuestion.answer.trim()
+                    );
+                  }
+                  setEditingQuestion(null);
+                }}
+                style={{
+                  padding: ".5rem .75rem",
+                  border: `1px solid ${theme.accent}`,
+                  background: theme.accent,
+                  color: "#fff",
+                  borderRadius: ".35rem",
+                  cursor: "pointer",
+                  fontWeight: 700,
+                }}
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </>
