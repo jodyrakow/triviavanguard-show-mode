@@ -24,6 +24,7 @@ const F_SCORES_QUESTION = "Question";
 const F_SCORES_SHOWQUESTION = "ShowQuestion";
 const F_SCORES_IS_CORRECT = "Is correct";
 const F_SCORES_POINTS = "Points earned";
+const F_SCORES_LEAGUE = "League";
 
 // Teams primary field
 const F_TEAMS_NAME = "Team";
@@ -98,7 +99,7 @@ async function deleteExistingScoresForShow(showId) {
 }
 
 async function createScores(records) {
-  // records: { showId, teamId, showTeamId, questionId, showQuestionId, isCorrect, pointsEarned }[]
+  // records: { showId, teamId, showTeamId, questionId, showQuestionId, isCorrect, pointsEarned, isLeague }[]
   const batches = chunk(records, 10);
   for (const b of batches) {
     await base(TBL_SCORES).create(
@@ -111,6 +112,7 @@ async function createScores(records) {
           [F_SCORES_SHOWQUESTION]: [r.showQuestionId],
           [F_SCORES_IS_CORRECT]: !!r.isCorrect,
           [F_SCORES_POINTS]: Number(r.pointsEarned || 0),
+          [F_SCORES_LEAGUE]: !!r.isLeague, // Include league status
         },
       }))
     );
@@ -174,6 +176,13 @@ exports.handler = async function handler(event) {
     // 4) Build fresh Scores — skip any incomplete rows (and any tiebreakers if they slipped through)
     const badRows = [];
     const scoreRows = [];
+
+    // Build a map of team isLeague status for quick lookup
+    const teamLeagueMap = new Map();
+    for (const t of teams) {
+      teamLeagueMap.set(t.showTeamId, !!t.isLeague);
+    }
+
     for (const s of scores) {
       // Skip obvious tiebreakers if present
       const isTB =
@@ -185,6 +194,7 @@ exports.handler = async function handler(event) {
       const teamId = teamIdMap.get(s.showTeamId);
       const showTeamId = showTeamIdMap.get(s.showTeamId);
       const { questionId, showQuestionId } = s;
+      const isLeague = teamLeagueMap.get(s.showTeamId) || false;
 
       if (!teamId || !showTeamId || !questionId || !showQuestionId) {
         badRows.push({
@@ -205,6 +215,7 @@ exports.handler = async function handler(event) {
         showQuestionId,
         isCorrect: !!s.isCorrect,
         pointsEarned: Number(s.pointsEarned || 0),
+        isLeague, // Include league status for each score row
       });
     }
 

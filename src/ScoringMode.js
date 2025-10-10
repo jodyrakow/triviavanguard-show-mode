@@ -404,6 +404,7 @@ export default function ScoringMode({
       ? t.teamName[0]
       : t.teamName || "(Unnamed team)",
     showBonus: Number(t.showBonus || 0),
+    isLeague: !!t.isLeague, // Include league status
   });
 
   // Clear local state when the SHOW changes (not the round)
@@ -561,6 +562,22 @@ export default function ScoringMode({
         showId: selectedShowId,
         teamId: showTeamId,
         teamName: name,
+        ts: Date.now(),
+      });
+    } catch {}
+  };
+
+  const toggleLeague = (showTeamId, isLeague) => {
+    setTeams((prev) =>
+      prev.map((t) =>
+        t.showTeamId === showTeamId ? { ...t, isLeague } : t
+      )
+    );
+    try {
+      window.sendLeagueToggle?.({
+        showId: selectedShowId,
+        teamId: showTeamId,
+        isLeague,
         ts: Date.now(),
       });
     } catch {}
@@ -1324,6 +1341,38 @@ export default function ScoringMode({
                     }}
                   >
                     {t.teamName}
+                  </div>
+
+                  {/* League checkbox */}
+                  <div
+                    style={{
+                      marginTop: "0.25rem",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "0.25rem",
+                    }}
+                  >
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.25rem",
+                        fontSize: "0.75rem",
+                        cursor: "pointer",
+                        userSelect: "none",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!!t.isLeague}
+                        onChange={(e) => {
+                          toggleLeague(t.showTeamId, e.target.checked);
+                        }}
+                        style={{ cursor: "pointer" }}
+                      />
+                      <span style={{ opacity: 0.85 }}>League</span>
+                    </label>
                   </div>
 
                   {/* Move buttons */}

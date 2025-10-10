@@ -203,6 +203,7 @@ export async function handler(event) {
         teamId: teamLinked || null,
         teamName: f["Team name"] ?? "(Unnamed team)",
         showBonus: Number(f["Show bonus"] || 0),
+        isLeague: !!f["League"], // Include the League checkbox value
       };
     });
 

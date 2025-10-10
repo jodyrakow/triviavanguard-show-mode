@@ -933,6 +933,7 @@ export default function ResultsMode({
           teamName: r.teamName,
           finalTotal: r.total,
           finalPlace: r.place,
+          isLeague: !!t?.isLeague, // Include league status
         };
       });
 
