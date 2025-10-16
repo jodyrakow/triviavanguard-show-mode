@@ -24,7 +24,6 @@ const F_SCORES_QUESTION = "Question";
 const F_SCORES_SHOWQUESTION = "ShowQuestion";
 const F_SCORES_IS_CORRECT = "Is correct";
 const F_SCORES_POINTS = "Points earned";
-const F_SCORES_LEAGUE = "League";
 
 // Teams primary field
 const F_TEAMS_NAME = "Team";
@@ -57,19 +56,41 @@ async function findShowTeamRecordId(showId, teamId) {
   return rows && rows.length ? rows[0].id : null;
 }
 
-async function upsertShowTeam({ showId, teamId, finalTotal, finalPlace }) {
+async function upsertShowTeam({ showId, showTeamId, teamId, finalTotal, finalPlace, isLeague }) {
+  // If we already have a showTeamId (pre-populated team), use it directly
+  if (showTeamId && showTeamId.startsWith('rec')) {
+    // This is an existing ShowTeam record - update it
+    await base(TBL_SHOWTEAMS).update([
+      {
+        id: showTeamId,
+        fields: {
+          [F_FINAL_SCORE]: finalTotal,
+          [F_FINAL_PLACE]: finalPlace,
+          League: !!isLeague,
+        },
+      },
+    ]);
+    return showTeamId;
+  }
+
+  // Otherwise, try to find existing by Show + Team link
   let existingId = await findShowTeamRecordId(showId, teamId);
 
   if (existingId) {
     await base(TBL_SHOWTEAMS).update([
       {
         id: existingId,
-        fields: { [F_FINAL_SCORE]: finalTotal, [F_FINAL_PLACE]: finalPlace },
+        fields: {
+          [F_FINAL_SCORE]: finalTotal,
+          [F_FINAL_PLACE]: finalPlace,
+          League: !!isLeague,
+        },
       },
     ]);
     return existingId;
   }
 
+  // No existing record found - create new
   const created = await base(TBL_SHOWTEAMS).create([
     {
       fields: {
@@ -77,6 +98,7 @@ async function upsertShowTeam({ showId, teamId, finalTotal, finalPlace }) {
         [F_TEAM]: [teamId],
         [F_FINAL_SCORE]: finalTotal,
         [F_FINAL_PLACE]: finalPlace,
+        League: !!isLeague,
       },
     },
   ]);
@@ -99,7 +121,7 @@ async function deleteExistingScoresForShow(showId) {
 }
 
 async function createScores(records) {
-  // records: { showId, teamId, showTeamId, questionId, showQuestionId, isCorrect, pointsEarned, isLeague }[]
+  // records: { showId, teamId, showTeamId, questionId, showQuestionId, isCorrect, pointsEarned }[]
   const batches = chunk(records, 10);
   for (const b of batches) {
     await base(TBL_SCORES).create(
@@ -112,7 +134,6 @@ async function createScores(records) {
           [F_SCORES_SHOWQUESTION]: [r.showQuestionId],
           [F_SCORES_IS_CORRECT]: !!r.isCorrect,
           [F_SCORES_POINTS]: Number(r.pointsEarned || 0),
-          [F_SCORES_LEAGUE]: !!r.isLeague, // Include league status
         },
       }))
     );
@@ -157,15 +178,17 @@ exports.handler = async function handler(event) {
       };
     }
 
-    // 2) Upsert ShowTeams, update final totals/places
+    // 2) Upsert ShowTeams, update final totals/places and league status
     const showTeamIdMap = new Map(); // key: showTeamId (client local), value: ShowTeams recId
     for (const t of teams) {
       const teamRecId = teamIdMap.get(t.showTeamId);
       const showTeamRecId = await upsertShowTeam({
         showId,
+        showTeamId: t.showTeamId, // Pass the client's showTeamId (may be Airtable rec ID)
         teamId: teamRecId,
         finalTotal: Number(t.finalTotal || 0),
         finalPlace: Number(t.finalPlace || 0),
+        isLeague: !!t.isLeague, // Pass league status
       });
       showTeamIdMap.set(t.showTeamId, showTeamRecId);
     }
@@ -176,12 +199,6 @@ exports.handler = async function handler(event) {
     // 4) Build fresh Scores — skip any incomplete rows (and any tiebreakers if they slipped through)
     const badRows = [];
     const scoreRows = [];
-
-    // Build a map of team isLeague status for quick lookup
-    const teamLeagueMap = new Map();
-    for (const t of teams) {
-      teamLeagueMap.set(t.showTeamId, !!t.isLeague);
-    }
 
     for (const s of scores) {
       // Skip obvious tiebreakers if present
@@ -194,7 +211,6 @@ exports.handler = async function handler(event) {
       const teamId = teamIdMap.get(s.showTeamId);
       const showTeamId = showTeamIdMap.get(s.showTeamId);
       const { questionId, showQuestionId } = s;
-      const isLeague = teamLeagueMap.get(s.showTeamId) || false;
 
       if (!teamId || !showTeamId || !questionId || !showQuestionId) {
         badRows.push({
@@ -215,7 +231,6 @@ exports.handler = async function handler(event) {
         showQuestionId,
         isCorrect: !!s.isCorrect,
         pointsEarned: Number(s.pointsEarned || 0),
-        isLeague, // Include league status for each score row
       });
     }
 
