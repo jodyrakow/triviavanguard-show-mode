@@ -40,6 +40,7 @@ export default function ShowMode({
   scoringMode = "pub",
   pubPoints = 10,
   poolPerQuestion = 100,
+  poolContribution = 10,
   prizes = "",
   setPrizes,
   editQuestionField,
@@ -64,6 +65,7 @@ export default function ShowMode({
     location: "",
     totalGames: "",
     startTimesText: "",
+    announcements: "",
   });
   // show name (best-effort)
   const showName =
@@ -157,15 +159,29 @@ export default function ShowMode({
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === "object") {
-          setHostInfo({
+          setHostInfo((prev) => ({
+            ...prev,
             host: parsed.host || "",
             cohost: parsed.cohost || "",
             location: parsed.location || "",
-          });
+            totalGames: parsed.totalGames || "",
+            startTimesText: parsed.startTimesText || "",
+            announcements: parsed.announcements || "",
+          }));
         }
       }
     } catch {}
   }, []);
+
+  // Pre-populate announcements from Airtable config (if available)
+  React.useEffect(() => {
+    if (showBundle?.config?.announcements) {
+      setHostInfo((prev) => ({
+        ...prev,
+        announcements: showBundle.config.announcements,
+      }));
+    }
+  }, [showBundle?.config?.announcements]);
 
   const saveHostInfo = (next) => {
     setHostInfo(next);
@@ -487,8 +503,13 @@ export default function ShowMode({
 
     // --- Intro ---
     let text =
-      `Hey, everybody! It’s time for team trivia at ${loc}!\n\n` +
-      `I’m ${hName} and this is ${cName}, and we’re your hosts tonight as you play for trivia glory and some pretty awesome prizes.\n`;
+      `Hey, everybody! It's time for team trivia at ${loc}!\n\n` +
+      `I'm ${hName} and this is ${cName}, and we're your hosts tonight as you play for trivia glory and some pretty awesome prizes.\n`;
+
+    // --- Announcements (if provided) ---
+    if (hostInfo.announcements && hostInfo.announcements.trim()) {
+      text += `\n${hostInfo.announcements.trim()}\n`;
+    }
 
     // Insert multi-game blurb only when we truly have multiple games
     if (multiGameMeta.isMultiNight || totalGames > 1) {
@@ -504,11 +525,25 @@ export default function ShowMode({
     }
 
     // --- Stats (per-show) ---
-    // Keep your four paths, but phrase as “in each show” when multi-game
+    // Keep your four paths, but phrase as "in each show" when multi-game
     const perShowSuffix =
       multiGameMeta.isMultiNight || totalGames > 1 ? " in each show" : "";
 
-    if (scoringMode === "pooled") {
+    if (scoringMode === "pooled-adaptive") {
+      // Adaptive pooled scoring
+      if (N > 0) {
+        text +=
+          `\n• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}${perShowSuffix}.\n` +
+          `• Each question has a point pool that contains ${fmtNum(poolContribution)} point${poolContribution === 1 ? "" : "s"} for each team playing. The pool will be divided evenly among teams that answer correctly — in other words, you'll be rewarded if you know stuff that nobody else knows.\n` +
+          `• We do have ${fmtNum(N)} special ${s(N, "question", "questions")} with ${s(N, "a different point value", "different point values")} — we'll explain in more detail when we get to ${s(N, "that question", "those questions")}.\n` +
+          `• That gives us a total of ${fmtNum(Z)} points in the pool${perShowSuffix}.\n`;
+      } else {
+        text +=
+          `\n• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}${perShowSuffix}.\n` +
+          `• Each question has a point pool that contains ${fmtNum(poolContribution)} point${poolContribution === 1 ? "" : "s"} for each team playing. The pool will be divided evenly among teams that answer correctly — in other words, you'll be rewarded if you know stuff that nobody else knows.\n`;
+      }
+    } else if (scoringMode === "pooled") {
+      // Static pooled scoring
       if (N > 0) {
         text +=
           `\n• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}${perShowSuffix}.\n` +
@@ -521,6 +556,7 @@ export default function ShowMode({
           `• Each question has a pool of ${fmtNum(Y)} point${Y === 1 ? "" : "s"} that will be split evenly among teams that answer correctly, for a total of ${fmtNum(Z)} points in the pool${perShowSuffix}.\n`;
       }
     } else {
+      // Pub scoring
       if (N > 0) {
         text +=
           `\n• Tonight's show has ${fmtNum(X)} question${X === 1 ? "" : "s"}${perShowSuffix}.\n` +
@@ -553,11 +589,13 @@ export default function ShowMode({
     specialCount,
     totalPointsPossible,
     prizeList,
+    poolContribution,
     hostInfo.host,
     hostInfo.cohost,
     hostInfo.location,
     hostInfo.totalGames,
     hostInfo.startTimesText,
+    hostInfo.announcements,
     multiGameMeta.isMultiNight,
     multiGameMeta.venue,
   ]);
@@ -1448,6 +1486,32 @@ export default function ShowMode({
                   }}
                 />
               </label>
+
+              <label style={{ display: "block", marginBottom: ".6rem" }}>
+                <div style={{ marginBottom: 4 }}>
+                  Beginning-of-show announcements (optional)
+                </div>
+                <textarea
+                  value={hostInfo.announcements}
+                  onChange={(e) =>
+                    saveHostInfo({
+                      ...hostInfo,
+                      announcements: e.target.value,
+                    })
+                  }
+                  placeholder="Tonight's specials, birthdays, upcoming events, etc."
+                  rows={3}
+                  style={{
+                    width: "100%",
+                    padding: ".55rem .65rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                    resize: "vertical",
+                    fontFamily: tokens.font.body,
+                  }}
+                />
+              </label>
+
               <label style={{ display: "block", marginBottom: ".6rem" }}>
                 <div style={{ marginBottom: 4 }}>Number of prizes</div>
                 <input

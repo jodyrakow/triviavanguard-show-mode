@@ -9,7 +9,7 @@
  * grid: { [showTeamId]: { [showQuestionId]: cell } }
  * teams: [{ showTeamId, teamName, showBonus?: number }]
  * questions: [{ showQuestionId, order }]
- * scoring: { mode: "pub" | "pooled", pubPoints: number, poolPerQuestion: number }
+ * scoring: { mode: "pub" | "pooled" | "pooled-adaptive", pubPoints: number, poolPerQuestion: number, poolContribution: number, teamCount: number }
  */
 
 export function buildAnsweredAllMap(teams, questions, grid) {
@@ -72,7 +72,18 @@ export function computeAutoEarned(cell, scoring, correctCount) {
   if (scoring.mode === "pub") {
     return Number(scoring.pubPoints) || 0;
   }
+
   const n = Math.max(1, Number(correctCount) || 0);
+
+  // Pooled-adaptive: pool size = teamCount × poolContribution
+  if (scoring.mode === "pooled-adaptive") {
+    const teamCount = Number(scoring.teamCount) || 0;
+    const contribution = Number(scoring.poolContribution) || 0;
+    const pool = teamCount * contribution;
+    return Math.round(pool / n);
+  }
+
+  // Pooled-static: fixed pool size
   return Math.round((Number(scoring.poolPerQuestion) || 0) / n);
 }
 

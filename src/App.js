@@ -123,12 +123,16 @@ export default function App() {
   const [poolPerQuestion, setPoolPerQuestion] = useState(
     () => Number(localStorage.getItem("tv_poolPerQuestion")) || 500
   );
+  const [poolContribution, setPoolContribution] = useState(
+    () => Number(localStorage.getItem("tv_poolContribution")) || 10
+  );
 
   // Persist scoring settings to localStorage, scoringCache, and Supabase
   useEffect(() => {
     localStorage.setItem("tv_scoringMode", scoringMode);
     localStorage.setItem("tv_pubPoints", String(pubPoints));
     localStorage.setItem("tv_poolPerQuestion", String(poolPerQuestion));
+    localStorage.setItem("tv_poolContribution", String(poolContribution));
 
     if (!selectedShowId) return;
 
@@ -141,9 +145,10 @@ export default function App() {
         scoringMode: "pub",
         pubPoints: 10,
         poolPerQuestion: 500,
+        poolContribution: 10,
       };
 
-      const nextShared = { ...shared, scoringMode, pubPoints, poolPerQuestion };
+      const nextShared = { ...shared, scoringMode, pubPoints, poolPerQuestion, poolContribution };
 
       const next = {
         ...prev,
@@ -168,6 +173,7 @@ export default function App() {
               scoringMode: nextShared.scoringMode ?? "pub",
               pubPoints: nextShared.pubPoints ?? 10,
               poolPerQuestion: nextShared.poolPerQuestion ?? 500,
+              poolContribution: nextShared.poolContribution ?? 10,
             },
           }),
         }).catch(() => {});
@@ -180,6 +186,7 @@ export default function App() {
           scoringMode,
           pubPoints,
           poolPerQuestion,
+          poolContribution,
           ts: Date.now(),
         });
       } catch {}
@@ -189,7 +196,7 @@ export default function App() {
       } catch {}
       return next;
     });
-  }, [scoringMode, selectedShowId, poolPerQuestion, pubPoints]);
+  }, [scoringMode, selectedShowId, poolPerQuestion, pubPoints, poolContribution]);
 
   useEffect(() => {
     const savedPosition = localStorage.getItem("timerPosition");
@@ -596,6 +603,7 @@ export default function App() {
         scoringMode: mode,
         pubPoints: pub,
         poolPerQuestion: pool,
+        poolContribution: contrib,
       } = data || {};
       if (!showId) return;
       if (showId !== currentShowIdRef.current) return;
@@ -604,6 +612,7 @@ export default function App() {
       if (mode !== undefined) setScoringMode(mode);
       if (pub !== undefined) setPubPoints(Number(pub));
       if (pool !== undefined) setPoolPerQuestion(Number(pool));
+      if (contrib !== undefined) setPoolContribution(Number(contrib));
 
       // Update cache
       setScoringCache((prev) => {
@@ -615,12 +624,14 @@ export default function App() {
           scoringMode: "pub",
           pubPoints: 10,
           poolPerQuestion: 500,
+          poolContribution: 10,
         };
         const nextShared = {
           ...shared,
           ...(mode !== undefined && { scoringMode: mode }),
           ...(pub !== undefined && { pubPoints: Number(pub) }),
           ...(pool !== undefined && { poolPerQuestion: Number(pool) }),
+          ...(contrib !== undefined && { poolContribution: Number(contrib) }),
         };
         return {
           ...prev,
@@ -748,18 +759,31 @@ export default function App() {
               scoringMode: "pub",
               pubPoints: 10,
               poolPerQuestion: 500,
+              poolContribution: 10,
             };
-
-          // Update local scoring state from loaded data
-          if (loadedShared.scoringMode)
-            setScoringMode(loadedShared.scoringMode);
-          if (loadedShared.pubPoints !== undefined)
-            setPubPoints(Number(loadedShared.pubPoints));
-          if (loadedShared.poolPerQuestion !== undefined)
-            setPoolPerQuestion(Number(loadedShared.poolPerQuestion));
 
           // 🔧 FIX: Merge the new round data instead of replacing the entire show cache
           const updatedRound = json.round ?? prevShow[selectedRoundId] ?? { grid: {} };
+
+          // Option C: Only override scoring settings if the show has been started
+          // A show is considered "started" if there's actual scoring data (grid has entries)
+          // This allows Airtable config to be respected for fresh shows (even with pre-loaded teams),
+          // while preserving collaborative scoring settings for in-progress shows
+          const gridHasData = updatedRound?.grid && Object.keys(updatedRound.grid).length > 0;
+          const showHasBeenStarted = gridHasData;
+
+          if (showHasBeenStarted) {
+            // Update local scoring state from loaded Supabase data (show in progress)
+            if (loadedShared.scoringMode)
+              setScoringMode(loadedShared.scoringMode);
+            if (loadedShared.pubPoints !== undefined)
+              setPubPoints(Number(loadedShared.pubPoints));
+            if (loadedShared.poolPerQuestion !== undefined)
+              setPoolPerQuestion(Number(loadedShared.poolPerQuestion));
+            if (loadedShared.poolContribution !== undefined)
+              setPoolContribution(Number(loadedShared.poolContribution));
+          }
+          // Otherwise: Keep Airtable config that was set when the bundle loaded
 
           return {
             ...prev,
@@ -833,6 +857,38 @@ export default function App() {
 
         const bundle = res.data || null;
         setShowBundle(bundle);
+
+        // Pre-populate settings from Airtable config (if available)
+        if (bundle?.config) {
+          const config = bundle.config;
+
+          // Only set scoring mode if it's provided and valid
+          if (config.scoringMode) {
+            const mode = config.scoringMode.toLowerCase().replace(/\s*\(.*?\)\s*/g, '');
+            if (mode === 'pub') {
+              setScoringMode('pub');
+            } else if (mode === 'pooled' || mode === 'pooledstatic') {
+              setScoringMode('pooled');
+            } else if (mode === 'adaptive' || mode === 'pooledadaptive') {
+              setScoringMode('pooled-adaptive');
+            }
+          }
+
+          // Set pub points if provided
+          if (typeof config.pubPoints === 'number') {
+            setPubPoints(config.pubPoints);
+          }
+
+          // Set pool per question if provided
+          if (typeof config.poolPerQuestion === 'number') {
+            setPoolPerQuestion(config.poolPerQuestion);
+          }
+
+          // Set pool contribution if provided
+          if (typeof config.poolContribution === 'number') {
+            setPoolContribution(config.poolContribution);
+          }
+        }
 
         // set default round if needed
         const roundNums = (bundle?.rounds || [])
@@ -1179,6 +1235,17 @@ export default function App() {
               );
               if (!ok) return;
 
+              // Clear cache for the OLD show to prevent data leakage
+              const oldShowId = selectedShowId;
+              setScoringCache((prev) => {
+                const next = { ...prev };
+                // Remove the old show's data completely
+                delete next[oldShowId];
+                // Update localStorage immediately
+                localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
+                return next;
+              });
+
               // Clear in-memory, per-show UI bits
               setSelectedRoundId("");
               setVisibleImages({});
@@ -1278,6 +1345,10 @@ export default function App() {
           getClosestQuestionKey={getClosestQuestionKey}
           numberToLetter={numberToLetter}
           showTimer={showTimer}
+          scoringMode={scoringMode}
+          pubPoints={pubPoints}
+          poolPerQuestion={poolPerQuestion}
+          poolContribution={poolContribution}
           prizes={composedCachedState?.prizes ?? ""}
           setShowTimer={setShowTimer}
           setPrizes={(val) => patchShared({ prizes: String(val || "") })}
@@ -1365,6 +1436,8 @@ export default function App() {
           setPubPoints={setPubPoints}
           poolPerQuestion={poolPerQuestion}
           setPoolPerQuestion={setPoolPerQuestion}
+          poolContribution={poolContribution}
+          setPoolContribution={setPoolContribution}
         />
       )}
 
@@ -1446,6 +1519,19 @@ export default function App() {
                       )
                     : true;
                   if (!ok) return;
+
+                  // Clear cache for the OLD show to prevent data leakage
+                  if (selectedShowId) {
+                    const oldShowId = selectedShowId;
+                    setScoringCache((prev) => {
+                      const next = { ...prev };
+                      // Remove the old show's data completely
+                      delete next[oldShowId];
+                      // Update localStorage immediately
+                      localStorage.setItem("trivia.scoring.backup", JSON.stringify(next));
+                      return next;
+                    });
+                  }
 
                   setSelectedShowId(s.id);
                   setSelectedRoundId("");

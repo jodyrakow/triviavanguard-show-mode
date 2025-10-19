@@ -11,6 +11,7 @@ const normalizeTeam = (t) => ({
     ? t.teamName[0]
     : t.teamName || "(Unnamed team)",
   showBonus: Number(t.showBonus || 0),
+  isLeague: !!t.isLeague,
 });
 
 const ordinal = (n) => {
@@ -123,7 +124,7 @@ export default function ResultsMode({
         if (!prev) {
           byId.set(norm.showTeamId, norm);
         } else {
-          // keep latest non-null bonus, name, and teamId
+          // keep latest non-null bonus, name, teamId, and isLeague
           byId.set(norm.showTeamId, {
             ...prev,
             teamName: norm.teamName || prev.teamName,
@@ -132,6 +133,7 @@ export default function ResultsMode({
               typeof norm.showBonus === "number"
                 ? norm.showBonus
                 : prev.showBonus,
+            isLeague: norm.isLeague ?? prev.isLeague,
           });
         }
       }

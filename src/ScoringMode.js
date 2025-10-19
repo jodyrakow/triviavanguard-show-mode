@@ -33,6 +33,8 @@ export default function ScoringMode({
   setPubPoints,
   poolPerQuestion,
   setPoolPerQuestion,
+  poolContribution,
+  setPoolContribution,
 }) {
   const roundNumber = Number(selectedRoundId);
 
@@ -805,14 +807,22 @@ export default function ScoringMode({
         correctCountByShowQuestionId[showQuestionId] || 0
       );
 
-      // Use per-question pub value if provided, else global pubPoints
-      const perQPub = pubPerQuestionByShowQ[showQuestionId];
-      const base =
-        scoringMode === "pub"
-          ? Number(
-              perQPub !== null && perQPub !== undefined ? perQPub : pubPoints
-            )
-          : Math.round(Number(poolPerQuestion) / nCorrect);
+      // Calculate base points based on scoring mode
+      let base = 0;
+      if (scoringMode === "pub") {
+        // Use per-question pub value if provided, else global pubPoints
+        const perQPub = pubPerQuestionByShowQ[showQuestionId];
+        base = Number(
+          perQPub !== null && perQPub !== undefined ? perQPub : pubPoints
+        );
+      } else if (scoringMode === "pooled-adaptive") {
+        // Adaptive pool: teamCount × poolContribution, split among correct teams
+        const pool = teams.length * Number(poolContribution);
+        base = Math.round(pool / nCorrect);
+      } else {
+        // Static pooled: fixed pool split among correct teams
+        base = Math.round(Number(poolPerQuestion) / nCorrect);
+      }
 
       const override =
         cell.overridePoints === null || cell.overridePoints === undefined
@@ -828,6 +838,8 @@ export default function ScoringMode({
       scoringMode,
       pubPoints,
       poolPerQuestion,
+      poolContribution,
+      teams.length,
       pubPerQuestionByShowQ,
     ]
   );
@@ -1133,8 +1145,16 @@ export default function ScoringMode({
               <button
                 style={ui.segBtn(scoringMode === "pooled")}
                 onClick={() => setScoringMode("pooled")}
+                title="Static pool size"
               >
                 Pooled
+              </button>
+              <button
+                style={ui.segBtn(scoringMode === "pooled-adaptive")}
+                onClick={() => setScoringMode("pooled-adaptive")}
+                title="Pool adapts based on team count"
+              >
+                Adaptive
               </button>
             </div>
 
@@ -1161,6 +1181,36 @@ export default function ScoringMode({
                   }}
                   onKeyDown={onEnterBlur}
                 />
+              </label>
+            ) : scoringMode === "pooled-adaptive" ? (
+              <label
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: ".35rem",
+                }}
+                title={`Current pool: ${teams.length} teams × ${poolContribution} = ${teams.length * poolContribution} pts/question`}
+              >
+                <span style={{ whiteSpace: "nowrap" }}>Pts/Team:</span>
+                <input
+                  type="number"
+                  value={poolContribution}
+                  min={0}
+                  step={1}
+                  onChange={(e) =>
+                    setPoolContribution(Number(e.target.value || 0))
+                  }
+                  onKeyDown={onEnterBlur}
+                  style={{
+                    width: 70,
+                    padding: ".3rem .4rem",
+                    border: "1px solid #ccc",
+                    borderRadius: ".35rem",
+                  }}
+                />
+                <span style={{ fontSize: ".85rem", opacity: 0.7 }}>
+                  (Pool: {teams.length * poolContribution})
+                </span>
               </label>
             ) : (
               <label

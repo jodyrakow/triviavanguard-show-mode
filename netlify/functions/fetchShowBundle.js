@@ -78,6 +78,29 @@ export async function handler(event) {
         body: "Server not configured: AIRTABLE_TOKEN is missing.",
       };
 
+    // Fetch the Show record itself for configuration fields
+    let showConfig = {};
+    try {
+      const showUrl = buildUrl(`Shows/${showId}`);
+      const showRes = await fetch(showUrl.toString(), {
+        headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}` },
+      });
+      if (showRes.ok) {
+        const showData = await showRes.json();
+        const f = showData.fields || {};
+        showConfig = {
+          announcements: f["Announcements"] || "",
+          scoringMode: f["Scoring mode"] || null,
+          pubPoints: typeof f["Pub points"] === "number" ? f["Pub points"] : null,
+          poolPerQuestion: typeof f["Pool per question"] === "number" ? f["Pool per question"] : null,
+          poolContribution: typeof f["Pool contribution"] === "number" ? f["Pool contribution"] : null,
+        };
+      }
+    } catch (err) {
+      // Non-fatal: if we can't fetch Show config, continue without it
+      console.warn("Could not fetch Show config:", err);
+    }
+
     // Pull questions for this show
     const filterByFormula = `{Show ID} = '${showId}'`;
     const sort = [
@@ -212,6 +235,7 @@ export async function handler(event) {
       totalQuestions: records.length,
       rounds,
       teams,
+      config: showConfig,
       meta: {
         generatedAt: new Date().toISOString(),
         sortedBy: ["Round asc", "Sort order asc"],
