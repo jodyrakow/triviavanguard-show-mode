@@ -94,6 +94,7 @@ export async function handler(event) {
         showConfig = {
           announcements: f["Announcements"] || "",
           prizeDonor: f["Prize donor"] || "",
+          locationName: f["Location name"] || "",
           scoringMode: f["Scoring mode"] || null,
           pubPoints: typeof f["Pub points"] === "number" ? f["Pub points"] : null,
           poolPerQuestion: typeof f["Pool per question"] === "number" ? f["Pool per question"] : null,

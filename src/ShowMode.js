@@ -452,9 +452,10 @@ export default function ShowMode({
     const hName = (hostInfo.host || "your host").trim();
     const cName = (hostInfo.cohost || "your co-host").trim();
 
-    // Prefer explicit location, else parsed venue, else fallback
+    // Prefer explicit location, else show config location, else parsed venue, else fallback
     const loc = (
       hostInfo.location ||
+      showBundle?.config?.locationName ||
       multiGameMeta.venue ||
       "your venue"
     ).trim();
@@ -1393,7 +1394,7 @@ export default function ShowMode({
                 letterSpacing: ".01em",
               }}
             >
-              Hosts, location, & prizes
+              Show details
             </div>
 
             <div style={{ padding: ".9rem .9rem 0" }}>
