@@ -70,6 +70,7 @@ export async function handler(event) {
 
   try {
     const showId = event.queryStringParameters?.showId;
+    console.log(`[fetchShowBundle] Called with showId: ${showId}`);
     if (!showId)
       return { statusCode: 400, body: "Missing required query param: showId" };
     if (!AIRTABLE_TOKEN)
@@ -80,9 +81,11 @@ export async function handler(event) {
 
     // Fetch the Show record itself for configuration fields
     let showConfig = {};
+    console.log(`[fetchShowBundle] Fetching Show record from Shows/${showId}`);
     try {
-      const showUrl = buildUrl(`Shows/${showId}`);
-      const showRes = await fetch(showUrl.toString(), {
+      // Don't use buildUrl for single record fetch - it adds query params that cause 422 errors
+      const showUrl = `${AIRTABLE_API_URL}/Shows/${showId}`;
+      const showRes = await fetch(showUrl, {
         headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}` },
       });
       if (showRes.ok) {
@@ -90,15 +93,21 @@ export async function handler(event) {
         const f = showData.fields || {};
         showConfig = {
           announcements: f["Announcements"] || "",
+          prizeDonor: f["Prize donor"] || "",
           scoringMode: f["Scoring mode"] || null,
           pubPoints: typeof f["Pub points"] === "number" ? f["Pub points"] : null,
           poolPerQuestion: typeof f["Pool per question"] === "number" ? f["Pool per question"] : null,
           poolContribution: typeof f["Pool contribution"] === "number" ? f["Pool contribution"] : null,
         };
+        console.log(`[fetchShowBundle] Successfully fetched Show config:`, showConfig);
+      } else {
+        // Log when Show record fetch fails
+        const errorText = await showRes.text();
+        console.error(`[fetchShowBundle] Failed to fetch Show record: ${showRes.status} ${showRes.statusText}`, errorText);
       }
     } catch (err) {
       // Non-fatal: if we can't fetch Show config, continue without it
-      console.warn("Could not fetch Show config:", err);
+      console.error("Could not fetch Show config:", err);
     }
 
     // Pull questions for this show
@@ -242,6 +251,8 @@ export async function handler(event) {
         fieldsMode: ["all (no fields[] to avoid 422)"],
       },
     };
+
+    console.log(`[fetchShowBundle] Returning bundle with config:`, JSON.stringify(bundle.config));
 
     return {
       statusCode: 200,

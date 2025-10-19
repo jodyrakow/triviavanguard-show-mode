@@ -7,6 +7,7 @@ const AIRTABLE_TOKEN = process.env.AIRTABLE_TOKEN;
 
 exports.handler = async function () {
   try {
+    console.log('[fetchShows] Function called');
     // Tomorrow (local) as YYYY-MM-DD
     const d = new Date();
     d.setDate(d.getDate() + 1);
@@ -17,6 +18,7 @@ exports.handler = async function () {
     ].join("-");
 
     const filterFormula = `OR(IS_BEFORE({Date}, "${tomorrowStr}"), IS_SAME({Date}, "${tomorrowStr}"))`;
+    console.log('[fetchShows] Filter formula:', filterFormula);
 
     const showsRes = await fetch(
       `${AIRTABLE_API_URL}/Shows?maxRecords=10&sort[0][field]=Date&sort[0][direction]=desc&filterByFormula=${encodeURIComponent(
@@ -25,7 +27,14 @@ exports.handler = async function () {
       { headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}` } }
     );
 
+    if (!showsRes.ok) {
+      const errorText = await showsRes.text();
+      console.error(`[fetchShows] Failed to fetch shows: ${showsRes.status} ${showsRes.statusText}`, errorText);
+      throw new Error(`Airtable returned ${showsRes.status}: ${errorText}`);
+    }
+
     const showsData = await showsRes.json();
+    console.log('[fetchShows] Successfully fetched', showsData.records?.length || 0, 'shows');
 
     const Shows = (showsData.records || []).map((r) => ({
       Show: r.fields, // ← keep identical shape

@@ -650,7 +650,7 @@ export default function ShowMode({
             onClick={() => setHostModalOpen(true)}
             title="Set your names & location"
           >
-            Set host(s), location, & prizes
+            Set show details
           </ButtonPrimary>
 
           {!hasTiebreaker && isFinalRound && addTiebreaker && (
@@ -985,7 +985,11 @@ export default function ShowMode({
                             paddingTop: "0.25rem",
                             cursor: editQuestionField ? "pointer" : "default",
                           }}
-                          title={editQuestionField ? "Right-click or Ctrl+Click to edit" : ""}
+                          title={
+                            editQuestionField
+                              ? "Right-click or Ctrl+Click to edit"
+                              : ""
+                          }
                         >
                           <span
                             dangerouslySetInnerHTML={{
@@ -1011,7 +1015,11 @@ export default function ShowMode({
                             marginBottom: "0.01rem",
                             cursor: editQuestionField ? "pointer" : "default",
                           }}
-                          title={editQuestionField ? "Right-click or Ctrl+Click to edit" : ""}
+                          title={
+                            editQuestionField
+                              ? "Right-click or Ctrl+Click to edit"
+                              : ""
+                          }
                           onContextMenu={(e) => {
                             if (editQuestionField) {
                               e.preventDefault();
@@ -1210,7 +1218,11 @@ export default function ShowMode({
                             marginRight: "1.5rem",
                             cursor: editQuestionField ? "pointer" : "default",
                           }}
-                          title={editQuestionField ? "Right-click or Ctrl+Click to edit" : ""}
+                          title={
+                            editQuestionField
+                              ? "Right-click or Ctrl+Click to edit"
+                              : ""
+                          }
                           onContextMenu={(e) => {
                             if (editQuestionField) {
                               e.preventDefault();
@@ -1799,9 +1811,7 @@ export default function ShowMode({
               </label>
 
               <label style={{ display: "block", marginBottom: ".6rem" }}>
-                <div style={{ marginBottom: 4, fontWeight: 600 }}>
-                  Answer
-                </div>
+                <div style={{ marginBottom: 4, fontWeight: 600 }}>Answer</div>
                 <textarea
                   value={editingQuestion.answer}
                   onChange={(e) =>
@@ -1931,8 +1941,15 @@ export default function ShowMode({
 
             {/* Body */}
             <div style={{ padding: ".9rem .9rem .2rem" }}>
-              <div style={{ marginBottom: ".75rem", fontSize: ".95rem", opacity: 0.9 }}>
-                Add a tiebreaker question for this round. Teams will guess a number, and the closest answer wins if there's a tie.
+              <div
+                style={{
+                  marginBottom: ".75rem",
+                  fontSize: ".95rem",
+                  opacity: 0.9,
+                }}
+              >
+                Add a tiebreaker question for this round. Teams will guess a
+                number, and the closest answer wins if there's a tie.
               </div>
 
               <label style={{ display: "block", marginBottom: ".6rem" }}>

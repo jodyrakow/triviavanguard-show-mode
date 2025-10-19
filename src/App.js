@@ -765,12 +765,12 @@ export default function App() {
           // 🔧 FIX: Merge the new round data instead of replacing the entire show cache
           const updatedRound = json.round ?? prevShow[selectedRoundId] ?? { grid: {} };
 
-          // Option C: Only override scoring settings if the show has been started
+          // Option C: Only override scoring settings if the show has been started AND has actual scoring data saved
           // A show is considered "started" if there's actual scoring data (grid has entries)
-          // This allows Airtable config to be respected for fresh shows (even with pre-loaded teams),
-          // while preserving collaborative scoring settings for in-progress shows
+          // AND the shared data came from Supabase (not fallback defaults)
           const gridHasData = updatedRound?.grid && Object.keys(updatedRound.grid).length > 0;
-          const showHasBeenStarted = gridHasData;
+          const hasSupabaseSharedData = !!json.shared; // true if Supabase returned shared data
+          const showHasBeenStarted = gridHasData && hasSupabaseSharedData;
 
           if (showHasBeenStarted) {
             // Update local scoring state from loaded Supabase data (show in progress)
