@@ -274,8 +274,6 @@ export default function ResultsMode({
     const rawCount = localStorage.getItem(`tv_prizeCount_${showKey}`);
     const rawPrizes = localStorage.getItem(`tv_prizes_${showKey}`);
 
-    console.log("LOAD prizes", { showKey, rawCount, rawPrizes });
-
     if (rawCount !== null) {
       const n = Math.max(0, parseInt(rawCount, 10) || 0);
       setPrizeCount(n);

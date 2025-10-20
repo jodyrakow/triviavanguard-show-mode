@@ -359,10 +359,6 @@ export default function ShowMode({
     return parts.map((s) => s.trim()).filter(Boolean);
   }, [prizesText]);
 
-  // TEMP: debug prizes coming in
-  console.log("[ShowMode] prizes prop →", prizesText);
-  console.log("[ShowMode] prizeList →", prizeList);
-
   const ordinal = (n) => {
     const j = n % 10,
       k = n % 100;
