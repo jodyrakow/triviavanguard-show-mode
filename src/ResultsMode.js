@@ -32,6 +32,8 @@ export default function ResultsMode({
   poolPerQuestion,
   setPoolPerQuestion,
   selectedShowId,
+  prizes: prizesString = "", // NEW: prizes from shared state (newline-separated string)
+  setPrizes: setPrizesString, // NEW: setter for shared prizes
   questionEdits = {}, // { [showQuestionId]: { question?, flavorText?, answer? } }
 }) {
   const roundNumber = Number(selectedRoundId);
@@ -218,39 +220,36 @@ export default function ResultsMode({
   );
 
   // ----------------------- Prize editor state -----------------------
-  const [prizeEditorOpen, setPrizeEditorOpen] = useState(false);
-  const [prizeCount, setPrizeCount] = useState(0);
-  const [prizes, setPrizes] = useState([]);
+  // Convert shared prizes string to array
+  const prizes = useMemo(() => {
+    if (!prizesString) return [];
+    return prizesString.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  }, [prizesString]);
+
+  const prizeCount = prizes.length;
   const showPrizeCol = prizeCount > 0 && prizes.some((p) => p && p.length);
 
+  const [prizeEditorOpen, setPrizeEditorOpen] = useState(false);
   const [draftCount, setDraftCount] = useState(prizeCount);
   const [draftPrizes, setDraftPrizes] = useState(prizes);
 
   const openPrizeEditor = useCallback(() => {
-    setDraftCount((c) => c || prizeCount || 0);
-    setDraftPrizes((_) => (prizes.length ? [...prizes] : []));
+    setDraftCount(prizes.length || 0);
+    setDraftPrizes(prizes.length ? [...prizes] : []);
     setPrizeEditorOpen(true);
-  }, [prizeCount, prizes]);
+  }, [prizes]);
 
   const closePrizeEditor = useCallback(() => setPrizeEditorOpen(false), []);
 
-  const showKey = React.useMemo(
-    () => String(selectedShowId || showBundle?.showId || "").trim(),
-    [selectedShowId, showBundle?.showId]
-  );
-
   const applyPrizeEdits = useCallback(() => {
-    setPrizeCount(draftCount);
-    setPrizes(draftPrizes.slice(0, draftCount));
-    if (showKey) {
-      localStorage.setItem(`tv_prizeCount_${showKey}`, String(draftCount));
-      localStorage.setItem(
-        `tv_prizes_${showKey}`,
-        JSON.stringify(draftPrizes.slice(0, draftCount))
-      );
-    }
+    // Convert array back to newline-separated string for shared state
+    const prizesStr = draftPrizes
+      .slice(0, draftCount)
+      .filter(Boolean)
+      .join("\n");
+    setPrizesString?.(prizesStr);
     setPrizeEditorOpen(false);
-  }, [draftCount, draftPrizes, showKey]);
+  }, [draftCount, draftPrizes, setPrizesString]);
 
   const clearPrizes = useCallback(() => {
     setDraftCount(0);
@@ -265,39 +264,6 @@ export default function ResultsMode({
     },
     [draftPrizes]
   );
-
-  // Load persisted prizes when ResultsMode opens or show changes
-  React.useEffect(() => {
-    const showKey = String(selectedShowId || showBundle?.showId || "").trim();
-    if (!showKey) return;
-
-    const rawCount = localStorage.getItem(`tv_prizeCount_${showKey}`);
-    const rawPrizes = localStorage.getItem(`tv_prizes_${showKey}`);
-
-    if (rawCount !== null) {
-      const n = Math.max(0, parseInt(rawCount, 10) || 0);
-      setPrizeCount(n);
-    }
-    if (rawPrizes !== null) {
-      try {
-        const arr = JSON.parse(rawPrizes);
-        if (Array.isArray(arr)) setPrizes(arr);
-      } catch {}
-    }
-  }, [selectedShowId, showBundle?.showId]);
-
-  // Persist prizes whenever they change (per show)
-  // Persist prizes whenever they change (per show)
-  React.useEffect(() => {
-    const showKey = String(selectedShowId || showBundle?.showId || "").trim();
-    if (!showKey) return;
-
-    // don’t persist if still initial empty/default
-    if (prizeCount === 0 && prizes.length === 0) return;
-
-    localStorage.setItem(`tv_prizeCount_${showKey}`, String(prizeCount));
-    localStorage.setItem(`tv_prizes_${showKey}`, JSON.stringify(prizes));
-  }, [prizeCount, prizes, selectedShowId, showBundle?.showId]);
 
   // --- On-the-fly TB (OTF) state ---
   const [otfOpen, setOtfOpen] = useState(false);
