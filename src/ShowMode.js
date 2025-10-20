@@ -599,6 +599,7 @@ export default function ShowMode({
     hostInfo.announcements,
     multiGameMeta.isMultiNight,
     multiGameMeta.venue,
+    showBundle?.config?.locationName,
   ]);
 
   return (
