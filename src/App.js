@@ -23,6 +23,26 @@ const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
 export const supabase =
   supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
+// Default shared state structure for all shows
+const DEFAULT_SHARED_STATE = {
+  teams: [],
+  entryOrder: [],
+  prizes: "",
+  scoringMode: "pub",
+  pubPoints: 10,
+  poolPerQuestion: 500,
+  poolContribution: 10,
+  hostInfo: {
+    host: "",
+    cohost: "",
+    location: "",
+    totalGames: "",
+    startTimesText: "",
+    announcements: "",
+  },
+  tiebreakers: {}, // { [roundId]: tiebreakerQuestion }
+};
+
 // 🔐 PASSWORD PROTECTION
 const allowedPassword = "tv2025";
 const passwordKey = "showPasswordAuthorized";
@@ -580,15 +600,26 @@ export default function App() {
 
       setScoringCache((prev) => {
         const show = prev[showId] || {};
-        const shared = show._shared || {
-          teams: [],
-          entryOrder: [],
-          prizes: "",
-          scoringMode: "pub",
-          pubPoints: 10,
-          poolPerQuestion: 500,
-        };
+        const shared = show._shared || DEFAULT_SHARED_STATE;
         const nextShared = { ...shared, prizes: val };
+        return {
+          ...prev,
+          [showId]: { ...show, _shared: nextShared },
+        };
+      });
+    });
+
+    ch.on("broadcast", { event: "hostInfoUpdate" }, (msg) => {
+      const data = msg?.payload ?? msg;
+      const showId = data?.showId;
+      const hostInfo = data?.hostInfo;
+      if (!showId || !hostInfo) return;
+      if (showId !== currentShowIdRef.current) return;
+
+      setScoringCache((prev) => {
+        const show = prev[showId] || {};
+        const shared = show._shared || DEFAULT_SHARED_STATE;
+        const nextShared = { ...shared, hostInfo };
         return {
           ...prev,
           [showId]: { ...show, _shared: nextShared },
@@ -673,6 +704,38 @@ export default function App() {
       });
     });
 
+    // TIEBREAKER ADDED
+    ch.on("broadcast", { event: "tiebreakerAdded" }, (msg) => {
+      const data = msg?.payload ?? msg;
+      const { showId, roundId, tiebreakerQuestion } = data || {};
+      if (!showId || !roundId || !tiebreakerQuestion) return;
+      if (showId !== currentShowIdRef.current) return;
+
+      setShowBundle((prev) => {
+        if (!prev) return prev;
+
+        const updatedRounds = prev.rounds.map((r) => {
+          if (Number(r.round) === Number(roundId)) {
+            // Check if tiebreaker already exists (avoid duplicates)
+            const hasTB = r.questions.some(
+              (q) =>
+                (q.questionType || "").toLowerCase() === "tiebreaker" ||
+                String(q.questionOrder).toUpperCase() === "TB"
+            );
+            if (hasTB) return r; // Already has TB, don't add again
+
+            return {
+              ...r,
+              questions: [...r.questions, tiebreakerQuestion],
+            };
+          }
+          return r;
+        });
+
+        return { ...prev, rounds: updatedRounds };
+      });
+    });
+
     // expose helpers (safe via tvSend queue)
     window.sendMark = (payload) => window.tvSend("mark", payload);
     // App.js (right after window.tvSend is defined)
@@ -683,6 +746,7 @@ export default function App() {
     window.sendTeamRename = (payload) => window.tvSend("teamRename", payload);
     window.sendTeamRemove = (payload) => window.tvSend("teamRemove", payload);
     window.sendQuestionEdit = (payload) => window.tvSend("questionEdit", payload);
+    window.sendTiebreakerAdded = (payload) => window.tvSend("tiebreakerAdded", payload);
 
     setRtStatus("SUBSCRIBING");
     ch.subscribe((status) => {
@@ -931,7 +995,7 @@ export default function App() {
   const patchShared = (patch) => {
     setScoringCache((prev) => {
       const show = prev[selectedShowId] || {};
-      const shared = show._shared || { teams: [], entryOrder: [], prizes: "" };
+      const shared = show._shared || DEFAULT_SHARED_STATE;
 
       // merge the change (patch) into shared
       const nextShared = { ...shared, ...patch };
@@ -945,7 +1009,7 @@ export default function App() {
         },
       };
 
-      // Persist to Supabase using values from nextShared
+      // Persist to Supabase using values from nextShared - save COMPLETE shared state
       saveDebounced("shared", () => {
         fetch("/.netlify/functions/supaSaveScoring", {
           method: "POST",
@@ -960,6 +1024,9 @@ export default function App() {
               scoringMode: nextShared.scoringMode ?? "pub",
               pubPoints: nextShared.pubPoints ?? 10,
               poolPerQuestion: nextShared.poolPerQuestion ?? 500,
+              poolContribution: nextShared.poolContribution ?? 10,
+              hostInfo: nextShared.hostInfo ?? DEFAULT_SHARED_STATE.hostInfo,
+              tiebreakers: nextShared.tiebreakers ?? {},
             },
           }),
         }).catch(() => {});
@@ -967,11 +1034,22 @@ export default function App() {
 
       // Realtime broadcast so other hosts update instantly
       try {
-        window.tvSend?.("prizesUpdate", {
-          showId: selectedShowId,
-          prizes: nextShared.prizes ?? "",
-          ts: Date.now(),
-        });
+        // Broadcast prizes if they changed
+        if (patch.prizes !== undefined) {
+          window.tvSend?.("prizesUpdate", {
+            showId: selectedShowId,
+            prizes: nextShared.prizes ?? "",
+            ts: Date.now(),
+          });
+        }
+        // Broadcast hostInfo if it changed
+        if (patch.hostInfo !== undefined) {
+          window.tvSend?.("hostInfoUpdate", {
+            showId: selectedShowId,
+            hostInfo: nextShared.hostInfo ?? DEFAULT_SHARED_STATE.hostInfo,
+            ts: Date.now(),
+          });
+        }
       } catch {}
 
       // optional local backup
@@ -986,7 +1064,7 @@ export default function App() {
   // 🔸 Compose a single cachedState shape shared by all modes
   const composedCachedState = (() => {
     const showCache = scoringCache[selectedShowId] ?? {};
-    const shared = showCache._shared ?? null; // { teams, entryOrder }
+    const shared = showCache._shared ?? null; // { teams, entryOrder, prizes, hostInfo, etc. }
     const roundCache = showCache[selectedRoundId] ?? null; // { grid }
     if (!shared && !roundCache) return null;
     return {
@@ -994,6 +1072,7 @@ export default function App() {
       entryOrder: shared?.entryOrder ?? [],
       grid: roundCache?.grid ?? {},
       prizes: shared?.prizes ?? "",
+      hostInfo: shared?.hostInfo ?? DEFAULT_SHARED_STATE.hostInfo,
     };
   })();
 
@@ -1001,15 +1080,19 @@ export default function App() {
   const showBundleWithEdits = useMemo(() => {
     if (!showBundle) return null;
     const edits = questionEdits[selectedShowId];
-    if (!edits || Object.keys(edits).length === 0) return showBundle;
+    const showCache = scoringCache[selectedShowId];
+    const tiebreakers = showCache?._shared?.tiebreakers || {};
 
-    // Deep clone and apply edits
+    // Deep clone and apply edits + tiebreakers
     const updatedBundle = {
       ...showBundle,
-      rounds: (showBundle.rounds || []).map((round) => ({
-        ...round,
-        questions: (round.questions || []).map((q) => {
-          const edit = edits[q.id];
+      rounds: (showBundle.rounds || []).map((round) => {
+        const roundNum = String(round.round);
+        const tb = tiebreakers[roundNum];
+
+        // Apply question edits
+        let questions = (round.questions || []).map((q) => {
+          const edit = edits?.[q.id];
           if (!edit) return q;
 
           return {
@@ -1019,12 +1102,26 @@ export default function App() {
             ...(edit.answer !== undefined && { answer: edit.answer }),
             _edited: true, // flag for UI to show indicator
           };
-        }),
-      })),
+        });
+
+        // Add tiebreaker if one exists for this round (and not already added)
+        if (tb) {
+          const hasTB = questions.some(
+            (q) =>
+              (q.questionType || "").toLowerCase() === "tiebreaker" ||
+              String(q.questionOrder).toUpperCase() === "TB"
+          );
+          if (!hasTB) {
+            questions = [...questions, tb];
+          }
+        }
+
+        return { ...round, questions };
+      }),
     };
 
     return updatedBundle;
-  }, [showBundle, questionEdits, selectedShowId]);
+  }, [showBundle, questionEdits, selectedShowId, scoringCache]);
 
   // Helper function to edit a question field
   const editQuestionField = (showQuestionId, field, value) => {
@@ -1113,11 +1210,53 @@ export default function App() {
       return { ...prev, rounds: updatedRounds };
     });
 
-    // Store in localStorage for persistence
-    try {
-      const key = `trivia.addedTiebreaker.${selectedShowId}.${selectedRoundId}`;
-      localStorage.setItem(key, JSON.stringify(tiebreakerQuestion));
-    } catch {}
+    // Save to Supabase shared state
+    setScoringCache((prev) => {
+      const show = prev[selectedShowId] || {};
+      const shared = show._shared || DEFAULT_SHARED_STATE;
+      const tiebreakers = shared.tiebreakers || {};
+
+      const nextShared = {
+        ...shared,
+        tiebreakers: {
+          ...tiebreakers,
+          [selectedRoundId]: tiebreakerQuestion,
+        },
+      };
+
+      const next = {
+        ...prev,
+        [selectedShowId]: {
+          ...show,
+          _shared: nextShared,
+        },
+      };
+
+      // Save to Supabase
+      saveDebounced("shared", () => {
+        fetch("/.netlify/functions/supaSaveScoring", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            showId: selectedShowId,
+            roundId: "shared",
+            payload: {
+              teams: nextShared.teams ?? [],
+              entryOrder: nextShared.entryOrder ?? [],
+              prizes: nextShared.prizes ?? "",
+              scoringMode: nextShared.scoringMode ?? "pub",
+              pubPoints: nextShared.pubPoints ?? 10,
+              poolPerQuestion: nextShared.poolPerQuestion ?? 500,
+              poolContribution: nextShared.poolContribution ?? 10,
+              hostInfo: nextShared.hostInfo ?? DEFAULT_SHARED_STATE.hostInfo,
+              tiebreakers: nextShared.tiebreakers ?? {},
+            },
+          }),
+        }).catch(() => {});
+      });
+
+      return next;
+    });
 
     // Broadcast to other hosts
     try {
@@ -1350,8 +1489,10 @@ export default function App() {
           poolPerQuestion={poolPerQuestion}
           poolContribution={poolContribution}
           prizes={composedCachedState?.prizes ?? ""}
+          hostInfo={composedCachedState?.hostInfo ?? DEFAULT_SHARED_STATE.hostInfo}
           setShowTimer={setShowTimer}
           setPrizes={(val) => patchShared({ prizes: String(val || "") })}
+          setHostInfo={(val) => patchShared({ hostInfo: val })}
           editQuestionField={editQuestionField}
           addTiebreaker={addTiebreaker}
         />
@@ -1393,7 +1534,16 @@ export default function App() {
               };
 
               // Persist to Supabase (NOT Airtable)
-              // shared
+              // shared - save COMPLETE shared state to avoid losing prizes/scoring settings
+              const completeShared = {
+                teams,
+                entryOrder,
+                prizes: prevShared.prizes ?? "",
+                scoringMode: prevShared.scoringMode ?? "pub",
+                pubPoints: prevShared.pubPoints ?? 10,
+                poolPerQuestion: prevShared.poolPerQuestion ?? 500,
+                poolContribution: prevShared.poolContribution ?? 10,
+              };
               saveDebounced("shared", () => {
                 fetch("/.netlify/functions/supaSaveScoring", {
                   method: "POST",
@@ -1401,7 +1551,7 @@ export default function App() {
                   body: JSON.stringify({
                     showId: selectedShowId,
                     roundId: "shared",
-                    payload: { teams, entryOrder },
+                    payload: completeShared,
                   }),
                 }).catch(() => {});
               });
@@ -1451,6 +1601,7 @@ export default function App() {
           scoringMode={scoringMode}
           pubPoints={pubPoints}
           poolPerQuestion={poolPerQuestion}
+          prizes={composedCachedState?.prizes ?? ""}
           editQuestionField={editQuestionField}
         />
       )}

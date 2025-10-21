@@ -95,6 +95,7 @@ export default function AnswersMode({
   scoringMode, // "pub" | "pooled"
   pubPoints, // (not displayed here, only pooled uses poolPerQuestion)
   poolPerQuestion,
+  prizes = "", // NEW: prizes from shared state (newline-separated string)
   editQuestionField,
 }) {
   // Unified question editor modal state
@@ -155,19 +156,11 @@ export default function AnswersMode({
 
   const grid = useMemo(() => cachedState?.grid ?? {}, [cachedState]); // {[showTeamId]: {[showQuestionId]: {isCorrect, questionBonus, overridePoints}}}
 
-  // --------- Prize state (load from localStorage) ---------
-  const [prizeCount, setPrizeCount] = useState(0);
-
-  React.useEffect(() => {
-    const showKey = String(selectedShowId || showBundle?.showId || "").trim();
-    if (!showKey) return;
-
-    const rawCount = localStorage.getItem(`tv_prizeCount_${showKey}`);
-    if (rawCount !== null) {
-      const n = Math.max(0, parseInt(rawCount, 10) || 0);
-      setPrizeCount(n);
-    }
-  }, [selectedShowId, showBundle?.showId]);
+  // --------- Prize count (derived from prizes prop) ---------
+  const prizeCount = useMemo(() => {
+    if (!prizes) return 0;
+    return prizes.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).length;
+  }, [prizes]);
 
   // --------- Tiebreaker detection (similar to ResultsMode) ---------
   const tbQ = useMemo(() => {

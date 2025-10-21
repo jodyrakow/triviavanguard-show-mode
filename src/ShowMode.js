@@ -43,6 +43,15 @@ export default function ShowMode({
   poolContribution = 10,
   prizes = "",
   setPrizes,
+  hostInfo: hostInfoProp = {
+    host: "",
+    cohost: "",
+    location: "",
+    totalGames: "",
+    startTimesText: "",
+    announcements: "",
+  },
+  setHostInfo: setHostInfoProp,
   editQuestionField,
   addTiebreaker,
 }) {
@@ -59,14 +68,14 @@ export default function ShowMode({
 
   // under other React.useState(...) lines near the top:
   const [hostModalOpen, setHostModalOpen] = React.useState(false);
-  const [hostInfo, setHostInfo] = React.useState({
-    host: "",
-    cohost: "",
-    location: "",
-    totalGames: "",
-    startTimesText: "",
-    announcements: "",
-  });
+  // Use hostInfo from props (synced to Supabase), with local state for immediate UI updates
+  const [hostInfo, setHostInfo] = React.useState(hostInfoProp);
+
+  // Sync prop changes to local state (when other hosts update)
+  React.useEffect(() => {
+    setHostInfo(hostInfoProp);
+  }, [hostInfoProp]);
+
   // show name (best-effort)
   const showName =
     (showBundle?.Show && showBundle?.Show?.Show) || showBundle?.showName || "";
@@ -103,13 +112,12 @@ export default function ShowMode({
     [multiGameMeta.venue]
   );
 
+  // Auto-fill location from show name if empty
   React.useEffect(() => {
-    if (inferredLocation) {
+    if (inferredLocation && !hostInfo.location) {
       const next = { ...hostInfo, location: inferredLocation };
       setHostInfo(next);
-      try {
-        localStorage.setItem("tv_hostInfo", JSON.stringify(next));
-      } catch {}
+      setHostInfoProp?.(next); // Save to Supabase
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inferredLocation]);
@@ -140,54 +148,22 @@ export default function ShowMode({
     setPrizeCountInput(prizeLines.length);
   }, [prizeLines.length]);
 
-  // after your existing hostInfo load-from-localStorage effect
+  // Pre-populate announcements from Airtable config (if available and not already set)
   React.useEffect(() => {
-    if (!hostInfo.location.trim() && inferredLocation) {
-      const next = { ...hostInfo, location: inferredLocation };
+    if (showBundle?.config?.announcements && !hostInfo.announcements) {
+      const next = {
+        ...hostInfo,
+        announcements: showBundle.config.announcements,
+      };
       setHostInfo(next);
-      try {
-        localStorage.setItem("tv_hostInfo", JSON.stringify(next));
-      } catch {}
+      setHostInfoProp?.(next);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inferredLocation]); // depend on inferredLocation only
-
-  // load from localStorage once
-  React.useEffect(() => {
-    try {
-      const raw = localStorage.getItem("tv_hostInfo");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") {
-          setHostInfo((prev) => ({
-            ...prev,
-            host: parsed.host || "",
-            cohost: parsed.cohost || "",
-            location: parsed.location || "",
-            totalGames: parsed.totalGames || "",
-            startTimesText: parsed.startTimesText || "",
-            announcements: parsed.announcements || "",
-          }));
-        }
-      }
-    } catch {}
-  }, []);
-
-  // Pre-populate announcements from Airtable config (if available)
-  React.useEffect(() => {
-    if (showBundle?.config?.announcements) {
-      setHostInfo((prev) => ({
-        ...prev,
-        announcements: showBundle.config.announcements,
-      }));
-    }
   }, [showBundle?.config?.announcements]);
 
   const saveHostInfo = (next) => {
-    setHostInfo(next);
-    try {
-      localStorage.setItem("tv_hostInfo", JSON.stringify(next));
-    } catch {}
+    setHostInfo(next); // Update local state immediately for UI responsiveness
+    setHostInfoProp?.(next); // Save to Supabase (synced across hosts)
   };
 
   // ✅ make allRounds stable
@@ -570,12 +546,12 @@ export default function ShowMode({
     text +=
       `\n` +
       `Before we get going, here are the rules.\n` +
-      `• To keep things fair, no electronic devices may be out during the round. Whether you’re inside, outside, or in the bathroom, if you step out, please return with only your charming personality, not with answers you looked up while you were gone. If it looks like cheating, we have to treat it like cheating.\n` +
-      `• Don't shout out the answers. Use your note pads to share ideas with your team.\n` +
+      `• To keep things fair, no electronic devices may be out during the round. If you step away from your table, please return with only your charming personality, not with answers you looked up while you were gone. If it looks like cheating, we have to treat it like cheating.\n` +
+      `• Don't shout out the answers. You might accidentally give answers away to other teams. Use your handy dandy note pads to share ideas with your team instead.\n` +
       `• Spelling doesn't count unless we say it does.\n` +
-      `• Unless we say otherwise, when we ask for someone’s name, we want their last name. If any part of your answer is wrong, the whole thing is wrong. For fictional characters, either first or last name is okay unless we say otherwise.\n` +
-      `• Our answer is the only correct answer. Dispute if you like and we’ll consider it, but our decisions are final.\n` +
-      `• Be generous to the staff—they're working hard to ensure you have a great night.\n` +
+      `• Unless we say otherwise, when we ask for someone’s name, we want their last name. Give us their first name too, if you'd like, but just remember that if any part of your answer is wrong, the whole thing is wrong. For fictional characters, either their first or last name is okay unless we say otherwise.\n` +
+      `• Our answer is the correct answer. Dispute if you like and we’ll consider it, but our decisions are final.\n` +
+      `• Finally, be generous to the staff—they're working hard to ensure you have a great night.\n` +
       `• ${cName} will be coming around with tonight's visual round. That’s your signal to put those phones away because the contest starts now. Good luck!`;
 
     return text;
