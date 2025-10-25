@@ -330,10 +330,23 @@ export default function ResultsMode({
           }
         }
 
-        const earned = override !== null ? override : base;
+        // Handle bonus differently based on scoring mode
+        let earned = 0;
+        if (override !== null) {
+          // Override always takes precedence
+          earned = override;
+        } else if (scoringMode === "pub") {
+          // Pub mode: bonus is flat points added
+          earned = base + (isCorrect ? qb : 0);
+        } else {
+          // Pooled mode: bonus is a multiplier
+          const multiplier = qb || 1; // default to 1 if not set
+          earned = Math.round(base * multiplier);
+        }
+
         totalByTeam.set(
           t.showTeamId,
-          (totalByTeam.get(t.showTeamId) || 0) + earned + (isCorrect ? qb : 0)
+          (totalByTeam.get(t.showTeamId) || 0) + earned
         );
       }
     }

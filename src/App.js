@@ -1459,6 +1459,85 @@ export default function App() {
         </div>
       )}
 
+      {/* Question Edit Conflict Warning */}
+      {selectedShowId && questionEdits[selectedShowId] && Object.keys(questionEdits[selectedShowId]).length > 0 && (
+        <div
+          style={{
+            margin: `${tokens.spacing.md} 0`,
+            padding: `${tokens.spacing.sm} ${tokens.spacing.md}`,
+            background: "rgba(255, 193, 7, 0.1)",
+            border: `2px solid #ffc107`,
+            borderRadius: ".5rem",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: tokens.spacing.md,
+          }}
+        >
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, color: "#f57c00", marginBottom: ".25rem" }}>
+              ⚠️ Local Question Edits Detected
+            </div>
+            <div style={{ fontSize: ".9rem", opacity: 0.9 }}>
+              You have {Object.keys(questionEdits[selectedShowId]).length} edited question(s) saved locally.
+              These override the current Airtable data. If questions were updated in Airtable, you won't see those changes.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: ".5rem", flexShrink: 0 }}>
+            <button
+              onClick={() => {
+                const confirmed = window.confirm(
+                  `Clear all local question edits for this show and reload from Airtable?\n\nThis will discard ${Object.keys(questionEdits[selectedShowId]).length} local edit(s).`
+                );
+                if (confirmed) {
+                  setQuestionEdits((prev) => {
+                    const next = { ...prev };
+                    delete next[selectedShowId];
+                    try {
+                      localStorage.setItem("trivia.questionEdits.backup", JSON.stringify(next));
+                    } catch {}
+                    return next;
+                  });
+                }
+              }}
+              style={{
+                padding: ".4rem .75rem",
+                background: colors.white,
+                border: `2px solid #f57c00`,
+                borderRadius: ".35rem",
+                color: "#f57c00",
+                fontWeight: 600,
+                cursor: "pointer",
+                fontSize: ".9rem",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Use Airtable Version
+            </button>
+            <button
+              onClick={() => {
+                // Just dismiss the warning - they're keeping their edits
+                // We could add a "dismissed" state if we want the banner to stay hidden
+                alert("Keeping local edits. To use the Airtable version later, click 'Use Airtable Version' in this warning banner.");
+              }}
+              style={{
+                padding: ".4rem .75rem",
+                background: "#f57c00",
+                border: `2px solid #f57c00`,
+                borderRadius: ".35rem",
+                color: colors.white,
+                fontWeight: 600,
+                cursor: "pointer",
+                fontSize: ".9rem",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Keep Local Edits
+            </button>
+          </div>
+        </div>
+      )}
+
       {activeMode === "show" && (
         <ShowMode
           showBundle={showBundleWithEdits || { rounds: [], teams: [] }}

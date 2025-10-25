@@ -829,9 +829,22 @@ export default function ScoringMode({
           ? null
           : Number(cell.overridePoints);
 
-      const earned = override !== null ? override : base;
-      const bonus = Number(cell.questionBonus || 0); // add only if correct
-      return earned + bonus;
+      // Handle bonus differently based on scoring mode
+      let earned = 0;
+      if (override !== null) {
+        // Override always takes precedence
+        earned = override;
+      } else if (scoringMode === "pub") {
+        // Pub mode: bonus is flat points added
+        const bonus = Number(cell.questionBonus || 0);
+        earned = base + bonus;
+      } else {
+        // Pooled mode: bonus is a multiplier
+        const multiplier = Number(cell.questionBonus || 0) || 1; // default to 1 if not set
+        earned = Math.round(base * multiplier);
+      }
+
+      return earned;
     },
     [
       correctCountByShowQuestionId,
@@ -1839,11 +1852,13 @@ export default function ScoringMode({
                     color: theme.accent,
                   }}
                 >
-                  Bonus points
+                  {scoringMode === "pub" ? "Bonus points" : "Bonus multiplier"}
                 </div>
                 <input
                   autoFocus
                   type="number"
+                  step={scoringMode === "pub" ? "1" : "0.1"}
+                  placeholder={scoringMode === "pub" ? "e.g., 5" : "e.g., 1.5"}
                   value={editingCell.draftBonus}
                   onChange={(e) =>
                     setEditingCell((p) => ({

@@ -230,11 +230,31 @@ export default function AnswersMode({
         const cell = getCell(t.showTeamId, q.showQuestionId);
         if (!cell?.isCorrect) continue;
 
-        // Simplified scoring - just add points
-        const base = scoringMode === "pub" ? Number(pubPoints) : 10; // simplified
+        // Calculate base points (simplified - doesn't account for per-question variations)
+        const base = scoringMode === "pub" ? Number(pubPoints) : Number(poolPerQuestion);
+
+        // Get bonus/multiplier and override
+        const qb = Number(cell.questionBonus || 0);
+        const override = cell.overridePoints === null || cell.overridePoints === undefined
+          ? null
+          : Number(cell.overridePoints);
+
+        // Handle bonus differently based on scoring mode
+        let earned = 0;
+        if (override !== null) {
+          earned = override;
+        } else if (scoringMode === "pub") {
+          // Pub mode: bonus is flat points added
+          earned = base + qb;
+        } else {
+          // Pooled mode: bonus is a multiplier (simplified - assumes equal distribution)
+          const multiplier = qb || 1;
+          earned = Math.round(base * multiplier);
+        }
+
         totalByTeam.set(
           t.showTeamId,
-          (totalByTeam.get(t.showTeamId) || 0) + base
+          (totalByTeam.get(t.showTeamId) || 0) + earned
         );
       }
     }
