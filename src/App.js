@@ -16,6 +16,7 @@ import {
   Button,
 } from "./styles/index.js";
 import { createClient } from "@supabase/supabase-js";
+import triviaVanguardLogo from "./trivia-vanguard-logo.svg";
 
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
 const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1277,16 +1278,15 @@ export default function App() {
         backgroundColor: colors.bg,
       }}
     >
-      <h1
+      <img
+        src={triviaVanguardLogo}
+        alt="Trivia Vanguard"
         style={{
-          fontSize: "3rem",
-          color: colors.dark,
+          height: "80px",
           marginTop: tokens.spacing.xl,
-          marginBottom: "0",
+          marginBottom: tokens.spacing.sm,
         }}
-      >
-        TriviaVanguard
-      </h1>
+      />
       <h2
         style={{
           fontSize: "1.75rem",
