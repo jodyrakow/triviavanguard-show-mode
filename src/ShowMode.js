@@ -639,6 +639,19 @@ export default function ShowMode({
             {showTimer ? "Hide timer" : "Show timer"}
           </ButtonPrimary>
 
+          {showTimer && (
+            <Button
+              onClick={() => {
+                const defaultPos = { x: 0, y: 0 };
+                setTimerPosition(defaultPos);
+                localStorage.setItem("timerPosition", JSON.stringify(defaultPos));
+              }}
+              title="Reset timer to top-left corner"
+            >
+              Reset timer position
+            </Button>
+          )}
+
           <ButtonPrimary
             onClick={() => setScriptOpen(true)}
             title="Show a host-ready script with tonight's details"
@@ -1721,21 +1734,6 @@ export default function ShowMode({
                 min={5}
                 max={300}
               />
-
-              <Button
-                onClick={() => {
-                  const defaultPos = { x: 0, y: 0 };
-                  setTimerPosition(defaultPos);
-                  localStorage.setItem("timerPosition", JSON.stringify(defaultPos));
-                }}
-                style={{
-                  marginTop: "0.5rem",
-                  fontSize: "0.75rem",
-                  padding: "0.25rem 0.5rem",
-                }}
-              >
-                Reset Position
-              </Button>
             </div>
           </Draggable>
         </div>

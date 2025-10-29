@@ -16,7 +16,7 @@ import {
   Button,
 } from "./styles/index.js";
 import { createClient } from "@supabase/supabase-js";
-import triviaVanguardLogo from "./trivia-vanguard-logo.svg";
+import triviaVanguardLogo from "./trivia-vanguard-logo.png";
 
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
 const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -1347,21 +1347,24 @@ export default function App() {
         backgroundColor: colors.bg,
       }}
     >
-      <img
-        src={triviaVanguardLogo}
-        alt="Trivia Vanguard"
-        style={{
-          height: "80px",
-          marginTop: tokens.spacing.xl,
-          marginBottom: tokens.spacing.sm,
-        }}
-      />
+      <div style={{ textAlign: "center", marginBottom: tokens.spacing.lg }}>
+        <img
+          src={triviaVanguardLogo}
+          alt="Trivia Vanguard"
+          style={{
+            height: "100px",
+            display: "inline-block",
+          }}
+        />
+      </div>
+
       <h2
         style={{
           fontSize: "1.75rem",
           color: colors.dark,
-          textIndent: "0.75rem",
-          marginTop: "-.25rem",
+          textAlign: "center",
+          marginTop: 0,
+          marginBottom: tokens.spacing.md,
         }}
       >
         {activeMode === "score"
