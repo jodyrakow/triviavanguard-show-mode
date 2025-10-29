@@ -199,7 +199,6 @@ export default function App() {
               hostInfo: nextShared.hostInfo ?? DEFAULT_SHARED_STATE.hostInfo,
               tiebreakers: nextShared.tiebreakers ?? {},
               questionEdits: nextShared.questionEdits ?? {},
-              questionEdits: nextShared.questionEdits ?? {},
             },
           }),
         }).catch(() => {});
