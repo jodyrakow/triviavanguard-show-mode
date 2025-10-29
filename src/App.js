@@ -833,9 +833,7 @@ export default function App() {
           // Option C: Only override scoring settings if the show has been started AND has actual scoring data saved
           // A show is considered "started" if there's actual scoring data (grid has entries)
           // AND the shared data came from Supabase (not fallback defaults)
-          const gridHasData = updatedRound?.grid && Object.keys(updatedRound.grid).length > 0;
           const hasSupabaseSharedData = !!json.shared; // true if Supabase returned shared data
-          const showHasBeenStarted = gridHasData && hasSupabaseSharedData;
 
           // Always load scoring settings from Supabase if they exist
           // This ensures settings persist through refresh even before scoring starts
