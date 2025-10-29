@@ -56,6 +56,15 @@ export default function ShowMode({
   addTiebreaker,
 }) {
   const [scriptOpen, setScriptOpen] = React.useState(false);
+  const [scriptSize, setScriptSize] = React.useState(() => {
+    try {
+      const saved = localStorage.getItem("scriptModalSize");
+      return saved ? JSON.parse(saved) : { width: "720px", height: "60vh" };
+    } catch {
+      return { width: "720px", height: "60vh" };
+    }
+  });
+  const scriptTextareaRef = React.useRef(null);
 
   // Unified question editor modal state
   const [editingQuestion, setEditingQuestion] = React.useState(null);
@@ -542,6 +551,13 @@ export default function ShowMode({
       }
     }
 
+    // --- Count visual rounds ---
+    const visualRoundCount = sortedGroupedEntries.filter(([, cat]) =>
+      Object.values(cat?.questions || {}).some((q) =>
+        (q?.["Question type"] || "").includes("Visual")
+      )
+    ).length;
+
     // --- Rules (always on) ---
     text +=
       `\n` +
@@ -549,10 +565,19 @@ export default function ShowMode({
       `• To keep things fair, no electronic devices may be out during the round. If you step away from your table, please return with only your charming personality, not with answers you looked up while you were gone. If it looks like cheating, we have to treat it like cheating.\n` +
       `• Don't shout out the answers. You might accidentally give answers away to other teams. Use your handy dandy note pads to share ideas with your team instead.\n` +
       `• Spelling doesn't count unless we say it does.\n` +
-      `• Unless we say otherwise, when we ask for someone’s name, we want their last name. Give us their first name too, if you'd like, but just remember that if any part of your answer is wrong, the whole thing is wrong. For fictional characters, either their first or last name is okay unless we say otherwise.\n` +
-      `• Our answer is the correct answer. Dispute if you like and we’ll consider it, but our decisions are final.\n` +
-      `• Finally, be generous to the staff—they're working hard to ensure you have a great night.\n` +
-      `• ${cName} will be coming around with tonight's visual round. That’s your signal to put those phones away because the contest starts now. Good luck!`;
+      `• Unless we say otherwise, when we ask for someone's name, we want their last name. Give us their first name too, if you'd like, but just remember that if any part of your answer is wrong, the whole thing is wrong. For fictional characters, either their first or last name is okay unless we say otherwise.\n` +
+      `• Our answer is the correct answer. Dispute if you like and we'll consider it, but our decisions are final.\n` +
+      `• Finally, be generous to the staff—they're working hard to ensure you have a great night.\n`;
+
+    // Visual round announcement
+    if (visualRoundCount > 0) {
+      const visualText = visualRoundCount === 1
+        ? `tonight's visual round`
+        : `tonight's first visual round`;
+      text += `• ${cName} will be coming around with ${visualText}. That's your signal to put those phones away because the contest starts now. Good luck!`;
+    } else {
+      text += `• Good luck!`;
+    }
 
     return text;
   }, [
@@ -572,6 +597,7 @@ export default function ShowMode({
     multiGameMeta.isMultiNight,
     multiGameMeta.venue,
     showBundle?.config?.locationName,
+    sortedGroupedEntries,
   ]);
 
   return (
@@ -1258,7 +1284,7 @@ export default function ShowMode({
           <div
             onMouseDown={(e) => e.stopPropagation()}
             style={{
-              width: "min(92vw, 720px)",
+              width: `min(92vw, ${scriptSize.width})`,
               background: "#fff",
               borderRadius: ".6rem",
               border: `1px solid ${theme.accent}`,
@@ -1268,6 +1294,7 @@ export default function ShowMode({
               display: "flex",
               flexDirection: "column",
               maxHeight: "85vh",
+              resize: "both",
             }}
           >
             <div
@@ -1285,11 +1312,22 @@ export default function ShowMode({
             </div>
 
             <textarea
+              ref={scriptTextareaRef}
               readOnly
               value={hostScript}
+              onMouseUp={() => {
+                if (scriptTextareaRef.current) {
+                  const newSize = {
+                    width: scriptTextareaRef.current.parentElement.style.width || scriptSize.width,
+                    height: scriptTextareaRef.current.style.height || scriptSize.height,
+                  };
+                  setScriptSize(newSize);
+                  localStorage.setItem("scriptModalSize", JSON.stringify(newSize));
+                }
+              }}
               style={{
                 width: "100%",
-                minHeight: "40vh",
+                minHeight: scriptSize.height,
                 resize: "vertical",
                 padding: "1rem",
                 border: "1px solid #ddd",
@@ -1683,6 +1721,21 @@ export default function ShowMode({
                 min={5}
                 max={300}
               />
+
+              <Button
+                onClick={() => {
+                  const defaultPos = { x: 0, y: 0 };
+                  setTimerPosition(defaultPos);
+                  localStorage.setItem("timerPosition", JSON.stringify(defaultPos));
+                }}
+                style={{
+                  marginTop: "0.5rem",
+                  fontSize: "0.75rem",
+                  padding: "0.25rem 0.5rem",
+                }}
+              >
+                Reset Position
+              </Button>
             </div>
           </Draggable>
         </div>

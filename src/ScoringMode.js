@@ -423,10 +423,9 @@ export default function ScoringMode({
     if (seededOnceRef.current) return; // we've already seeded for this show
     if (teams.length > 0) return; // local already has teams (user-added)
 
-    const source =
-      (cachedState?.teams?.length && cachedState.teams) ||
-      (preloadedTeams?.length && preloadedTeams) ||
-      null;
+    const fromCache = cachedState?.teams?.length && cachedState.teams;
+    const fromBundle = preloadedTeams?.length && preloadedTeams;
+    const source = fromCache || fromBundle;
 
     if (!source) return; // wait until data arrives
 
@@ -439,8 +438,22 @@ export default function ScoringMode({
     setGrid(seededGrid);
     setEntryOrder(seededEntryOrder);
     setFocus({ teamIdx: 0, qIdx: 0 });
-    seededOnceRef.current = true; // ✅ don’t auto-import again
-  }, [teams.length, cachedState, preloadedTeams]);
+    seededOnceRef.current = true; // ✅ don't auto-import again
+
+    // 🔁 If teams came from bundle (not cache), broadcast them to other hosts
+    if (fromBundle && !fromCache) {
+      seededTeams.forEach((team) => {
+        try {
+          window.sendTeamAdd?.({
+            showId: selectedShowId,
+            teamId: team.showTeamId,
+            teamName: team.teamName,
+            ts: Date.now(),
+          });
+        } catch {}
+      });
+    }
+  }, [teams.length, cachedState, preloadedTeams, selectedShowId]);
 
   // ---------- Persist local changes up to App ----------
   const lastSentRef = useRef("");

@@ -837,8 +837,9 @@ export default function App() {
           const hasSupabaseSharedData = !!json.shared; // true if Supabase returned shared data
           const showHasBeenStarted = gridHasData && hasSupabaseSharedData;
 
-          if (showHasBeenStarted) {
-            // Update local scoring state from loaded Supabase data (show in progress)
+          // Always load scoring settings from Supabase if they exist
+          // This ensures settings persist through refresh even before scoring starts
+          if (hasSupabaseSharedData) {
             if (loadedShared.scoringMode)
               setScoringMode(loadedShared.scoringMode);
             if (loadedShared.pubPoints !== undefined)
@@ -848,7 +849,7 @@ export default function App() {
             if (loadedShared.poolContribution !== undefined)
               setPoolContribution(Number(loadedShared.poolContribution));
           }
-          // Otherwise: Keep Airtable config that was set when the bundle loaded
+          // Note: hostInfo is loaded via _shared state below
 
           return {
             ...prev,
@@ -926,32 +927,100 @@ export default function App() {
         // Pre-populate settings from Airtable config (if available)
         if (bundle?.config) {
           const config = bundle.config;
+          let needsSave = false;
+          const updates = {};
 
           // Only set scoring mode if it's provided and valid
           if (config.scoringMode) {
             const mode = config.scoringMode.toLowerCase().replace(/\s*\(.*?\)\s*/g, '');
+            let mappedMode = null;
             if (mode === 'pub') {
-              setScoringMode('pub');
+              mappedMode = 'pub';
             } else if (mode === 'pooled' || mode === 'pooledstatic') {
-              setScoringMode('pooled');
+              mappedMode = 'pooled';
             } else if (mode === 'adaptive' || mode === 'pooledadaptive') {
-              setScoringMode('pooled-adaptive');
+              mappedMode = 'pooled-adaptive';
+            }
+            if (mappedMode) {
+              setScoringMode(mappedMode);
+              updates.scoringMode = mappedMode;
+              needsSave = true;
             }
           }
 
           // Set pub points if provided
           if (typeof config.pubPoints === 'number') {
             setPubPoints(config.pubPoints);
+            updates.pubPoints = config.pubPoints;
+            needsSave = true;
           }
 
           // Set pool per question if provided
           if (typeof config.poolPerQuestion === 'number') {
             setPoolPerQuestion(config.poolPerQuestion);
+            updates.poolPerQuestion = config.poolPerQuestion;
+            needsSave = true;
           }
 
           // Set pool contribution if provided
           if (typeof config.poolContribution === 'number') {
             setPoolContribution(config.poolContribution);
+            updates.poolContribution = config.poolContribution;
+            needsSave = true;
+          }
+
+          // Save to Supabase so settings persist through refresh
+          if (needsSave) {
+            setScoringCache((prev) => {
+              const show = prev[selectedShowId] || {};
+              const shared = show._shared || DEFAULT_SHARED_STATE;
+              const nextShared = { ...shared, ...updates };
+
+              const next = {
+                ...prev,
+                [selectedShowId]: {
+                  ...show,
+                  _shared: nextShared,
+                },
+              };
+
+              // Save to Supabase
+              saveDebounced("shared", () => {
+                fetch("/.netlify/functions/supaSaveScoring", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    showId: selectedShowId,
+                    roundId: "shared",
+                    payload: {
+                      teams: nextShared.teams ?? [],
+                      entryOrder: nextShared.entryOrder ?? [],
+                      prizes: nextShared.prizes ?? "",
+                      scoringMode: nextShared.scoringMode ?? "pub",
+                      pubPoints: nextShared.pubPoints ?? 10,
+                      poolPerQuestion: nextShared.poolPerQuestion ?? 500,
+                      poolContribution: nextShared.poolContribution ?? 10,
+                      hostInfo: nextShared.hostInfo ?? DEFAULT_SHARED_STATE.hostInfo,
+                      tiebreakers: nextShared.tiebreakers ?? {},
+                    },
+                  }),
+                }).catch(() => {});
+              });
+
+              // Broadcast scoring settings update
+              try {
+                window.tvSend?.("scoringSettingsUpdate", {
+                  showId: selectedShowId,
+                  scoringMode: nextShared.scoringMode,
+                  pubPoints: nextShared.pubPoints,
+                  poolPerQuestion: nextShared.poolPerQuestion,
+                  poolContribution: nextShared.poolContribution,
+                  ts: Date.now(),
+                });
+              } catch {}
+
+              return next;
+            });
           }
         }
 
