@@ -42,6 +42,7 @@ const DEFAULT_SHARED_STATE = {
     announcements: "",
   },
   tiebreakers: {}, // { [roundId]: tiebreakerQuestion }
+  questionEdits: {}, // { [showQuestionId]: { questionText?, flavorText?, answer? } }
 };
 
 // 🔐 PASSWORD PROTECTION
@@ -195,6 +196,10 @@ export default function App() {
               pubPoints: nextShared.pubPoints ?? 10,
               poolPerQuestion: nextShared.poolPerQuestion ?? 500,
               poolContribution: nextShared.poolContribution ?? 10,
+              hostInfo: nextShared.hostInfo ?? DEFAULT_SHARED_STATE.hostInfo,
+              tiebreakers: nextShared.tiebreakers ?? {},
+              questionEdits: nextShared.questionEdits ?? {},
+              questionEdits: nextShared.questionEdits ?? {},
             },
           }),
         }).catch(() => {});
@@ -846,6 +851,14 @@ export default function App() {
               setPoolPerQuestion(Number(loadedShared.poolPerQuestion));
             if (loadedShared.poolContribution !== undefined)
               setPoolContribution(Number(loadedShared.poolContribution));
+
+            // Load questionEdits from Supabase
+            if (loadedShared.questionEdits) {
+              setQuestionEdits((prevEdits) => ({
+                ...prevEdits,
+                [selectedShowId]: loadedShared.questionEdits,
+              }));
+            }
           }
           // Note: hostInfo is loaded via _shared state below
 
@@ -1000,6 +1013,7 @@ export default function App() {
                       poolContribution: nextShared.poolContribution ?? 10,
                       hostInfo: nextShared.hostInfo ?? DEFAULT_SHARED_STATE.hostInfo,
                       tiebreakers: nextShared.tiebreakers ?? {},
+              questionEdits: nextShared.questionEdits ?? {},
                     },
                   }),
                 }).catch(() => {});
@@ -1095,6 +1109,7 @@ export default function App() {
               poolContribution: nextShared.poolContribution ?? 10,
               hostInfo: nextShared.hostInfo ?? DEFAULT_SHARED_STATE.hostInfo,
               tiebreakers: nextShared.tiebreakers ?? {},
+              questionEdits: nextShared.questionEdits ?? {},
             },
           }),
         }).catch(() => {});
@@ -1214,6 +1229,50 @@ export default function App() {
         localStorage.setItem("trivia.questionEdits.backup", JSON.stringify(next));
       } catch {}
 
+      // Save to Supabase via scoringCache
+      setScoringCache((prevCache) => {
+        const show = prevCache[selectedShowId] || {};
+        const shared = show._shared || DEFAULT_SHARED_STATE;
+        const updatedShared = {
+          ...shared,
+          questionEdits: next[selectedShowId] || {},
+        };
+
+        const updatedCache = {
+          ...prevCache,
+          [selectedShowId]: {
+            ...show,
+            _shared: updatedShared,
+          },
+        };
+
+        // Save to Supabase
+        saveDebounced("shared", () => {
+          fetch("/.netlify/functions/supaSaveScoring", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              showId: selectedShowId,
+              roundId: "shared",
+              payload: {
+                teams: updatedShared.teams ?? [],
+                entryOrder: updatedShared.entryOrder ?? [],
+                prizes: updatedShared.prizes ?? "",
+                scoringMode: updatedShared.scoringMode ?? "pub",
+                pubPoints: updatedShared.pubPoints ?? 10,
+                poolPerQuestion: updatedShared.poolPerQuestion ?? 500,
+                poolContribution: updatedShared.poolContribution ?? 10,
+                hostInfo: updatedShared.hostInfo ?? DEFAULT_SHARED_STATE.hostInfo,
+                tiebreakers: updatedShared.tiebreakers ?? {},
+                questionEdits: updatedShared.questionEdits ?? {},
+              },
+            }),
+          }).catch(() => {});
+        });
+
+        return updatedCache;
+      });
+
       // Broadcast to other hosts
       try {
         window.sendQuestionEdit?.({
@@ -1318,6 +1377,7 @@ export default function App() {
               poolContribution: nextShared.poolContribution ?? 10,
               hostInfo: nextShared.hostInfo ?? DEFAULT_SHARED_STATE.hostInfo,
               tiebreakers: nextShared.tiebreakers ?? {},
+              questionEdits: nextShared.questionEdits ?? {},
             },
           }),
         }).catch(() => {});
@@ -1681,6 +1741,7 @@ export default function App() {
                 poolContribution: prevShared.poolContribution ?? 10,
                 hostInfo: prevShared.hostInfo ?? DEFAULT_SHARED_STATE.hostInfo,
                 tiebreakers: prevShared.tiebreakers ?? {},
+                questionEdits: prevShared.questionEdits ?? {},
               };
 
               // Save immediately if this is initial team load (no debounce)
