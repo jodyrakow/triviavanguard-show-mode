@@ -1345,7 +1345,7 @@ export default function App() {
         backgroundColor: colors.bg,
       }}
     >
-      <div style={{ textAlign: "center", marginBottom: tokens.spacing.lg }}>
+      <div style={{ textAlign: "center", marginBottom: tokens.spacing.md }}>
         <img
           src={triviaVanguardLogo}
           alt="Trivia Vanguard"
@@ -1355,22 +1355,6 @@ export default function App() {
           }}
         />
       </div>
-
-      <h2
-        style={{
-          fontSize: "1.75rem",
-          color: colors.dark,
-          textAlign: "center",
-          marginTop: 0,
-          marginBottom: tokens.spacing.md,
-        }}
-      >
-        {activeMode === "score"
-          ? "Scoring mode"
-          : activeMode === "results"
-            ? "Results mode"
-            : "Show mode"}
-      </h2>
 
       <div
         style={{
