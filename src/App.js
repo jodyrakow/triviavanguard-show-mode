@@ -1653,6 +1653,9 @@ export default function App() {
               const prevShow = prev[selectedShowId] || {};
               const prevShared = prevShow._shared || {};
 
+              // Check if teams were just loaded (first time having teams for this show)
+              const isInitialTeamLoad = !prevShared.teams?.length && teams.length > 0;
+
               const next = {
                 ...prev,
                 [selectedShowId]: {
@@ -1676,8 +1679,13 @@ export default function App() {
                 pubPoints: prevShared.pubPoints ?? 10,
                 poolPerQuestion: prevShared.poolPerQuestion ?? 500,
                 poolContribution: prevShared.poolContribution ?? 10,
+                hostInfo: prevShared.hostInfo ?? DEFAULT_SHARED_STATE.hostInfo,
+                tiebreakers: prevShared.tiebreakers ?? {},
               };
-              saveDebounced("shared", () => {
+
+              // Save immediately if this is initial team load (no debounce)
+              // Otherwise debounce to avoid excessive saves during scoring
+              if (isInitialTeamLoad) {
                 fetch("/.netlify/functions/supaSaveScoring", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
@@ -1687,9 +1695,21 @@ export default function App() {
                     payload: completeShared,
                   }),
                 }).catch(() => {});
-              });
+              } else {
+                saveDebounced("shared", () => {
+                  fetch("/.netlify/functions/supaSaveScoring", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      showId: selectedShowId,
+                      roundId: "shared",
+                      payload: completeShared,
+                    }),
+                  }).catch(() => {});
+                });
+              }
 
-              // per-round grid
+              // per-round grid - always debounce
               saveDebounced("round", () => {
                 fetch("/.netlify/functions/supaSaveScoring", {
                   method: "POST",
