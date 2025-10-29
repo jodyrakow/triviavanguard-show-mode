@@ -1664,7 +1664,11 @@ export default function ShowMode({
         >
           <Draggable
             nodeRef={timerRef}
-            defaultPosition={timerPosition}
+            position={timerPosition}
+            onDrag={(e, data) => {
+              const newPos = { x: data.x, y: data.y };
+              setTimerPosition(newPos);
+            }}
             onStop={(e, data) => {
               const newPos = { x: data.x, y: data.y };
               setTimerPosition(newPos);
