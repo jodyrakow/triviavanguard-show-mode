@@ -942,14 +942,15 @@ export default function App() {
 
           // Only set scoring mode if it's provided and valid
           if (config.scoringMode) {
-            const mode = config.scoringMode.toLowerCase().replace(/\s*\(.*?\)\s*/g, '');
+            const mode = config.scoringMode.toLowerCase();
             let mappedMode = null;
             if (mode === 'pub') {
               mappedMode = 'pub';
-            } else if (mode === 'pooled' || mode === 'pooledstatic') {
-              mappedMode = 'pooled';
-            } else if (mode === 'adaptive' || mode === 'pooledadaptive') {
+            } else if (mode.includes('adaptive')) {
+              // Check for adaptive BEFORE removing parentheses
               mappedMode = 'pooled-adaptive';
+            } else if (mode.includes('pooled') || mode.includes('static')) {
+              mappedMode = 'pooled';
             }
             if (mappedMode) {
               setScoringMode(mappedMode);
