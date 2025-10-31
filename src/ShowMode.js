@@ -795,6 +795,63 @@ export default function ShowMode({
         </div>
       )}
 
+      {/* Display Preview Panel */}
+      {displayPreviewOpen && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: "1rem",
+            right: "1rem",
+            width: "400px",
+            height: "225px",
+            backgroundColor: "#000",
+            border: `3px solid ${theme.accent}`,
+            borderRadius: "8px",
+            zIndex: 2000,
+            overflow: "hidden",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: theme.accent,
+              color: "#fff",
+              padding: "0.5rem",
+              fontSize: "0.85rem",
+              fontWeight: 600,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <span>Display Preview (16:9)</span>
+            <button
+              onClick={() => setDisplayPreviewOpen(false)}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#fff",
+                fontSize: "1.2rem",
+                cursor: "pointer",
+                padding: "0 0.5rem",
+              }}
+            >
+              ×
+            </button>
+          </div>
+          <iframe
+            src={window.location.origin + "?display"}
+            title="Display Preview"
+            style={{
+              width: "100%",
+              height: "calc(100% - 35px)",
+              border: "none",
+              backgroundColor: "#000",
+            }}
+          />
+        </div>
+      )}
+
       {sortedGroupedEntries.map(([categoryId, catData], index) => {
         const { categoryInfo, questions } = catData;
         const categoryName =
