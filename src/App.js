@@ -1806,9 +1806,6 @@ export default function App() {
               const prevShow = prev[selectedShowId] || {};
               const prevShared = prevShow._shared || {};
 
-              // Check if teams were just loaded (first time having teams for this show)
-              const isInitialTeamLoad = !prevShared.teams?.length && teams.length > 0;
-
               const next = {
                 ...prev,
                 [selectedShowId]: {

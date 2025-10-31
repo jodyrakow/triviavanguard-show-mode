@@ -314,7 +314,7 @@ export default function AnswersMode({
     });
 
     return tieInPrizeBand;
-  }, [prizeCount, tbQ, cachedByRound, showBundle, scoringMode, pubPoints, poolPerQuestion]);
+  }, [prizeCount, tbQ, cachedByRound, showBundle, scoringMode, pubPoints, poolPerQuestion, poolContribution]);
 
   // --------- UI state for images (overlay) ---------
   const [visibleImages, setVisibleImages] = useState({}); // keyed by showQuestionId
