@@ -808,6 +808,77 @@ export default function App() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
+  // Load ALL rounds when show opens (critical for multi-round shows)
+  useEffect(() => {
+    if (!selectedShowId || !showBundle) return;
+
+    (async () => {
+      try {
+        // Get all round numbers from bundle
+        const roundNumbers = (showBundle?.rounds || [])
+          .map((r) => Number(r.round))
+          .filter((n) => Number.isFinite(n));
+        const uniqueRounds = Array.from(new Set(roundNumbers));
+
+        if (uniqueRounds.length === 0) return;
+
+        console.log(`[MULTI-ROUND] Loading all ${uniqueRounds.length} rounds:`, uniqueRounds);
+
+        // Load ALL rounds from Supabase in parallel
+        const promises = uniqueRounds.map(async (roundNum) => {
+          const res = await fetch(
+            `/.netlify/functions/supaLoadScoring?showId=${encodeURIComponent(selectedShowId)}&roundId=${String(roundNum)}`
+          );
+          return { roundNum: String(roundNum), data: await res.json() };
+        });
+
+        const results = await Promise.all(promises);
+
+        setScoringCache((prev) => {
+          const prevShow = prev[selectedShowId] || {};
+          const updatedShow = { ...prevShow };
+
+          // Get shared data from any result
+          let sharedData = null;
+          for (const r of results) {
+            if (r.data.shared) {
+              sharedData = r.data.shared;
+              break;
+            }
+          }
+
+          if (sharedData) {
+            updatedShow._shared = sharedData;
+            if (sharedData.scoringMode) setScoringMode(sharedData.scoringMode);
+            if (sharedData.pubPoints !== undefined) setPubPoints(Number(sharedData.pubPoints));
+            if (sharedData.poolPerQuestion !== undefined) setPoolPerQuestion(Number(sharedData.poolPerQuestion));
+            if (sharedData.poolContribution !== undefined) setPoolContribution(Number(sharedData.poolContribution));
+            if (sharedData.questionEdits) {
+              setQuestionEdits((e) => ({ ...e, [selectedShowId]: sharedData.questionEdits }));
+            }
+          }
+
+          // Merge ALL round grids
+          for (const r of results) {
+            if (r.data.round) {
+              updatedShow[r.roundNum] = r.data.round;
+              const teamCount = Object.keys(r.data.round.grid || {}).length;
+              console.log(`[MULTI-ROUND] Round ${r.roundNum}: ${teamCount} teams with scores`);
+            }
+          }
+
+          const loadedRounds = Object.keys(updatedShow).filter(k => k !== '_shared');
+          console.log(`[MULTI-ROUND] Total rounds in cache:`, loadedRounds);
+
+          return { ...prev, [selectedShowId]: updatedShow };
+        });
+      } catch (e) {
+        console.error("[MULTI-ROUND] Load failed:", e);
+      }
+    })();
+  }, [selectedShowId, showBundle]);
+
+  // ALSO load current round when switching (for real-time sync)
   useEffect(() => {
     if (!selectedShowId || !selectedRoundId) return;
 
