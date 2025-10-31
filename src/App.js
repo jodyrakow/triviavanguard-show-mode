@@ -1895,6 +1895,7 @@ export default function App() {
           scoringMode={scoringMode}
           pubPoints={pubPoints}
           poolPerQuestion={poolPerQuestion}
+          poolContribution={poolContribution}
           prizes={composedCachedState?.prizes ?? ""}
           editQuestionField={editQuestionField}
         />

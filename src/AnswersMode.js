@@ -92,9 +92,10 @@ export default function AnswersMode({
   selectedRoundId, // round number or string (e.g. "1")
   cachedState, // { teams, grid, entryOrder }
   cachedByRound, // for cumulative tiebreaker detection
-  scoringMode, // "pub" | "pooled"
+  scoringMode, // "pub" | "pooled" | "pooled-adaptive"
   pubPoints, // (not displayed here, only pooled uses poolPerQuestion)
   poolPerQuestion,
+  poolContribution, // for adaptive pooled mode
   prizes = "", // NEW: prizes from shared state (newline-separated string)
   editQuestionField,
 }) {
@@ -230,24 +231,38 @@ export default function AnswersMode({
         const cell = getCell(t.showTeamId, q.showQuestionId);
         if (!cell?.isCorrect) continue;
 
-        // Calculate base points (simplified - doesn't account for per-question variations)
-        const base = scoringMode === "pub" ? Number(pubPoints) : Number(poolPerQuestion);
-
         // Get bonus/multiplier and override
         const qb = Number(cell.questionBonus || 0);
         const override = cell.overridePoints === null || cell.overridePoints === undefined
           ? null
           : Number(cell.overridePoints);
 
-        // Handle bonus differently based on scoring mode
+        // Handle scoring differently based on scoring mode
         let earned = 0;
         if (override !== null) {
           earned = override;
         } else if (scoringMode === "pub") {
           // Pub mode: bonus is flat points added
+          const base = Number(pubPoints);
           earned = base + qb;
+        } else if (scoringMode === "pooled-adaptive") {
+          // Adaptive pooled mode: calculate actual pool based on team count
+          const totalPool = Number(poolContribution) * teams.length;
+
+          // Count how many teams got this question correct
+          const correctCount = teams.filter(team =>
+            getCell(team.showTeamId, q.showQuestionId)?.isCorrect
+          ).length;
+
+          // Divide pool among correct teams
+          const baseShare = correctCount > 0 ? totalPool / correctCount : 0;
+
+          // Apply bonus multiplier
+          const multiplier = qb || 1;
+          earned = Math.round(baseShare * multiplier);
         } else {
-          // Pooled mode: bonus is a multiplier (simplified - assumes equal distribution)
+          // Static pooled mode: fixed pool per question
+          const base = Number(poolPerQuestion);
           const multiplier = qb || 1;
           earned = Math.round(base * multiplier);
         }
