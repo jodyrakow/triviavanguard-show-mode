@@ -714,15 +714,25 @@ export default function ScoringMode({
         }
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
-        // If we're on the last grid row and there's a TB row, focus its input
-        if (focus.qIdx === questions.length - 1 && tiebreaker) {
-          const colTeam = teamMode
-            ? visibleTeams[teamIdxSolo]
-            : renderTeams[teamIdx];
-          const input = colTeam ? tbRefs.current?.[colTeam.showTeamId] : null;
-          if (input && typeof input.focus === "function") {
-            input.focus();
-            return; // stop here so we don't advance to next question
+        // If we're on the last grid row...
+        if (focus.qIdx === questions.length - 1) {
+          if (tiebreaker) {
+            // If there's a TB row, focus its input
+            const colTeam = teamMode
+              ? visibleTeams[teamIdxSolo]
+              : renderTeams[teamIdx];
+            const input = colTeam ? tbRefs.current?.[colTeam.showTeamId] : null;
+            if (input && typeof input.focus === "function") {
+              input.focus();
+              return; // stop here so we don't advance to next question
+            }
+          } else {
+            // No tiebreaker: wrap around to top of same column
+            setFocus(({ teamIdx: t }) => ({
+              teamIdx: teamMode ? teamIdxSolo : t,
+              qIdx: 0,
+            }));
+            return;
           }
         }
 
@@ -2048,7 +2058,8 @@ export default function ScoringMode({
                       return { id, name, recentShowTeams };
                     });
 
-                    setSearchResults(normalized);
+                    // Limit to top 3 results to avoid overwhelming list
+                    setSearchResults(normalized.slice(0, 3));
                   } catch (err) {
                     console.error("searchTeams error:", err);
                     setSearchResults([]);

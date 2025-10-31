@@ -1498,16 +1498,17 @@ export default function App() {
         backgroundColor: colors.bg,
       }}
     >
-      <div style={{ textAlign: "center", marginBottom: tokens.spacing.md }}>
-        <img
-          src={triviaVanguardLogo}
-          alt="Trivia Vanguard"
-          style={{
-            height: "100px",
-            display: "inline-block",
-          }}
-        />
-      </div>
+      <img
+        src={triviaVanguardLogo}
+        alt="Trivia Vanguard"
+        style={{
+          position: "fixed",
+          top: "12px",
+          right: "12px",
+          height: "60px",
+          zIndex: 9999,
+        }}
+      />
 
       <div
         style={{

@@ -1,6 +1,6 @@
 // src/ShowMode.js
 import React, { useMemo } from "react";
-import AudioPlayer from "react-h5-audio-player";
+import AudioPlayerWithFade from "./components/AudioPlayerWithFade";
 import Draggable from "react-draggable";
 import { marked } from "marked";
 import {
@@ -808,10 +808,11 @@ export default function ShowMode({
                           boxShadow: "0 0 10px rgba(0, 0, 0, 0.15)",
                         }}
                       >
-                        <AudioPlayer
+                        <AudioPlayerWithFade
                           src={audioObj.url}
                           showJumpControls={false}
                           layout="horizontal"
+                          fadeDuration={1000}
                           style={{
                             borderRadius: "1.5rem 1.5rem 0 0",
                             width: "100%",
@@ -1188,10 +1189,11 @@ export default function ShowMode({
                                     boxShadow: "0 0 10px rgba(0, 0, 0, 0.15)",
                                   }}
                                 >
-                                  <AudioPlayer
+                                  <AudioPlayerWithFade
                                     src={audioObj.url}
                                     showJumpControls={false}
                                     layout="horizontal"
+                                    fadeDuration={1000}
                                     style={{
                                       borderRadius: "1.5rem 1.5rem 0 0",
                                       width: "100%",
