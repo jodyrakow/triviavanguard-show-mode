@@ -819,7 +819,23 @@ export default function App() {
         const json = await res.json();
 
         setScoringCache((prev) => {
-          const prevShow = prev[selectedShowId] || {};
+          // EMERGENCY: Preserve ALL existing round data
+          let prevShow = prev[selectedShowId] || {};
+
+          // If cache is empty, try to restore from localStorage backup
+          if (!prevShow || Object.keys(prevShow).length === 0) {
+            try {
+              const backup = localStorage.getItem("trivia.scoring.backup");
+              if (backup) {
+                const parsed = JSON.parse(backup);
+                prevShow = parsed[selectedShowId] || {};
+                console.log("[RECOVERY] Restored show data from localStorage backup");
+              }
+            } catch (e) {
+              console.error("[RECOVERY] Failed to restore from backup:", e);
+            }
+          }
+
           const loadedShared = json.shared ??
             prevShow._shared ?? {
               teams: [],
@@ -861,7 +877,7 @@ export default function App() {
           }
           // Note: hostInfo is loaded via _shared state below
 
-          return {
+          const result = {
             ...prev,
             [selectedShowId]: {
               ...prevShow, // preserve all existing rounds
@@ -869,6 +885,12 @@ export default function App() {
               [selectedRoundId]: updatedRound, // update only the current round
             },
           };
+
+          // Log for debugging
+          const rounds = Object.keys(result[selectedShowId]).filter(k => k !== '_shared');
+          console.log(`[ROUND LOAD] Loaded round ${selectedRoundId}, cache now has rounds:`, rounds);
+
+          return result;
         });
       } catch (e) {
         console.warn("supaLoadScoring failed", e);
