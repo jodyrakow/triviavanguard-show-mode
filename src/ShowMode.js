@@ -55,6 +55,7 @@ export default function ShowMode({
   setHostInfo: setHostInfoProp,
   editQuestionField,
   addTiebreaker,
+  sendToDisplay,
 }) {
   const [scriptOpen, setScriptOpen] = React.useState(false);
 
@@ -76,6 +77,10 @@ export default function ShowMode({
   React.useEffect(() => {
     setHostInfo(hostInfoProp);
   }, [hostInfoProp]);
+
+  // Display Mode state
+  const [displayPreviewOpen, setDisplayPreviewOpen] = React.useState(false);
+  const [currentDisplayQuestion, setCurrentDisplayQuestion] = React.useState(null);
 
   // show name (best-effort)
   const showName =
@@ -734,6 +739,59 @@ export default function ShowMode({
               + Add Tiebreaker
             </ButtonPrimary>
           )}
+        </div>
+      )}
+
+      {/* Display Mode Controls */}
+      {sendToDisplay && Object.keys(groupedQuestions).length > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            right: "1rem",
+            top: "1rem",
+            zIndex: 1000,
+            pointerEvents: "auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: ".5rem",
+            maxWidth: "200px",
+          }}
+        >
+          <ButtonPrimary
+            onClick={() => {
+              const newWindow = window.open(
+                window.location.origin + "?display",
+                "displayMode",
+                "width=1920,height=1080"
+              );
+              if (newWindow) {
+                newWindow.focus();
+              }
+            }}
+            title="Open Display Mode in new window"
+            style={{ fontSize: "0.9rem", padding: "0.5rem 0.75rem" }}
+          >
+            Open Display
+          </ButtonPrimary>
+
+          <ButtonPrimary
+            onClick={() => setDisplayPreviewOpen((v) => !v)}
+            title="Toggle preview of what's showing on display"
+            style={{ fontSize: "0.9rem", padding: "0.5rem 0.75rem" }}
+          >
+            {displayPreviewOpen ? "Hide Preview" : "Show Preview"}
+          </ButtonPrimary>
+
+          <Button
+            onClick={() => {
+              sendToDisplay("standby", null);
+              setCurrentDisplayQuestion(null);
+            }}
+            title="Clear the display (standby screen)"
+            style={{ fontSize: "0.9rem", padding: "0.5rem 0.75rem" }}
+          >
+            Clear Display
+          </Button>
         </div>
       )}
 

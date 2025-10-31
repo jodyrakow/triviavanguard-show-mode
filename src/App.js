@@ -7,6 +7,7 @@ import ShowMode from "./ShowMode";
 import ScoringMode from "./ScoringMode";
 import ResultsMode from "./ResultsMode";
 import AnswersMode from "./AnswersMode";
+import DisplayMode from "./DisplayMode";
 import {
   ButtonTab,
   ButtonPrimary,
@@ -217,6 +218,20 @@ export default function App() {
       return next;
     });
   }, [scoringMode, selectedShowId, poolPerQuestion, pubPoints, poolContribution]);
+
+  // Helper function to send updates to Display Mode
+  const sendToDisplay = (type, content) => {
+    try {
+      window.dispatchEvent(
+        new CustomEvent("tv:displayUpdate", {
+          detail: { type, content },
+        })
+      );
+      console.log("[App] Sent to display:", type, content);
+    } catch (err) {
+      console.error("[App] Failed to send to display:", err);
+    }
+  };
 
   useEffect(() => {
     const savedPosition = localStorage.getItem("timerPosition");
@@ -1268,6 +1283,15 @@ export default function App() {
     } catch {}
   };
 
+  // Check if we're in display mode (URL contains /display or ?display)
+  const isDisplayMode = window.location.pathname.includes('/display') ||
+                        window.location.search.includes('display');
+
+  // If display mode, render only DisplayMode component
+  if (isDisplayMode) {
+    return <DisplayMode />;
+  }
+
   // UI
   return (
     <div
@@ -1492,6 +1516,7 @@ export default function App() {
           hostInfo={composedCachedState?.hostInfo ?? DEFAULT_SHARED_STATE.hostInfo}
           cachedState={composedCachedState}
           setShowTimer={setShowTimer}
+          sendToDisplay={sendToDisplay}
           setPrizes={(val) => patchShared({ prizes: String(val || "") })}
           setHostInfo={(val) => patchShared({ hostInfo: val })}
           editQuestionField={editQuestionField}
