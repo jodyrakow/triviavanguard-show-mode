@@ -88,7 +88,6 @@ export default function ShowMode({
 
   // Display Mode state
   const [displayPreviewOpen, setDisplayPreviewOpen] = React.useState(false);
-  const [currentDisplayQuestion, setCurrentDisplayQuestion] = React.useState(null);
 
   // show name (best-effort)
   const showName =
@@ -723,10 +722,7 @@ export default function ShowMode({
           </ButtonPrimary>
 
           <Button
-            onClick={() => {
-              sendToDisplay("standby", null);
-              setCurrentDisplayQuestion(null);
-            }}
+            onClick={() => sendToDisplay("standby", null)}
             title="Clear the display (standby screen)"
             style={{ fontSize: "0.9rem", padding: "0.5rem 0.75rem" }}
           >
