@@ -687,7 +687,7 @@ export default function ShowMode({
           style={{
             position: "fixed",
             right: "1rem",
-            top: "1rem",
+            top: "100px",
             zIndex: 1000,
             pointerEvents: "auto",
             display: "flex",
