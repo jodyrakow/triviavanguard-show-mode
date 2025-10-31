@@ -811,6 +811,22 @@ export default function ScoringMode({
     return out;
   }, [questions, teams, grid]);
 
+  // For adaptive pooled mode: count teams with at least one answer in THIS round
+  const activeTeamCount = useMemo(() => {
+    if (scoringMode !== "pooled-adaptive") return teams.length;
+
+    const activeTeams = new Set();
+    for (const t of teams) {
+      for (const q of questions) {
+        if (grid[t.showTeamId]?.[q.showQuestionId]) {
+          activeTeams.add(t.showTeamId);
+          break; // Found at least one answer for this team
+        }
+      }
+    }
+    return activeTeams.size || teams.length; // Fallback to all teams if none have answers yet
+  }, [teams, grid, questions, scoringMode]);
+
   const earnedFor = useCallback(
     (cell, showQuestionId) => {
       if (!cell?.isCorrect) return 0;
@@ -829,8 +845,8 @@ export default function ScoringMode({
           perQPub !== null && perQPub !== undefined ? perQPub : pubPoints
         );
       } else if (scoringMode === "pooled-adaptive") {
-        // Adaptive pool: teamCount × poolContribution, split among correct teams
-        const pool = teams.length * Number(poolContribution);
+        // Adaptive pool: activeTeamCount × poolContribution, split among correct teams
+        const pool = activeTeamCount * Number(poolContribution);
         base = Math.round(pool / nCorrect);
       } else {
         // Static pooled: fixed pool split among correct teams
@@ -865,7 +881,7 @@ export default function ScoringMode({
       pubPoints,
       poolPerQuestion,
       poolContribution,
-      teams.length,
+      activeTeamCount,
       pubPerQuestionByShowQ,
     ]
   );
@@ -1215,7 +1231,7 @@ export default function ScoringMode({
                   alignItems: "center",
                   gap: ".35rem",
                 }}
-                title={`Current pool: ${teams.length} teams × ${poolContribution} = ${teams.length * poolContribution} pts/question`}
+                title={`Current pool: ${activeTeamCount} active teams × ${poolContribution} = ${activeTeamCount * poolContribution} pts/question`}
               >
                 <span style={{ whiteSpace: "nowrap" }}>Pts/Team:</span>
                 <input

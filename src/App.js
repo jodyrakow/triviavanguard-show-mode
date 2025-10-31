@@ -1914,6 +1914,8 @@ export default function App() {
           setPubPoints={setPubPoints}
           poolPerQuestion={poolPerQuestion}
           setPoolPerQuestion={setPoolPerQuestion}
+          poolContribution={poolContribution}
+          setPoolContribution={setPoolContribution}
           prizes={composedCachedState?.prizes ?? ""}
           setPrizes={(val) => patchShared({ prizes: String(val || "") })}
           questionEdits={questionEdits[selectedShowId] ?? {}}

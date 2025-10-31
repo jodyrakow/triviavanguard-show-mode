@@ -25,12 +25,14 @@ export default function ResultsMode({
   selectedRoundId, // e.g. "1" (still used for UI text & fallback mode)
   cachedState, // { teams, grid, entryOrder } for current round (fallback)
   cachedByRound = null, // NEW: { [roundId]: {teams, grid, entryOrder} } for all rounds (enables cumulative)
-  scoringMode, // "pub" | "pooled"
+  scoringMode, // "pub" | "pooled" | "pooled-adaptive"
   setScoringMode,
   pubPoints,
   setPubPoints,
   poolPerQuestion,
   setPoolPerQuestion,
+  poolContribution,
+  setPoolContribution,
   selectedShowId,
   prizes: prizesString = "", // NEW: prizes from shared state (newline-separated string)
   setPrizes: setPrizesString, // NEW: setter for shared prizes
@@ -324,7 +326,25 @@ export default function ResultsMode({
                 ? q.pubPerQuestion
                 : Number(pubPoints);
             base = perQ;
+          } else if (scoringMode === "pooled-adaptive") {
+            // Adaptive pooled: calculate pool based on active teams in THIS round
+            // Count teams with at least one answer in the round containing this question
+            const questionRound = q.round;
+            const roundGrid = cachedByRound?.[questionRound]?.grid || {};
+            const activeTeamsInRound = new Set();
+
+            for (const teamId of Object.keys(roundGrid)) {
+              if (Object.keys(roundGrid[teamId] || {}).length > 0) {
+                activeTeamsInRound.add(teamId);
+              }
+            }
+
+            const activeCount = activeTeamsInRound.size || teams.length; // Fallback to all teams
+            const pool = activeCount * Number(poolContribution);
+            const n = Math.max(1, nCorrectByQ[q.showQuestionId] || 0);
+            base = Math.round(pool / n);
           } else {
+            // Static pooled: fixed pool
             const n = Math.max(1, nCorrectByQ[q.showQuestionId] || 0);
             base = Math.round(Number(poolPerQuestion) / n);
           }
@@ -547,6 +567,8 @@ export default function ResultsMode({
     scoringMode,
     pubPoints,
     poolPerQuestion,
+    poolContribution,
+    cachedByRound,
     prizeCount,
     tbQ,
     tbNumber,
@@ -935,7 +957,24 @@ export default function ResultsMode({
                   ? q.pubPerQuestion
                   : Number(pubPoints);
               base = perQ;
+            } else if (scoringMode === "pooled-adaptive") {
+              // Adaptive pooled: calculate pool based on active teams in THIS round
+              const questionRound = q.round;
+              const roundGrid = cachedByRound?.[questionRound]?.grid || {};
+              const activeTeamsInRound = new Set();
+
+              for (const teamId of Object.keys(roundGrid)) {
+                if (Object.keys(roundGrid[teamId] || {}).length > 0) {
+                  activeTeamsInRound.add(teamId);
+                }
+              }
+
+              const activeCount = activeTeamsInRound.size || teams.length;
+              const pool = activeCount * Number(poolContribution);
+              const n = Math.max(1, nCorrectByQ[q.showQuestionId] || 0);
+              base = Math.round(pool / n);
             } else {
+              // Static pooled
               const n = Math.max(1, nCorrectByQ[q.showQuestionId] || 0);
               base = Math.round(Number(poolPerQuestion) / n);
             }
@@ -1236,7 +1275,7 @@ export default function ResultsMode({
                 cursor: "pointer",
               }}
             >
-              Pub scoring
+              Pub
             </button>
             <button
               type="button"
@@ -1250,7 +1289,21 @@ export default function ResultsMode({
                 cursor: "pointer",
               }}
             >
-              Pooled scoring
+              Pooled
+            </button>
+            <button
+              type="button"
+              onClick={() => setScoringMode("pooled-adaptive")}
+              style={{
+                padding: ".35rem .6rem",
+                border: "none",
+                background:
+                  scoringMode === "pooled-adaptive" ? theme.accent : "transparent",
+                color: scoringMode === "pooled-adaptive" ? colors.white : theme.dark,
+                cursor: "pointer",
+              }}
+            >
+              Adaptive
             </button>
           </div>
 
@@ -1269,6 +1322,31 @@ export default function ResultsMode({
                 min={0}
                 step={1}
                 onChange={(e) => setPubPoints(Number(e.target.value || 0))}
+                style={{
+                  width: 80,
+                  padding: ".35rem .5rem",
+                  border: `${tokens.borders.thin} ${colors.gray.border}`,
+                  borderRadius: ".35rem",
+                }}
+              />
+            </label>
+          ) : scoringMode === "pooled-adaptive" ? (
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: ".4rem",
+              }}
+            >
+              <span>Points per team:</span>
+              <input
+                type="number"
+                value={poolContribution}
+                min={0}
+                step={1}
+                onChange={(e) =>
+                  setPoolContribution(Number(e.target.value || 0))
+                }
                 style={{
                   width: 80,
                   padding: ".35rem .5rem",

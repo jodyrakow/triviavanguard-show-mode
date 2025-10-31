@@ -246,8 +246,18 @@ export default function AnswersMode({
           const base = Number(pubPoints);
           earned = base + qb;
         } else if (scoringMode === "pooled-adaptive") {
-          // Adaptive pooled mode: calculate actual pool based on team count
-          const totalPool = Number(poolContribution) * teams.length;
+          // Adaptive pooled mode: calculate pool based on active teams
+          // Count teams with at least one answer across all rounds
+          const activeTeams = new Set();
+          for (const rid of Object.keys(cachedByRound)) {
+            const roundGrid = cachedByRound[rid]?.grid || {};
+            for (const teamId of Object.keys(roundGrid)) {
+              if (Object.keys(roundGrid[teamId] || {}).length > 0) {
+                activeTeams.add(teamId);
+              }
+            }
+          }
+          const totalPool = Number(poolContribution) * activeTeams.size;
 
           // Count how many teams got this question correct
           const correctCount = teams.filter(team =>
@@ -388,6 +398,23 @@ export default function AnswersMode({
     const teamNames = new Map(
       teams.map((t) => [t.showTeamId, t.teamName || "(Unnamed team)"])
     );
+
+    // For adaptive pooled mode: count only teams active in THIS round
+    // (teams with at least one answer in the current round's grid)
+    let activeTeamCount = teams.length;
+    if (scoringMode === "pooled-adaptive") {
+      const activeTeams = new Set();
+      for (const t of teams) {
+        for (const q of questions) {
+          if (grid[t.showTeamId]?.[q.showQuestionId]) {
+            activeTeams.add(t.showTeamId);
+            break; // Found at least one answer for this team
+          }
+        }
+      }
+      activeTeamCount = activeTeams.size;
+    }
+
     const totalTeams = teams.length;
 
     const acc = {};
@@ -404,12 +431,13 @@ export default function AnswersMode({
       }
       acc[q.showQuestionId] = {
         totalTeams,
+        activeTeamCount, // For adaptive mode pool calculation
         correctCount: correct,
         correctTeams,
       };
     }
     return acc;
-  }, [questions, teams, grid]);
+  }, [questions, teams, grid, scoringMode]);
 
   // --------- Guard rails ---------
   const noRound = !roundObj;
@@ -1008,14 +1036,15 @@ export default function AnswersMode({
                         {stats.correctCount} / {stats.totalTeams} teams correct
                       </span>
 
-                      {scoringMode === "pooled" && stats.correctCount > 0 && (
+                      {(scoringMode === "pooled" || scoringMode === "pooled-adaptive") && stats.correctCount > 0 && (
                         <span style={{ marginLeft: ".6rem", fontSize: "1rem" }}>
                           <span
                             style={{ color: theme.accent, fontWeight: 700 }}
                           >
-                            {Math.round(
-                              Number(poolPerQuestion) / stats.correctCount
-                            )}
+                            {scoringMode === "pooled-adaptive"
+                              ? Math.round((Number(poolContribution) * stats.activeTeamCount) / stats.correctCount)
+                              : Math.round(Number(poolPerQuestion) / stats.correctCount)
+                            }
                           </span>{" "}
                           points per team
                         </span>
