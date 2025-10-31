@@ -1837,31 +1837,18 @@ export default function App() {
                 questionEdits: prevShared.questionEdits ?? {},
               };
 
-              // Save immediately if this is initial team load (no debounce)
-              // Otherwise debounce to avoid excessive saves during scoring
-              if (isInitialTeamLoad) {
-                fetch("/.netlify/functions/supaSaveScoring", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    showId: selectedShowId,
-                    roundId: "shared",
-                    payload: completeShared,
-                  }),
-                }).catch(() => {});
-              } else {
-                saveDebounced("shared", () => {
-                  fetch("/.netlify/functions/supaSaveScoring", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      showId: selectedShowId,
-                      roundId: "shared",
-                      payload: completeShared,
-                    }),
-                  }).catch(() => {});
-                });
-              }
+              // CRITICAL FIX: Always save teams immediately (no debounce)
+              // Debouncing can cause Round 1 teams to be lost if you switch to Round 2
+              // before the debounce timer fires (the new saveDebounced call cancels the old one)
+              fetch("/.netlify/functions/supaSaveScoring", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  showId: selectedShowId,
+                  roundId: "shared",
+                  payload: completeShared,
+                }),
+              }).catch(() => {});
 
               // per-round grid - always debounce
               saveDebounced("round", () => {
