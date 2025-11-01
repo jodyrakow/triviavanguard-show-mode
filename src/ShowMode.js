@@ -43,6 +43,7 @@ export default function ShowMode({
   poolContribution = 10,
   prizes = "",
   setPrizes,
+  cachedState = null, // { teams, grid, entryOrder } from unified cache
   hostInfo: hostInfoProp = {
     host: "",
     cohost: "",
@@ -271,6 +272,104 @@ export default function ShowMode({
     const maxRound = Math.max(...rounds.map((r) => Number(r.round)));
     return Number(selectedRoundId) === maxRound;
   }, [showBundle, selectedRoundId]);
+
+  // Calculate stats per question per round (for showing answer/points data)
+  const statsByRoundAndQuestion = React.useMemo(() => {
+    if (!cachedState?.teams || !cachedState?.grid) return {};
+
+    const teams = cachedState.teams;
+    const grid = cachedState.grid; // Unified grid: { "teamId-questionId": {...} }
+
+    const teamNames = new Map(
+      teams.map((t) => [t.showTeamId, t.teamName || "(Unnamed team)"])
+    );
+
+    const result = {}; // { [roundId]: { [showQuestionId]: stats } }
+
+    // Process each round
+    const rounds = showBundle?.rounds || [];
+    for (const round of rounds) {
+      const roundId = String(round.round);
+      const roundQuestions = round.questions || [];
+
+      // For adaptive pooled mode: count only teams active in THIS round
+      let activeTeamCount = teams.length;
+      if (scoringMode === "pooled-adaptive") {
+        const activeTeams = new Set();
+        for (const t of teams) {
+          for (const q of roundQuestions) {
+            const gridKey = `${t.showTeamId}-${q.id}`;
+            if (grid[gridKey]) {
+              activeTeams.add(t.showTeamId);
+              break; // Found at least one answer for this team
+            }
+          }
+        }
+        activeTeamCount = activeTeams.size;
+      }
+
+      const totalTeams = teams.length;
+      const roundStats = {};
+
+      for (const q of roundQuestions) {
+        const showQuestionId = q.id;
+        let correctCount = 0;
+        const correctTeams = [];
+
+        for (const t of teams) {
+          const gridKey = `${t.showTeamId}-${showQuestionId}`;
+          const cell = grid[gridKey];
+          if (cell?.isCorrect) {
+            correctCount++;
+            const nm = teamNames.get(t.showTeamId);
+            if (nm) correctTeams.push(nm);
+          }
+        }
+
+        roundStats[showQuestionId] = {
+          totalTeams,
+          activeTeamCount, // For adaptive mode pool calculation
+          correctCount,
+          correctTeams,
+        };
+      }
+
+      result[roundId] = roundStats;
+    }
+
+    return result;
+  }, [cachedState, showBundle, scoringMode]);
+
+  // Check if a round has any scoring data (to decide whether to show stats)
+  const roundHasScores = React.useMemo(() => {
+    if (!cachedState?.grid) return {};
+
+    const grid = cachedState.grid;
+    const result = {}; // { [roundId]: boolean }
+
+    const rounds = showBundle?.rounds || [];
+    for (const round of rounds) {
+      const roundId = String(round.round);
+      const roundQuestions = round.questions || [];
+
+      // Check if ANY question in this round has a score
+      let hasData = false;
+      for (const q of roundQuestions) {
+        // Check if any grid key for this question exists
+        for (const key in grid) {
+          if (key.endsWith(`-${q.id}`)) {
+            hasData = true;
+            break;
+          }
+        }
+        if (hasData) break;
+      }
+
+      result[roundId] = hasData;
+    }
+
+    return result;
+  }, [cachedState, showBundle]);
 
   const sortedGroupedEntries = React.useMemo(() => {
     const entries = Object.entries(groupedQuestions);
@@ -1229,6 +1328,62 @@ export default function ShowMode({
                           />
                         </p>
                       )}
+
+                      {/* STATS PILL (teams correct, points, SOLO) - only if round has scores */}
+                      {(() => {
+                        const isTiebreaker = (q["Question type"] || "") === "Tiebreaker";
+                        const hasScores = roundHasScores[roundNum];
+                        const stats = statsByRoundAndQuestion[roundNum]?.[q["Show Question ID"]];
+
+                        if (!hasScores || !stats || isTiebreaker) return null;
+
+                        return (
+                          <div
+                            style={{
+                              marginLeft: "1.5rem",
+                              marginBottom: ".75rem",
+                            }}
+                          >
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "0.35rem 0.75rem",
+                                borderRadius: 6,
+                                background: theme.white,
+                                fontSize: "1.05rem",
+                                border: `${tokens.borders.medium} ${theme.accent}`,
+                              }}
+                            >
+                              {stats.correctCount} / {stats.totalTeams} teams correct
+                            </span>
+
+                            {(scoringMode === "pooled" || scoringMode === "pooled-adaptive") && stats.correctCount > 0 && (
+                              <span style={{ marginLeft: ".6rem", fontSize: "1rem" }}>
+                                <span
+                                  style={{ color: theme.accent, fontWeight: 700 }}
+                                >
+                                  {scoringMode === "pooled-adaptive"
+                                    ? Math.round((Number(poolContribution) * stats.activeTeamCount) / stats.correctCount)
+                                    : Math.round(Number(poolPerQuestion) / stats.correctCount)
+                                  }
+                                </span>{" "}
+                                points per team
+                              </span>
+                            )}
+
+                            {stats.correctCount === 1 && stats.correctTeams[0] && (
+                              <span style={{ marginLeft: ".6rem" }}>
+                                <span
+                                  style={{ color: theme.accent, fontWeight: 700 }}
+                                >
+                                  SOLO:
+                                </span>{" "}
+                                <strong>{stats.correctTeams[0]}</strong>
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {qIndex < Object.values(questions).length - 1 && (

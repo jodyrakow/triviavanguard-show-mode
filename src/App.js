@@ -1490,6 +1490,7 @@ export default function App() {
           poolContribution={poolContribution}
           prizes={composedCachedState?.prizes ?? ""}
           hostInfo={composedCachedState?.hostInfo ?? DEFAULT_SHARED_STATE.hostInfo}
+          cachedState={composedCachedState}
           setShowTimer={setShowTimer}
           setPrizes={(val) => patchShared({ prizes: String(val || "") })}
           setHostInfo={(val) => patchShared({ hostInfo: val })}
