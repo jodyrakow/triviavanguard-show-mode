@@ -744,8 +744,8 @@ export default function ShowMode({
         <div
           style={{
             position: "fixed",
-            bottom: "1rem",
-            right: "1rem",
+            top: "1rem",
+            left: "1rem",
             width: `${previewSize.width}px`,
             height: `${previewSize.height}px`,
             backgroundColor: "#000",
@@ -794,17 +794,29 @@ export default function ShowMode({
               ×
             </button>
           </div>
-          <iframe
-            src={window.location.origin + "?display"}
-            title="Display Preview"
-            style={{
-              width: "100%",
-              height: "calc(100% - 35px)",
-              border: "none",
-              backgroundColor: "#000",
-              pointerEvents: "auto",
-            }}
-          />
+          <div style={{
+            width: "100%",
+            height: "calc(100% - 35px)",
+            overflow: "hidden",
+            position: "relative"
+          }}>
+            <iframe
+              src={window.location.origin + "?display"}
+              title="Display Preview"
+              style={{
+                width: "1920px",
+                height: "1080px",
+                border: "none",
+                backgroundColor: "#000",
+                pointerEvents: "none",
+                transform: `scale(${Math.min(
+                  (previewSize.width - 6) / 1920,
+                  (previewSize.height - 41) / 1080
+                )})`,
+                transformOrigin: "top left",
+              }}
+            />
+          </div>
         </div>
       )}
 
