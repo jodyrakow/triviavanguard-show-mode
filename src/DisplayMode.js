@@ -9,16 +9,29 @@ export default function DisplayMode() {
     content: null,
   });
 
-  // Listen for Pusher events
+  // Listen for display updates via BroadcastChannel (for separate window) and custom events (for iframe preview)
   useEffect(() => {
+    // BroadcastChannel for cross-window communication
+    const channel = new BroadcastChannel("tv:display");
+    channel.onmessage = (event) => {
+      const { type, content } = event.data || {};
+      console.log("[DisplayMode] Received BroadcastChannel update:", type, content);
+      setDisplayState({ type, content });
+    };
+
+    // Custom event for iframe preview
     const handleDisplayUpdate = (e) => {
       const { type, content } = e.detail || {};
-      console.log("[DisplayMode] Received update:", type, content);
+      console.log("[DisplayMode] Received custom event update:", type, content);
       setDisplayState({ type, content });
     };
 
     window.addEventListener("tv:displayUpdate", handleDisplayUpdate);
-    return () => window.removeEventListener("tv:displayUpdate", handleDisplayUpdate);
+
+    return () => {
+      channel.close();
+      window.removeEventListener("tv:displayUpdate", handleDisplayUpdate);
+    };
   }, []);
 
   return (
