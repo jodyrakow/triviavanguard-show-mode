@@ -86,16 +86,7 @@ export default function ShowMode({
     setHostInfo(hostInfoProp);
   }, [hostInfoProp]);
 
-  // Display Mode state
-  const [displayPreviewOpen, setDisplayPreviewOpen] = React.useState(false);
-  const [previewSize, setPreviewSize] = React.useState(() => {
-    try {
-      const saved = localStorage.getItem("displayPreviewSize");
-      return saved ? JSON.parse(saved) : { width: 400, height: 225 };
-    } catch {
-      return { width: 400, height: 225 };
-    }
-  });
+  // Display Mode state - no longer needed with separate window approach
 
   // show name (best-effort)
   const showName =
@@ -715,18 +706,27 @@ export default function ShowMode({
                 newWindow.focus();
               }
             }}
-            title="Open Display Mode in new window"
+            title="Open full Display Mode window for projector/second screen"
             style={{ fontSize: "0.9rem", padding: "0.5rem 0.75rem" }}
           >
             Open Display
           </ButtonPrimary>
 
           <ButtonPrimary
-            onClick={() => setDisplayPreviewOpen((v) => !v)}
-            title="Toggle preview of what's showing on display"
+            onClick={() => {
+              const newWindow = window.open(
+                window.location.origin + "?display",
+                "displayPreview",
+                "width=640,height=360,left=100,top=100"
+              );
+              if (newWindow) {
+                newWindow.focus();
+              }
+            }}
+            title="Open small preview window you can resize and position anywhere"
             style={{ fontSize: "0.9rem", padding: "0.5rem 0.75rem" }}
           >
-            {displayPreviewOpen ? "Hide Preview" : "Show Preview"}
+            Open Preview
           </ButtonPrimary>
 
           <Button
@@ -736,87 +736,6 @@ export default function ShowMode({
           >
             Clear Display
           </Button>
-        </div>
-      )}
-
-      {/* Display Preview Panel */}
-      {displayPreviewOpen && (
-        <div
-          style={{
-            position: "fixed",
-            top: "1rem",
-            left: "1rem",
-            width: `${previewSize.width}px`,
-            height: `${previewSize.height}px`,
-            backgroundColor: "#000",
-            border: `3px solid ${theme.accent}`,
-            borderRadius: "8px",
-            zIndex: 2000,
-            overflow: "hidden",
-            boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
-            resize: "both",
-            minWidth: "200px",
-            minHeight: "113px",
-          }}
-          onMouseUp={(e) => {
-            const newSize = {
-              width: e.currentTarget.offsetWidth,
-              height: e.currentTarget.offsetHeight,
-            };
-            setPreviewSize(newSize);
-            localStorage.setItem("displayPreviewSize", JSON.stringify(newSize));
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: theme.accent,
-              color: "#fff",
-              padding: "0.5rem",
-              fontSize: "0.85rem",
-              fontWeight: 600,
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <span>Display Preview - Drag corner to resize</span>
-            <button
-              onClick={() => setDisplayPreviewOpen(false)}
-              style={{
-                background: "transparent",
-                border: "none",
-                color: "#fff",
-                fontSize: "1.2rem",
-                cursor: "pointer",
-                padding: "0 0.5rem",
-              }}
-            >
-              ×
-            </button>
-          </div>
-          <div style={{
-            width: "100%",
-            height: "calc(100% - 35px)",
-            overflow: "hidden",
-            position: "relative"
-          }}>
-            <iframe
-              src={window.location.origin + "?display"}
-              title="Display Preview"
-              style={{
-                width: "1920px",
-                height: "1080px",
-                border: "none",
-                backgroundColor: "#000",
-                pointerEvents: "none",
-                transform: `scale(${Math.min(
-                  (previewSize.width - 6) / 1920,
-                  (previewSize.height - 41) / 1080
-                )})`,
-                transformOrigin: "top left",
-              }}
-            />
-          </div>
         </div>
       )}
 
