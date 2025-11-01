@@ -1,5 +1,6 @@
 // src/DisplayMode.js
 import React, { useState, useEffect } from "react";
+import { marked } from "marked";
 import { colors as theme, tokens } from "./styles";
 import triviaVanguardLogo from "./trivia-vanguard-logo.png";
 
@@ -193,9 +194,10 @@ function QuestionDisplay({ content }) {
             lineHeight: 1.4,
             color: theme.dark,
           }}
-        >
-          {questionText}
-        </div>
+          dangerouslySetInnerHTML={{
+            __html: marked.parseInline(questionText),
+          }}
+        />
       )}
     </div>
   );

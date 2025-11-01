@@ -88,6 +88,14 @@ export default function ShowMode({
 
   // Display Mode state
   const [displayPreviewOpen, setDisplayPreviewOpen] = React.useState(false);
+  const [previewSize, setPreviewSize] = React.useState(() => {
+    try {
+      const saved = localStorage.getItem("displayPreviewSize");
+      return saved ? JSON.parse(saved) : { width: 400, height: 225 };
+    } catch {
+      return { width: 400, height: 225 };
+    }
+  });
 
   // show name (best-effort)
   const showName =
@@ -738,14 +746,25 @@ export default function ShowMode({
             position: "fixed",
             bottom: "1rem",
             right: "1rem",
-            width: "400px",
-            height: "225px",
+            width: `${previewSize.width}px`,
+            height: `${previewSize.height}px`,
             backgroundColor: "#000",
             border: `3px solid ${theme.accent}`,
             borderRadius: "8px",
             zIndex: 2000,
             overflow: "hidden",
             boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+            resize: "both",
+            minWidth: "200px",
+            minHeight: "113px",
+          }}
+          onMouseUp={(e) => {
+            const newSize = {
+              width: e.currentTarget.offsetWidth,
+              height: e.currentTarget.offsetHeight,
+            };
+            setPreviewSize(newSize);
+            localStorage.setItem("displayPreviewSize", JSON.stringify(newSize));
           }}
         >
           <div
@@ -760,7 +779,7 @@ export default function ShowMode({
               alignItems: "center",
             }}
           >
-            <span>Display Preview (16:9)</span>
+            <span>Display Preview - Drag corner to resize</span>
             <button
               onClick={() => setDisplayPreviewOpen(false)}
               style={{
@@ -783,6 +802,7 @@ export default function ShowMode({
               height: "calc(100% - 35px)",
               border: "none",
               backgroundColor: "#000",
+              pointerEvents: "auto",
             }}
           />
         </div>
