@@ -1151,6 +1151,42 @@ export default function ShowMode({
                             <>Question {q["Question order"]}:</>
                           )}
                         </strong>
+                        {sendToDisplay && (q["Question type"] || "") !== "Tiebreaker" && (
+                          <Button
+                            onClick={() => {
+                              const questionImages = Array.isArray(q["Question image"])
+                                ? q["Question image"].map(img => ({ url: img.url }))
+                                : q["Question image"]
+                                  ? [{ url: q["Question image"].url }]
+                                  : [];
+
+                              const categoryImages = Array.isArray(categoryInfo?.["Category image"])
+                                ? categoryInfo["Category image"].map(img => ({ url: img.url }))
+                                : categoryInfo?.["Category image"]
+                                  ? [{ url: categoryInfo["Category image"].url }]
+                                  : [];
+
+                              // Use question images if available, otherwise use category images
+                              const images = questionImages.length > 0 ? questionImages : categoryImages;
+
+                              sendToDisplay("question", {
+                                questionNumber: q["Question order"],
+                                questionText: q["Question text"] || "",
+                                categoryName: categoryName,
+                                images: images,
+                              });
+                            }}
+                            style={{
+                              marginLeft: ".5rem",
+                              fontSize: ".75rem",
+                              padding: ".25rem .5rem",
+                              verticalAlign: "middle",
+                            }}
+                            title="Push this question to the display"
+                          >
+                            📺 Push to Display
+                          </Button>
+                        )}
                         {q._edited && (
                           <span
                             style={{
