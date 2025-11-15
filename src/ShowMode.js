@@ -808,7 +808,7 @@ export default function ShowMode({
             </Button>
             <Button
               onClick={() => {
-                const newSize = Math.min(200, displayFontSize + 10);
+                const newSize = Math.min(300, displayFontSize + 10);
                 setDisplayFontSize(newSize);
                 sendToDisplay("fontSize", { size: newSize });
               }}
