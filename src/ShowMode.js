@@ -82,7 +82,6 @@ export default function ShowMode({
   const [displayPreviewOpen, setDisplayPreviewOpen] = React.useState(false);
   const [displayFontSize, setDisplayFontSize] = React.useState(100); // percentage
   const [customMessages, setCustomMessages] = React.useState(["", "", ""]);
-  const [editingMessageIndex, setEditingMessageIndex] = React.useState(null);
 
   // show name (best-effort)
   const showName =
