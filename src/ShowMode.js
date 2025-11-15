@@ -80,6 +80,9 @@ export default function ShowMode({
 
   // Display Mode state
   const [displayPreviewOpen, setDisplayPreviewOpen] = React.useState(false);
+  const [displayFontSize, setDisplayFontSize] = React.useState(100); // percentage
+  const [customMessages, setCustomMessages] = React.useState(["", "", ""]);
+  const [editingMessageIndex, setEditingMessageIndex] = React.useState(null);
 
   // show name (best-effort)
   const showName =
@@ -790,6 +793,76 @@ export default function ShowMode({
           >
             Clear Display
           </Button>
+
+          {/* Font size controls */}
+          <div style={{ display: "flex", gap: "0.25rem", alignItems: "center" }}>
+            <Button
+              onClick={() => {
+                const newSize = Math.max(50, displayFontSize - 10);
+                setDisplayFontSize(newSize);
+                sendToDisplay("fontSize", { size: newSize });
+              }}
+              title="Decrease display text size"
+              style={{ fontSize: "0.9rem", padding: "0.5rem 0.5rem", flex: 1 }}
+            >
+              A-
+            </Button>
+            <Button
+              onClick={() => {
+                const newSize = Math.min(200, displayFontSize + 10);
+                setDisplayFontSize(newSize);
+                sendToDisplay("fontSize", { size: newSize });
+              }}
+              title="Increase display text size"
+              style={{ fontSize: "0.9rem", padding: "0.5rem 0.5rem", flex: 1 }}
+            >
+              A+
+            </Button>
+          </div>
+
+          {/* Custom messages */}
+          <div style={{ marginTop: "0.5rem" }}>
+            <div style={{ fontSize: "0.8rem", fontWeight: 600, marginBottom: "0.25rem", color: theme.dark }}>
+              Custom Messages:
+            </div>
+            {customMessages.map((msg, idx) => (
+              <div key={idx} style={{ marginBottom: "0.25rem", display: "flex", gap: "0.25rem" }}>
+                <input
+                  type="text"
+                  value={msg}
+                  onChange={(e) => {
+                    const newMessages = [...customMessages];
+                    newMessages[idx] = e.target.value;
+                    setCustomMessages(newMessages);
+                  }}
+                  placeholder={`Message ${idx + 1}`}
+                  style={{
+                    flex: 1,
+                    fontSize: "0.8rem",
+                    padding: "0.3rem",
+                    border: `1px solid ${theme.gray.border}`,
+                    borderRadius: "4px",
+                  }}
+                />
+                <Button
+                  onClick={() => {
+                    if (msg.trim()) {
+                      sendToDisplay("message", { text: msg });
+                    }
+                  }}
+                  disabled={!msg.trim()}
+                  title="Push this message to display"
+                  style={{
+                    fontSize: "0.7rem",
+                    padding: "0.3rem 0.5rem",
+                    opacity: msg.trim() ? 1 : 0.5,
+                  }}
+                >
+                  📺
+                </Button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

@@ -6,9 +6,10 @@ import { marked } from "marked";
 
 export default function DisplayMode() {
   const [displayState, setDisplayState] = useState({
-    type: "standby", // "standby" | "question" | "standings" | "break"
+    type: "standby", // "standby" | "question" | "standings" | "message" | "break"
     content: null,
   });
+  const [fontSize, setFontSize] = useState(100); // percentage
 
   // Listen for display updates via BroadcastChannel
   useEffect(() => {
@@ -17,7 +18,12 @@ export default function DisplayMode() {
     channel.onmessage = (event) => {
       const { type, content } = event.data || {};
       console.log("[DisplayMode] Received update:", type, content);
-      setDisplayState({ type, content });
+
+      if (type === "fontSize") {
+        setFontSize(content.size);
+      } else {
+        setDisplayState({ type, content });
+      }
     };
 
     return () => channel.close();
@@ -62,7 +68,10 @@ export default function DisplayMode() {
       >
         {displayState.type === "standby" && <StandbyScreen />}
         {displayState.type === "question" && (
-          <QuestionDisplay content={displayState.content} />
+          <QuestionDisplay content={displayState.content} fontSize={fontSize} />
+        )}
+        {displayState.type === "message" && (
+          <MessageDisplay content={displayState.content} fontSize={fontSize} />
         )}
         {displayState.type === "standings" && (
           <StandingsDisplay content={displayState.content} />
@@ -86,13 +95,15 @@ function StandbyScreen() {
   );
 }
 
-function QuestionDisplay({ content }) {
+function QuestionDisplay({ content, fontSize = 100 }) {
   const {
     questionNumber,
     questionText,
     categoryName,
     images = [],
   } = content || {};
+
+  const scale = fontSize / 100;
 
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
@@ -113,7 +124,7 @@ function QuestionDisplay({ content }) {
       {questionNumber && (
         <div
           style={{
-            fontSize: "4rem",
+            fontSize: `${4 * scale}rem`,
             fontWeight: 700,
             color: theme.accent,
             marginBottom: "1rem",
@@ -127,7 +138,7 @@ function QuestionDisplay({ content }) {
       {categoryName && (
         <div
           style={{
-            fontSize: "1.8rem",
+            fontSize: `${1.8 * scale}rem`,
             fontWeight: 600,
             color: theme.gray.text,
             marginBottom: "2rem",
@@ -176,7 +187,7 @@ function QuestionDisplay({ content }) {
       {questionText && (
         <div
           style={{
-            fontSize: "2.5rem",
+            fontSize: `${2.5 * scale}rem`,
             fontWeight: 500,
             lineHeight: 1.4,
             color: theme.dark,
@@ -187,6 +198,26 @@ function QuestionDisplay({ content }) {
         />
       )}
     </div>
+  );
+}
+
+function MessageDisplay({ content, fontSize = 100 }) {
+  const { text } = content || {};
+  const scale = fontSize / 100;
+
+  return (
+    <div
+      style={{
+        fontSize: `${3 * scale}rem`,
+        fontWeight: 600,
+        lineHeight: 1.5,
+        color: theme.dark,
+        padding: "2rem",
+      }}
+      dangerouslySetInnerHTML={{
+        __html: marked.parseInline(text || ""),
+      }}
+    />
   );
 }
 
