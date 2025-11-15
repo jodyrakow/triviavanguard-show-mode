@@ -73,16 +73,15 @@ export default function DisplayMode() {
 
 function StandbyScreen() {
   return (
-    <div
+    <img
+      src={triviaVanguardLogo}
+      alt="Trivia Vanguard"
       style={{
-        fontSize: "3rem",
-        fontWeight: 300,
-        color: theme.gray.text,
-        opacity: 0.6,
+        maxWidth: "60%",
+        maxHeight: "60vh",
+        objectFit: "contain",
       }}
-    >
-      Ready for next question...
-    </div>
+    />
   );
 }
 
