@@ -222,12 +222,18 @@ export default function App() {
   // Helper function to send updates to Display Mode
   const sendToDisplay = (type, content) => {
     try {
+      // Use BroadcastChannel to communicate across windows/tabs
+      const channel = new BroadcastChannel("tv:display");
+      channel.postMessage({ type, content });
+      channel.close();
+      console.log("[App] Sent to display:", type, content);
+
+      // Also dispatch local event for preview iframe
       window.dispatchEvent(
         new CustomEvent("tv:displayUpdate", {
           detail: { type, content },
         })
       );
-      console.log("[App] Sent to display:", type, content);
     } catch (err) {
       console.error("[App] Failed to send to display:", err);
     }

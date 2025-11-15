@@ -9,16 +9,17 @@ export default function DisplayMode() {
     content: null,
   });
 
-  // Listen for Pusher events
+  // Listen for display updates via BroadcastChannel
   useEffect(() => {
-    const handleDisplayUpdate = (e) => {
-      const { type, content } = e.detail || {};
+    const channel = new BroadcastChannel("tv:display");
+
+    channel.onmessage = (event) => {
+      const { type, content } = event.data || {};
       console.log("[DisplayMode] Received update:", type, content);
       setDisplayState({ type, content });
     };
 
-    window.addEventListener("tv:displayUpdate", handleDisplayUpdate);
-    return () => window.removeEventListener("tv:displayUpdate", handleDisplayUpdate);
+    return () => channel.close();
   }, []);
 
   return (
