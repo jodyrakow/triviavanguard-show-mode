@@ -1,5 +1,5 @@
 // src/DisplayMode.js
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { colors as theme, tokens } from "./styles";
 import triviaVanguardLogo from "./trivia-vanguard-logo.png";
 
@@ -143,7 +143,7 @@ function QuestionDisplay({ content }) {
         <div style={{ marginBottom: "2rem" }}>
           <img
             src={images[currentImageIndex].url}
-            alt={`Question image ${currentImageIndex + 1}`}
+            alt={`Question ${currentImageIndex + 1}`}
             style={{
               maxWidth: "90%",
               maxHeight: "500px",

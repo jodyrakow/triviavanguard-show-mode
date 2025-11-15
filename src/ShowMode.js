@@ -80,7 +80,6 @@ export default function ShowMode({
 
   // Display Mode state
   const [displayPreviewOpen, setDisplayPreviewOpen] = React.useState(false);
-  const [currentDisplayQuestion, setCurrentDisplayQuestion] = React.useState(null);
 
   // show name (best-effort)
   const showName =
