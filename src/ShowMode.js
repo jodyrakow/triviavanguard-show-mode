@@ -784,7 +784,6 @@ export default function ShowMode({
           <Button
             onClick={() => {
               sendToDisplay("standby", null);
-              setCurrentDisplayQuestion(null);
             }}
             title="Clear the display (standby screen)"
             style={{ fontSize: "0.9rem", padding: "0.5rem 0.75rem" }}
