@@ -1483,6 +1483,8 @@ export default function ShowMode({
                       {/* STATS PILL (teams correct, points, SOLO) - only if round has scores */}
                       {(() => {
                         const isTiebreaker = (q["Question type"] || "") === "Tiebreaker";
+                        const m = /^(\d+)/.exec(String(categoryId));
+                        const roundNum = m ? Number(m[1]) : 0;
                         const hasScores = roundHasScores[roundNum];
                         const stats = statsByRoundAndQuestion[roundNum]?.[q["Show Question ID"]];
 
