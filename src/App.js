@@ -912,10 +912,28 @@ export default function App() {
   };
 
   const saveTimers = useRef({}); // {shared, round}
+  const saveFunctions = useRef({}); // Store pending save functions
 
   const saveDebounced = (key, fn, delay = 350) => {
     clearTimeout(saveTimers.current[key]);
-    saveTimers.current[key] = setTimeout(fn, delay);
+    saveFunctions.current[key] = fn; // Store the function
+    saveTimers.current[key] = setTimeout(() => {
+      fn();
+      delete saveFunctions.current[key]; // Clear after execution
+    }, delay);
+  };
+
+  // Flush all pending saves immediately - MUST be called before switching rounds
+  const flushPendingSaves = () => {
+    Object.keys(saveTimers.current).forEach((key) => {
+      clearTimeout(saveTimers.current[key]);
+      if (saveFunctions.current[key]) {
+        console.log(`[App] Flushing pending save for: ${key}`);
+        saveFunctions.current[key]();
+        delete saveFunctions.current[key];
+      }
+    });
+    saveTimers.current = {};
   };
 
   // Fetch shows
@@ -1493,7 +1511,10 @@ export default function App() {
             Select Round:
             <select
               value={selectedRoundId}
-              onChange={(e) => setSelectedRoundId(e.target.value)}
+              onChange={(e) => {
+                flushPendingSaves(); // Save any pending data before switching
+                setSelectedRoundId(e.target.value);
+              }}
               style={{
                 fontSize: "1.25rem",
                 fontFamily: tokens.font.body,
