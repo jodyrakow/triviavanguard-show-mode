@@ -847,8 +847,16 @@ export default function App() {
               poolContribution: 10,
             };
 
-          // 🔧 FIX: Merge the new round data instead of replacing the entire show cache
-          const updatedRound = json.round ?? prevShow[selectedRoundId] ?? { grid: {} };
+          // 🔧 FIX: Prefer local cache if it has data and Supabase returned nothing
+          // This prevents losing unsaved data when switching rounds quickly
+          const localRound = prevShow[selectedRoundId];
+          const localHasData = localRound?.grid && Object.keys(localRound.grid).length > 0;
+          const supabaseHasData = json.round?.grid && Object.keys(json.round.grid).length > 0;
+
+          // Use Supabase data only if it exists, otherwise keep local data
+          const updatedRound = supabaseHasData
+            ? json.round
+            : (localHasData ? localRound : (json.round ?? { grid: {} }));
 
           // Option C: Only override scoring settings if the show has been started AND has actual scoring data saved
           // A show is considered "started" if there's actual scoring data (grid has entries)
