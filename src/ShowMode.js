@@ -793,8 +793,20 @@ export default function ShowMode({
             Clear Display
           </Button>
 
+          <Button
+            onClick={() => {
+              sendToDisplay("closeImageOverlay", null);
+            }}
+            title="Close any image overlay on the display"
+            style={{ fontSize: "0.9rem", padding: "0.5rem 0.75rem" }}
+          >
+            Close Image
+          </Button>
+
           {/* Font size controls */}
-          <div style={{ display: "flex", gap: "0.25rem", alignItems: "center" }}>
+          <div
+            style={{ display: "flex", gap: "0.25rem", alignItems: "center" }}
+          >
             <Button
               onClick={() => {
                 const newSize = Math.max(50, displayFontSize - 10);
@@ -821,11 +833,25 @@ export default function ShowMode({
 
           {/* Custom messages */}
           <div style={{ marginTop: "0.5rem" }}>
-            <div style={{ fontSize: "0.8rem", fontWeight: 600, marginBottom: "0.25rem", color: theme.dark }}>
+            <div
+              style={{
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                marginBottom: "0.25rem",
+                color: theme.dark,
+              }}
+            >
               Custom Messages:
             </div>
             {customMessages.map((msg, idx) => (
-              <div key={idx} style={{ marginBottom: "0.25rem", display: "flex", gap: "0.25rem" }}>
+              <div
+                key={idx}
+                style={{
+                  marginBottom: "0.25rem",
+                  display: "flex",
+                  gap: "0.25rem",
+                }}
+              >
                 <input
                   type="text"
                   value={msg}
@@ -986,6 +1012,27 @@ export default function ShowMode({
               }}
             />
 
+            {/* Push category to display button */}
+            {sendToDisplay && (
+              <div style={{ marginLeft: "1rem", marginBottom: "0.5rem" }}>
+                <Button
+                  onClick={() => {
+                    sendToDisplay("category", {
+                      categoryName: categoryName,
+                      categoryDescription: categoryDescription,
+                    });
+                  }}
+                  style={{
+                    fontSize: tokens.font.size,
+                    fontFamily: tokens.font.body,
+                  }}
+                  title="Push category name and description to display"
+                >
+                  Push category to display
+                </Button>
+              </div>
+            )}
+
             {/* Category images (optional) */}
             {catImagesArr.length > 0 && (
               <div style={{ marginTop: "0.25rem", marginLeft: "1rem" }}>
@@ -1004,6 +1051,25 @@ export default function ShowMode({
                 >
                   Show category image{catImagesArr.length > 1 ? "s" : ""}
                 </Button>
+                {sendToDisplay && (
+                  <Button
+                    onClick={() => {
+                      sendToDisplay("imageOverlay", {
+                        images: catImagesArr.map((img) => ({ url: img.url })),
+                        currentIndex: 0,
+                      });
+                    }}
+                    style={{
+                      fontSize: tokens.font.size,
+                      fontFamily: tokens.font.body,
+                      marginBottom: "0.25rem",
+                      marginLeft: "0.5rem",
+                    }}
+                    title="Push category image to display"
+                  >
+                    Push image to display
+                  </Button>
+                )}
 
                 {visibleCategoryImages[groupKey] && (
                   <div
@@ -1221,29 +1287,15 @@ export default function ShowMode({
                             <>Question {q["Question order"]}:</>
                           )}
                         </strong>
-                        {sendToDisplay && (q["Question type"] || "") !== "Tiebreaker" && (
+                        {sendToDisplay && (
                           <Button
                             onClick={() => {
-                              const questionImages = Array.isArray(q["Question image"])
-                                ? q["Question image"].map(img => ({ url: img.url }))
-                                : q["Question image"]
-                                  ? [{ url: q["Question image"].url }]
-                                  : [];
-
-                              const categoryImages = Array.isArray(categoryInfo?.["Category image"])
-                                ? categoryInfo["Category image"].map(img => ({ url: img.url }))
-                                : categoryInfo?.["Category image"]
-                                  ? [{ url: categoryInfo["Category image"].url }]
-                                  : [];
-
-                              // Use question images if available, otherwise use category images
-                              const images = questionImages.length > 0 ? questionImages : categoryImages;
-
+                              // Never automatically push images - user must explicitly use "Push image to display"
                               sendToDisplay("question", {
                                 questionNumber: q["Question order"],
                                 questionText: q["Question text"] || "",
                                 categoryName: categoryName,
-                                images: images,
+                                images: [],
                               });
                             }}
                             style={{
@@ -1254,7 +1306,7 @@ export default function ShowMode({
                             }}
                             title="Push this question to the display"
                           >
-                            📺 Push to Display
+                            Push to display
                           </Button>
                         )}
                         {q._edited && (
@@ -1368,6 +1420,27 @@ export default function ShowMode({
                           >
                             Show image
                           </Button>
+                          {sendToDisplay && (
+                            <Button
+                              onClick={() => {
+                                const idx =
+                                  currentImageIndex[q["Question ID"]] || 0;
+                                sendToDisplay("imageOverlay", {
+                                  images: q.Images.map((img) => ({
+                                    url: img.url,
+                                  })),
+                                  currentIndex: idx,
+                                });
+                              }}
+                              style={{
+                                marginBottom: "0.25rem",
+                                marginLeft: "0.5rem",
+                              }}
+                              title="Push image to display"
+                            >
+                              Push image to display
+                            </Button>
+                          )}
 
                           {visibleImages[q["Question ID"]] && (
                             <div
@@ -1552,11 +1625,15 @@ export default function ShowMode({
 
                       {/* STATS PILL (teams correct, points, SOLO) - only if round has scores */}
                       {(() => {
-                        const isTiebreaker = (q["Question type"] || "") === "Tiebreaker";
+                        const isTiebreaker =
+                          (q["Question type"] || "") === "Tiebreaker";
                         const m = /^(\d+)/.exec(String(categoryId));
                         const roundNum = m ? Number(m[1]) : 0;
                         const hasScores = roundHasScores[roundNum];
-                        const stats = statsByRoundAndQuestion[roundNum]?.[q["Show Question ID"]];
+                        const stats =
+                          statsByRoundAndQuestion[roundNum]?.[
+                            q["Show Question ID"]
+                          ];
 
                         if (!hasScores || !stats || isTiebreaker) return null;
 
@@ -1577,33 +1654,54 @@ export default function ShowMode({
                                 border: `${tokens.borders.medium} ${theme.accent}`,
                               }}
                             >
-                              {stats.correctCount} / {stats.totalTeams} teams correct
+                              {stats.correctCount} / {stats.totalTeams} teams
+                              correct
                             </span>
 
-                            {(scoringMode === "pooled" || scoringMode === "pooled-adaptive") && stats.correctCount > 0 && (
-                              <span style={{ marginLeft: ".6rem", fontSize: "1rem" }}>
+                            {(scoringMode === "pooled" ||
+                              scoringMode === "pooled-adaptive") &&
+                              stats.correctCount > 0 && (
                                 <span
-                                  style={{ color: theme.accent, fontWeight: 700 }}
+                                  style={{
+                                    marginLeft: ".6rem",
+                                    fontSize: "1rem",
+                                  }}
                                 >
-                                  {scoringMode === "pooled-adaptive"
-                                    ? Math.round((Number(poolContribution) * stats.activeTeamCount) / stats.correctCount)
-                                    : Math.round(Number(poolPerQuestion) / stats.correctCount)
-                                  }
-                                </span>{" "}
-                                points per team
-                              </span>
-                            )}
+                                  <span
+                                    style={{
+                                      color: theme.accent,
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    {scoringMode === "pooled-adaptive"
+                                      ? Math.round(
+                                          (Number(poolContribution) *
+                                            stats.activeTeamCount) /
+                                            stats.correctCount
+                                        )
+                                      : Math.round(
+                                          Number(poolPerQuestion) /
+                                            stats.correctCount
+                                        )}
+                                  </span>{" "}
+                                  points per team
+                                </span>
+                              )}
 
-                            {stats.correctCount === 1 && stats.correctTeams[0] && (
-                              <span style={{ marginLeft: ".6rem" }}>
-                                <span
-                                  style={{ color: theme.accent, fontWeight: 700 }}
-                                >
-                                  SOLO:
-                                </span>{" "}
-                                <strong>{stats.correctTeams[0]}</strong>
-                              </span>
-                            )}
+                            {stats.correctCount === 1 &&
+                              stats.correctTeams[0] && (
+                                <span style={{ marginLeft: ".6rem" }}>
+                                  <span
+                                    style={{
+                                      color: theme.accent,
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    SOLO:
+                                  </span>{" "}
+                                  <strong>{stats.correctTeams[0]}</strong>
+                                </span>
+                              )}
                           </div>
                         );
                       })()}

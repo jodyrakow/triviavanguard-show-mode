@@ -1,7 +1,7 @@
 // src/DisplayMode.js
 import React, { useState, useEffect } from "react";
 import { colors as theme, tokens } from "./styles";
-import triviaVanguardLogo from "./trivia-vanguard-logo.png";
+import triviaVanguardLogo from "./trivia-vanguard-logo-white.png";
 import { marked } from "marked";
 
 export default function DisplayMode() {
@@ -10,6 +10,7 @@ export default function DisplayMode() {
     content: null,
   });
   const [fontSize, setFontSize] = useState(100); // percentage
+  const [imageOverlay, setImageOverlay] = useState(null); // { images: [], currentIndex: 0 }
 
   // Listen for display updates via BroadcastChannel
   useEffect(() => {
@@ -21,6 +22,10 @@ export default function DisplayMode() {
 
       if (type === "fontSize") {
         setFontSize(content.size);
+      } else if (type === "imageOverlay") {
+        setImageOverlay(content);
+      } else if (type === "closeImageOverlay") {
+        setImageOverlay(null);
       } else {
         setDisplayState({ type, content });
       }
@@ -45,13 +50,13 @@ export default function DisplayMode() {
         overflow: "hidden",
       }}
     >
-      {/* Logo - top right */}
+      {/* Logo - top right, centered in 100px gray bar */}
       <img
         src={triviaVanguardLogo}
         alt="Trivia Vanguard"
         style={{
           position: "absolute",
-          top: "20px",
+          top: "10px",
           right: "20px",
           height: "80px",
           zIndex: 100,
@@ -70,6 +75,9 @@ export default function DisplayMode() {
         {displayState.type === "question" && (
           <QuestionDisplay content={displayState.content} fontSize={fontSize} />
         )}
+        {displayState.type === "category" && (
+          <CategoryDisplay content={displayState.content} fontSize={fontSize} />
+        )}
         {displayState.type === "message" && (
           <MessageDisplay content={displayState.content} fontSize={fontSize} />
         )}
@@ -77,6 +85,17 @@ export default function DisplayMode() {
           <StandingsDisplay content={displayState.content} />
         )}
       </div>
+
+      {/* Image overlay */}
+      {imageOverlay &&
+        imageOverlay.images &&
+        imageOverlay.images.length > 0 && (
+          <ImageOverlay
+            images={imageOverlay.images}
+            currentIndex={imageOverlay.currentIndex || 0}
+            onClose={() => setImageOverlay(null)}
+          />
+        )}
     </div>
   );
 }
@@ -95,6 +114,49 @@ function StandbyScreen() {
   );
 }
 
+function CategoryDisplay({ content, fontSize = 100 }) {
+  const { categoryName, categoryDescription } = content || {};
+  const scale = fontSize / 100;
+
+  return (
+    <div>
+      {/* Category name - large, uppercase, same style as question display but bigger */}
+      {categoryName && (
+        <div
+          style={{
+            fontSize: `${5 * scale}rem`,
+            fontWeight: 700,
+            color: theme.accent,
+
+            textTransform: "uppercase",
+            letterSpacing: "0.025rem",
+          }}
+        >
+          {categoryName}
+        </div>
+      )}
+
+      {/* Category description - italic serif font for contrast */}
+      {categoryDescription && (
+        <div
+          style={{
+            fontSize: `${2.5 * scale}rem`,
+            fontFamily: tokens.font.flavor,
+            fontStyle: "italic",
+            lineHeight: 1.5,
+            color: theme.dark,
+            maxWidth: "900px",
+            margin: "0 auto",
+          }}
+          dangerouslySetInnerHTML={{
+            __html: marked.parseInline(categoryDescription || ""),
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 function QuestionDisplay({ content, fontSize = 100 }) {
   const {
     questionNumber,
@@ -107,19 +169,41 @@ function QuestionDisplay({ content, fontSize = 100 }) {
 
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
-  // Auto-cycle images every 15 seconds
-  useEffect(() => {
-    if (!images || images.length <= 1) return;
-
-    const interval = setInterval(() => {
-      setCurrentImageIndex((prev) => (prev + 1) % images.length);
-    }, 15000);
-
-    return () => clearInterval(interval);
-  }, [images]);
-
   return (
     <div>
+      {/* Category bar at top - gray bar behind logo */}
+      {categoryName && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: "100px",
+            backgroundColor: theme.gray.border,
+            display: "flex",
+            justifyContent: "flex-start",
+            alignItems: "center",
+            paddingLeft: "2rem",
+            zIndex: 50,
+          }}
+        >
+          <div
+            style={{
+              fontSize: `${2 * scale}rem`,
+              fontWeight: 600,
+              color: theme.dark,
+              textTransform: "uppercase",
+              letterSpacing: "0.1em",
+              maxWidth: "calc(100% - 200px)",
+              lineHeight: 1.2,
+            }}
+          >
+            {categoryName}
+          </div>
+        </div>
+      )}
+
       {/* Question number */}
       {questionNumber && (
         <div
@@ -128,25 +212,10 @@ function QuestionDisplay({ content, fontSize = 100 }) {
             fontWeight: 700,
             color: theme.accent,
             marginBottom: "1rem",
+            marginTop: categoryName ? "80px" : "0",
           }}
         >
           {questionNumber}
-        </div>
-      )}
-
-      {/* Category name */}
-      {categoryName && (
-        <div
-          style={{
-            fontSize: `${1.8 * scale}rem`,
-            fontWeight: 600,
-            color: theme.gray.text,
-            marginBottom: "2rem",
-            textTransform: "uppercase",
-            letterSpacing: "0.1em",
-          }}
-        >
-          {categoryName}
         </div>
       )}
 
@@ -165,7 +234,14 @@ function QuestionDisplay({ content, fontSize = 100 }) {
           />
           {/* Image indicators */}
           {images.length > 1 && (
-            <div style={{ marginTop: "1rem", display: "flex", gap: "8px", justifyContent: "center" }}>
+            <div
+              style={{
+                marginTop: "1rem",
+                display: "flex",
+                gap: "8px",
+                justifyContent: "center",
+              }}
+            >
               {images.map((_, idx) => (
                 <div
                   key={idx}
@@ -173,7 +249,10 @@ function QuestionDisplay({ content, fontSize = 100 }) {
                     width: "12px",
                     height: "12px",
                     borderRadius: "50%",
-                    backgroundColor: idx === currentImageIndex ? theme.accent : theme.gray.border,
+                    backgroundColor:
+                      idx === currentImageIndex
+                        ? theme.accent
+                        : theme.gray.border,
                     transition: "background-color 0.3s",
                   }}
                 />
@@ -252,15 +331,122 @@ function StandingsDisplay({ content }) {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: "2rem" }}>
-              <div style={{ fontWeight: 700, fontSize: "2.5rem", color: theme.accent, minWidth: "60px" }}>
+              <div
+                style={{
+                  fontWeight: 700,
+                  fontSize: "2.5rem",
+                  color: theme.accent,
+                  minWidth: "60px",
+                }}
+              >
                 {team.place}
               </div>
               <div style={{ fontWeight: 600 }}>{team.teamName}</div>
             </div>
-            <div style={{ fontWeight: 700, fontSize: "2.5rem" }}>{team.total}</div>
+            <div style={{ fontWeight: 700, fontSize: "2.5rem" }}>
+              {team.total}
+            </div>
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function ImageOverlay({ images, currentIndex, onClose }) {
+  const [idx, setIdx] = useState(currentIndex);
+
+  // Update index when new images are pushed
+  useEffect(() => {
+    setIdx(currentIndex);
+  }, [currentIndex, images]);
+
+  const handlePrev = (e) => {
+    e.stopPropagation();
+    setIdx((prev) => (prev - 1 + images.length) % images.length);
+  };
+
+  const handleNext = (e) => {
+    e.stopPropagation();
+    setIdx((prev) => (prev + 1) % images.length);
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        width: "100vw",
+        height: "100vh",
+        backgroundColor: "rgba(43, 57, 74, 0.7)",
+        backdropFilter: "blur(10px)",
+        WebkitBackdropFilter: "blur(8px)",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 9999,
+        cursor: "pointer",
+      }}
+    >
+      <img
+        src={images[idx]?.url}
+        alt={`Image ${idx + 1}`}
+        style={{
+          maxWidth: "90vw",
+          maxHeight: "80vh",
+          objectFit: "contain",
+          border: `4px solid ${theme.white}`,
+          boxShadow: "0 0 20px rgba(0,0,0,0.5)",
+          marginBottom: "1rem",
+        }}
+      />
+
+      {/* Navigation buttons for multiple images */}
+      {images.length > 1 && (
+        <div
+          style={{
+            display: "flex",
+            gap: "1rem",
+            alignItems: "center",
+            fontFamily: tokens.font.body,
+          }}
+        >
+          <button
+            onClick={handlePrev}
+            style={{
+              padding: "0.5rem 1rem",
+              fontSize: "1rem",
+              borderRadius: "0.25rem",
+              border: `1px solid ${theme.accent}`,
+              background: theme.white,
+              color: theme.dark,
+              cursor: "pointer",
+            }}
+          >
+            Previous
+          </button>
+          <span style={{ color: theme.white, fontSize: "1.2rem" }}>
+            {idx + 1} / {images.length}
+          </span>
+          <button
+            onClick={handleNext}
+            style={{
+              padding: "0.5rem 1rem",
+              fontSize: "1rem",
+              borderRadius: "0.25rem",
+              border: `1px solid ${theme.accent}`,
+              background: theme.white,
+              color: theme.dark,
+              cursor: "pointer",
+            }}
+          >
+            Next
+          </button>
+        </div>
+      )}
     </div>
   );
 }
