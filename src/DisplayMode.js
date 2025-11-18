@@ -167,7 +167,7 @@ function QuestionDisplay({ content, fontSize = 100 }) {
 
   const scale = fontSize / 100;
 
-  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [currentImageIndex] = useState(0);
 
   return (
     <div>
@@ -393,7 +393,7 @@ function ImageOverlay({ images, currentIndex, onClose }) {
     >
       <img
         src={images[idx]?.url}
-        alt={`Image ${idx + 1}`}
+        alt={`${idx + 1} of ${images.length}`}
         style={{
           maxWidth: "90vw",
           maxHeight: "80vh",
