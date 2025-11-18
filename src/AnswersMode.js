@@ -97,6 +97,7 @@ export default function AnswersMode({
   poolPerQuestion,
   prizes = "", // NEW: prizes from shared state (newline-separated string)
   editQuestionField,
+  refreshBundle,
 }) {
   // Unified question editor modal state
   const [editingQuestion, setEditingQuestion] = React.useState(null);
@@ -401,14 +402,23 @@ export default function AnswersMode({
         </div>
       ) : null}
 
-      {/* Answer Key toggle */}
-      <div style={{ marginTop: "0.75rem" }}>
+      {/* Answer Key toggle and Refresh Questions */}
+      <div style={{ marginTop: "0.75rem", display: "flex", gap: tokens.spacing.sm }}>
         <ButtonPrimary
           onClick={() => setShowAnswerKey((prev) => !prev)}
           title="Toggle answer key panel"
         >
           {showAnswerKey ? "Hide Answer Key" : "Show answer key"}
         </ButtonPrimary>
+
+        {refreshBundle && (
+          <Button
+            onClick={refreshBundle}
+            title="Re-fetch questions from Airtable to get fresh audio/image URLs (does not affect scoring)"
+          >
+            Refresh Questions
+          </Button>
+        )}
       </div>
 
       {showAnswerKey && (

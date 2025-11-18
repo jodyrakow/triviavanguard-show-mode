@@ -56,6 +56,7 @@ export default function ShowMode({
   editQuestionField,
   addTiebreaker,
   sendToDisplay,
+  refreshBundle,
 }) {
   const [scriptOpen, setScriptOpen] = React.useState(false);
 
@@ -802,6 +803,16 @@ export default function ShowMode({
           >
             Close Image
           </Button>
+
+          {refreshBundle && (
+            <Button
+              onClick={refreshBundle}
+              title="Re-fetch questions from Airtable to get fresh audio/image URLs (does not affect scoring)"
+              style={{ fontSize: "0.9rem", padding: "0.5rem 0.75rem" }}
+            >
+              Refresh Questions
+            </Button>
+          )}
 
           {/* Font size controls */}
           <div

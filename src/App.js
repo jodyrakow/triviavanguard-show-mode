@@ -1180,6 +1180,29 @@ export default function App() {
     });
   };
 
+  // Helper function to refresh bundle (re-fetch from Airtable) without clearing scoring
+  const refreshBundle = async () => {
+    if (!selectedShowId) return;
+
+    try {
+      setBundleLoading(true);
+      const res = await axios.get("/.netlify/functions/fetchShowBundle", {
+        params: { showId: selectedShowId },
+      });
+
+      const bundle = res.data || null;
+      setShowBundle(bundle);
+
+      // Note: We do NOT update scoring settings here - just the question/audio/image data
+      console.log("[App] Bundle refreshed with fresh Airtable URLs");
+    } catch (e) {
+      console.error("Failed to refresh bundle:", e);
+      alert("Failed to refresh questions. Please try again.");
+    } finally {
+      setBundleLoading(false);
+    }
+  };
+
   // Helper function to add a tiebreaker question
   const addTiebreaker = (questionText, answer) => {
     if (!showBundle || !selectedRoundId) return;
@@ -1527,6 +1550,7 @@ export default function App() {
           setHostInfo={(val) => patchShared({ hostInfo: val })}
           editQuestionField={editQuestionField}
           addTiebreaker={addTiebreaker}
+          refreshBundle={refreshBundle}
         />
       )}
 
@@ -1635,6 +1659,7 @@ export default function App() {
           poolPerQuestion={poolPerQuestion}
           prizes={composedCachedState?.prizes ?? ""}
           editQuestionField={editQuestionField}
+          refreshBundle={refreshBundle}
         />
       )}
 

@@ -215,7 +215,7 @@ function QuestionDisplay({ content, fontSize = 100 }) {
             marginTop: categoryName ? "80px" : "0",
           }}
         >
-          {questionNumber}
+          {questionNumber === "TB" ? "TIEBREAKER" : questionNumber}
         </div>
       )}
 
