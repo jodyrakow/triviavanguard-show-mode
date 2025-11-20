@@ -1040,6 +1040,45 @@ export default function ScoringMode({
     transition: "box-shadow 120ms ease, transform 120ms ease",
   };
 
+  // --------- Solos calculation ---------
+  const solosData = useMemo(() => {
+    const soloTeams = new Set();
+    let soloCount = 0;
+
+    // Build a map of team names
+    const teamNames = new Map(
+      teams.map((t) => [t.showTeamId, t.teamName || "(Unnamed team)"])
+    );
+
+    // Check each question
+    for (const q of questions) {
+      let correctCount = 0;
+      let correctTeamId = null;
+
+      for (const t of teams) {
+        const cell = grid[t.showTeamId]?.[q.showQuestionId];
+        if (cell?.isCorrect) {
+          correctCount++;
+          correctTeamId = t.showTeamId;
+        }
+      }
+
+      // If exactly one team got it correct, it's a solo
+      if (correctCount === 1 && correctTeamId) {
+        soloCount++;
+        const teamName = teamNames.get(correctTeamId);
+        if (teamName) {
+          soloTeams.add(teamName);
+        }
+      }
+    }
+
+    return {
+      count: soloCount,
+      teams: Array.from(soloTeams).sort(),
+    };
+  }, [questions, teams, grid]);
+
   // ---------------- Render ----------------
 
   return (
@@ -1058,6 +1097,9 @@ export default function ScoringMode({
           borderTop: `2px solid ${theme.accent}`,
           borderBottom: `2px solid ${theme.accent}`,
           marginBottom: "0.75rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
         }}
       >
         <h2
@@ -1072,6 +1114,19 @@ export default function ScoringMode({
         >
           Scores
         </h2>
+        {solosData.count > 0 && (
+          <div
+            style={{
+              color: "#fff",
+              fontFamily: tokens.font.body,
+              fontSize: "1rem",
+              marginRight: "1rem",
+            }}
+          >
+            {solosData.count} solo{solosData.count !== 1 ? "s" : ""} this round:{" "}
+            {solosData.teams.join(", ")}
+          </div>
+        )}
       </div>
 
       {/* Top controls */}
