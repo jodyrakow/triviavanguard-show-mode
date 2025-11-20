@@ -657,6 +657,26 @@ export default function AnswersMode({
                     }}
                   >
                     <strong>Question {q.order}:</strong>
+                    {sendToDisplay && (
+                      <Button
+                        onClick={() => {
+                          sendToDisplay("question", {
+                            questionNumber: q.order,
+                            questionText: q.text || "",
+                            categoryName: "",
+                            images: [],
+                          });
+                        }}
+                        style={{
+                          marginLeft: "1rem",
+                          fontSize: "0.9rem",
+                          padding: "0.25rem 0.5rem",
+                        }}
+                        title="Push question to display"
+                      >
+                        Push to display
+                      </Button>
+                    )}
                     {q._edited && (
                       <span
                         style={{
