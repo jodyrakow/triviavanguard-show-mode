@@ -2194,20 +2194,34 @@ export default function ResultsMode({
                             }}
                           >
                             {!sameAsPrev && (() => {
-                              // This is the first row of this placing band
-                              const placeStr = ordinal(r.place);
-                              // Get all teams with the same place
+                              // First row of placing - check if this is part of a tie group (same total score)
+                              const allTiedByScore = arr.filter(
+                                (row) => row.total === r.total
+                              );
+                              const isTiedByScore = allTiedByScore.length > 1;
+
+                              // Get all teams with same place (after tiebreaker resolution)
                               const teamsInPlace = arr.filter(
                                 (row) => row.place === r.place
                               );
+
+                              const placeStr = ordinal(r.place);
                               const teamNames = teamsInPlace.map((t) => t.teamName);
                               const prizeText =
                                 prizeCount > 0 && r.place <= prizeCount
                                   ? prizes[r.place - 1] || ""
                                   : "";
-                              const isTied = teamsInPlace.length > 1;
-                              const inPrizeBand = r.place <= prizeCount;
-                              const isTiedInPrizeBand = isTied && inPrizeBand;
+
+                              // For randomize button: get the highest place in the tie group
+                              const highestPlaceInTie = Math.min(
+                                ...allTiedByScore.map((t) => t.place)
+                              );
+                              const highestPlaceStr = ordinal(highestPlaceInTie);
+
+                              // Check if there are "unlucky" teams (tied but outside prize band)
+                              const unluckyTeams = isTiedByScore
+                                ? allTiedByScore.filter((t) => t.place > prizeCount)
+                                : [];
 
                               return (
                                 <div
@@ -2218,6 +2232,62 @@ export default function ResultsMode({
                                     alignItems: "center",
                                   }}
                                 >
+                                  {/* Randomize ALL tied teams (if tied by score) */}
+                                  {isTiedByScore && (
+                                    <Button
+                                      onClick={() => {
+                                        const allTiedTeamNames = allTiedByScore.map(
+                                          (t) => t.teamName
+                                        );
+                                        const shuffled = [...allTiedTeamNames].sort(
+                                          () => Math.random() - 0.5
+                                        );
+                                        sendToDisplay("results", {
+                                          place: highestPlaceStr,
+                                          teams: shuffled,
+                                          prize: null,
+                                          isTied: true,
+                                        });
+                                      }}
+                                      style={{
+                                        fontSize: "0.7rem",
+                                        padding: "0.25rem 0.5rem",
+                                        whiteSpace: "nowrap",
+                                        background: theme.accent,
+                                        color: "#fff",
+                                      }}
+                                      title={`Randomize ALL tied teams`}
+                                    >
+                                      🔀 Rand All
+                                    </Button>
+                                  )}
+
+                                  {/* Push button for "unlucky" teams (tied but no prize) */}
+                                  {unluckyTeams.length > 0 && r.place === Math.min(...unluckyTeams.map(t => t.place)) && (
+                                    <Button
+                                      onClick={() => {
+                                        const unluckyTeamNames = unluckyTeams.map(
+                                          (t) => t.teamName
+                                        );
+                                        sendToDisplay("results", {
+                                          place: highestPlaceStr,
+                                          teams: unluckyTeamNames,
+                                          prize: null,
+                                          isTied: true,
+                                        });
+                                      }}
+                                      style={{
+                                        fontSize: "0.7rem",
+                                        padding: "0.25rem 0.5rem",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                      title={`Push unlucky tied teams (no prizes)`}
+                                    >
+                                      😢 Unlucky
+                                    </Button>
+                                  )}
+
+                                  {/* Individual push button for this specific place */}
                                   <Button
                                     onClick={() => {
                                       sendToDisplay("results", {
@@ -2232,38 +2302,10 @@ export default function ResultsMode({
                                       padding: "0.25rem 0.5rem",
                                       whiteSpace: "nowrap",
                                     }}
-                                    title={`Push ${placeStr} place to display: ${teamNames.join(", ")}`}
+                                    title={`Push ${placeStr} place: ${teamNames.join(", ")}`}
                                   >
-                                    📺 Push
+                                    📺 {placeStr}
                                   </Button>
-
-                                  {/* Randomize button for tied bands in prize range */}
-                                  {isTiedInPrizeBand && (
-                                    <Button
-                                      onClick={() => {
-                                        // Randomize team order
-                                        const shuffled = [...teamNames].sort(
-                                          () => Math.random() - 0.5
-                                        );
-                                        sendToDisplay("results", {
-                                          place: placeStr,
-                                          teams: shuffled,
-                                          prize: null,
-                                          isTied: true,
-                                        });
-                                      }}
-                                      style={{
-                                        fontSize: "0.7rem",
-                                        padding: "0.25rem 0.5rem",
-                                        whiteSpace: "nowrap",
-                                        background: theme.accent,
-                                        color: "#fff",
-                                      }}
-                                      title={`Randomize team order and push to display`}
-                                    >
-                                      🔀 Rand
-                                    </Button>
-                                  )}
                                 </div>
                               );
                             })()}
