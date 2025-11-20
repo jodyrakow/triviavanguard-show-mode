@@ -1,6 +1,6 @@
 // src/ResultsMode.js
 import React, { useMemo, useRef, useState, useCallback } from "react";
-import { tokens, colors as theme } from "./styles/index.js";
+import { tokens, colors as theme, Button, ButtonPrimary } from "./styles/index.js";
 import { colors } from "./styles/ui.js";
 
 // Normalize team shapes coming from cache (same as ScoringMode)
@@ -582,6 +582,11 @@ export default function ResultsMode({
   });
   const [isArchiving, setIsArchiving] = useState(false);
 
+  // Display Mode state
+  const [displayPreviewOpen, setDisplayPreviewOpen] = useState(false);
+  const [displayFontSize, setDisplayFontSize] = useState(100); // percentage
+  const [customMessages, setCustomMessages] = useState(["", "", ""]);
+
   const hideTimerRef = React.useRef(null);
   React.useEffect(() => () => clearTimeout(hideTimerRef.current), []);
 
@@ -1071,6 +1076,211 @@ export default function ResultsMode({
           Results {usingCumulative ? "— Show Total" : ""}
         </h2>
       </div>
+
+      {/* Display Mode Controls */}
+      {sendToDisplay && (
+        <div
+          style={{
+            position: "fixed",
+            right: "1rem",
+            top: "1rem",
+            zIndex: 1000,
+            pointerEvents: "auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: ".5rem",
+            maxWidth: "200px",
+          }}
+        >
+          <ButtonPrimary
+            onClick={() => {
+              const newWindow = window.open(
+                window.location.origin + "?display",
+                "displayMode",
+                "width=1920,height=1080"
+              );
+              if (newWindow) {
+                newWindow.focus();
+              }
+            }}
+            title="Open Display Mode in new window"
+            style={{ fontSize: "0.9rem", padding: "0.5rem 0.75rem" }}
+          >
+            Open Display
+          </ButtonPrimary>
+
+          <ButtonPrimary
+            onClick={() => setDisplayPreviewOpen((v) => !v)}
+            title="Toggle preview of what's showing on display"
+            style={{ fontSize: "0.9rem", padding: "0.5rem 0.75rem" }}
+          >
+            {displayPreviewOpen ? "Hide Preview" : "Show Preview"}
+          </ButtonPrimary>
+
+          <Button
+            onClick={() => {
+              sendToDisplay("standby", null);
+            }}
+            title="Clear the display (standby screen)"
+            style={{ fontSize: "0.9rem", padding: "0.5rem 0.75rem" }}
+          >
+            Clear Display
+          </Button>
+
+          <Button
+            onClick={() => {
+              sendToDisplay("closeImageOverlay", null);
+            }}
+            title="Close any image overlay on the display"
+            style={{ fontSize: "0.9rem", padding: "0.5rem 0.75rem" }}
+          >
+            Close Image
+          </Button>
+
+          {/* Font size controls */}
+          <div
+            style={{ display: "flex", gap: "0.25rem", alignItems: "center" }}
+          >
+            <Button
+              onClick={() => {
+                const newSize = Math.max(50, displayFontSize - 10);
+                setDisplayFontSize(newSize);
+                sendToDisplay("fontSize", { size: newSize });
+              }}
+              title="Decrease display text size"
+              style={{ fontSize: "0.9rem", padding: "0.5rem 0.5rem", flex: 1 }}
+            >
+              A-
+            </Button>
+            <Button
+              onClick={() => {
+                const newSize = Math.min(400, displayFontSize + 10);
+                setDisplayFontSize(newSize);
+                sendToDisplay("fontSize", { size: newSize });
+              }}
+              title="Increase display text size"
+              style={{ fontSize: "0.9rem", padding: "0.5rem 0.5rem", flex: 1 }}
+            >
+              A+
+            </Button>
+          </div>
+
+          {/* Custom messages */}
+          <div style={{ marginTop: "0.5rem" }}>
+            <div
+              style={{
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                marginBottom: "0.25rem",
+                color: theme.dark,
+              }}
+            >
+              Custom Messages:
+            </div>
+            {customMessages.map((msg, idx) => (
+              <div
+                key={idx}
+                style={{
+                  marginBottom: "0.25rem",
+                  display: "flex",
+                  gap: "0.25rem",
+                }}
+              >
+                <input
+                  type="text"
+                  value={msg}
+                  onChange={(e) => {
+                    const newMessages = [...customMessages];
+                    newMessages[idx] = e.target.value;
+                    setCustomMessages(newMessages);
+                  }}
+                  placeholder={`Message ${idx + 1}`}
+                  style={{
+                    flex: 1,
+                    fontSize: "0.8rem",
+                    padding: "0.3rem",
+                    border: `1px solid ${theme.gray.border}`,
+                    borderRadius: "4px",
+                  }}
+                />
+                <Button
+                  onClick={() => {
+                    if (msg.trim()) {
+                      sendToDisplay("message", { text: msg });
+                    }
+                  }}
+                  disabled={!msg.trim()}
+                  title="Push this message to display"
+                  style={{
+                    fontSize: "0.7rem",
+                    padding: "0.3rem 0.5rem",
+                    opacity: msg.trim() ? 1 : 0.5,
+                  }}
+                >
+                  📺
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Display Preview Panel */}
+      {displayPreviewOpen && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: "1rem",
+            right: "1rem",
+            width: "400px",
+            height: "225px",
+            backgroundColor: "#000",
+            border: `3px solid ${theme.accent}`,
+            borderRadius: "8px",
+            zIndex: 2000,
+            overflow: "hidden",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: theme.accent,
+              color: "#fff",
+              padding: "0.5rem",
+              fontSize: "0.85rem",
+              fontWeight: 600,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <span>Display Preview (16:9)</span>
+            <button
+              onClick={() => setDisplayPreviewOpen(false)}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#fff",
+                fontSize: "1.2rem",
+                cursor: "pointer",
+                padding: "0 0.5rem",
+              }}
+            >
+              ×
+            </button>
+          </div>
+          <iframe
+            src={window.location.origin + "?display"}
+            title="Display Preview"
+            style={{
+              width: "100%",
+              height: "calc(100% - 35px)",
+              border: "none",
+              backgroundColor: "#000",
+            }}
+          />
+        </div>
+      )}
 
       {(isPublishing || publishStatus) && (
         <div
