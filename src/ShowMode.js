@@ -1266,26 +1266,51 @@ export default function ShowMode({
                           )}
                         </strong>
                         {sendToDisplay && (
-                          <Button
-                            onClick={() => {
-                              // Never automatically push images - user must explicitly use "Push image to display"
-                              sendToDisplay("question", {
-                                questionNumber: q["Question order"],
-                                questionText: q["Question text"] || "",
-                                categoryName: categoryName,
-                                images: [],
-                              });
-                            }}
-                            style={{
-                              marginLeft: ".5rem",
-                              fontSize: ".75rem",
-                              padding: ".25rem .5rem",
-                              verticalAlign: "middle",
-                            }}
-                            title="Push this question to the display"
-                          >
-                            Push to display
-                          </Button>
+                          <>
+                            <Button
+                              onClick={() => {
+                                // Never automatically push images - user must explicitly use "Push image to display"
+                                sendToDisplay("question", {
+                                  questionNumber: q["Question order"],
+                                  questionText: q["Question text"] || "",
+                                  categoryName: categoryName,
+                                  images: [],
+                                });
+                              }}
+                              style={{
+                                marginLeft: ".5rem",
+                                fontSize: ".75rem",
+                                padding: ".25rem .5rem",
+                                verticalAlign: "middle",
+                              }}
+                              title="Push this question to the display"
+                            >
+                              Push to display
+                            </Button>
+                            <Button
+                              onClick={() => {
+                                // Push question with answer
+                                sendToDisplay("questionWithAnswer", {
+                                  questionNumber: q["Question order"],
+                                  questionText: q["Question text"] || "",
+                                  categoryName: categoryName,
+                                  images: [],
+                                  answer: q["Answer"] || "",
+                                });
+                              }}
+                              style={{
+                                marginLeft: ".5rem",
+                                fontSize: ".75rem",
+                                padding: ".25rem .5rem",
+                                verticalAlign: "middle",
+                                backgroundColor: theme.accent,
+                                color: "#fff",
+                              }}
+                              title="Push this question with answer to the display"
+                            >
+                              Push answer
+                            </Button>
+                          </>
                         )}
                         {q._edited && (
                           <span
