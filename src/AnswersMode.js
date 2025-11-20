@@ -819,6 +819,27 @@ export default function AnswersMode({
                         >
                           Show image
                         </Button>
+                        {sendToDisplay && (
+                          <Button
+                            onClick={() => {
+                              const idx = currentImageIndex[q.showQuestionId] || 0;
+                              sendToDisplay("imageOverlay", {
+                                images: q.questionImages.map((img) => ({
+                                  url: img.url,
+                                })),
+                                currentIndex: idx,
+                              });
+                            }}
+                            style={{
+                              marginLeft: "0.5rem",
+                              marginBottom: ".25rem",
+                              fontFamily: tokens.font.body,
+                            }}
+                            title="Push image to display"
+                          >
+                            Push image to display
+                          </Button>
+                        )}
                         {visibleImages[q.showQuestionId] && (
                           <div
                             onClick={() =>
