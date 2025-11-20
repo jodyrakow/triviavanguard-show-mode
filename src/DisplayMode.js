@@ -494,7 +494,7 @@ function ResultsDisplay({ content, fontSize = 100 }) {
       {/* Place heading */}
       <div
         style={{
-          fontSize: `${7 * (fontSize / 100)}rem`,
+          fontSize: `${5 * (fontSize / 100)}rem`,
           fontFamily: tokens.font.display,
           color: theme.accent,
           textTransform: "uppercase",
@@ -508,7 +508,7 @@ function ResultsDisplay({ content, fontSize = 100 }) {
       {/* Team names */}
       <div
         style={{
-          fontSize: `${4 * (fontSize / 100)}rem`,
+          fontSize: `${5 * (fontSize / 100)}rem`,
           fontFamily: tokens.font.body,
           color: theme.dark,
           lineHeight: 1.5,
