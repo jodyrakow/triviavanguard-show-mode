@@ -494,7 +494,7 @@ function ResultsDisplay({ content, fontSize = 100 }) {
       {/* Place heading */}
       <div
         style={{
-          fontSize: `${6 * (fontSize / 100)}rem`,
+          fontSize: `${10 * (fontSize / 100)}rem`,
           fontFamily: tokens.font.display,
           color: theme.accent,
           textTransform: "uppercase",
