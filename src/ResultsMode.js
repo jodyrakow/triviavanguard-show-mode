@@ -2194,28 +2194,17 @@ export default function ResultsMode({
                             }}
                           >
                             {!sameAsPrev && (() => {
-                              // First row of placing - check if this is part of a tie group (same total score)
+                              // First row of this tie group (by score) - show ALL buttons for entire group
                               const allTiedByScore = arr.filter(
                                 (row) => row.total === r.total
                               );
                               const isTiedByScore = allTiedByScore.length > 1;
 
-                              // Get all teams with same place (after tiebreaker resolution)
-                              const teamsInPlace = arr.filter(
-                                (row) => row.place === r.place
-                              );
-
-                              const placeStr = ordinal(r.place);
-                              const teamNames = teamsInPlace.map((t) => t.teamName);
-                              const prizeText =
-                                prizeCount > 0 && r.place <= prizeCount
-                                  ? prizes[r.place - 1] || ""
-                                  : "";
+                              // Get unique places within this tie group
+                              const uniquePlaces = [...new Set(allTiedByScore.map(t => t.place))].sort((a, b) => a - b);
 
                               // For randomize button: get the highest place in the tie group
-                              const highestPlaceInTie = Math.min(
-                                ...allTiedByScore.map((t) => t.place)
-                              );
+                              const highestPlaceInTie = Math.min(...uniquePlaces);
                               const highestPlaceStr = ordinal(highestPlaceInTie);
 
                               // Check if there are "unlucky" teams (tied but outside prize band)
@@ -2263,7 +2252,7 @@ export default function ResultsMode({
                                   )}
 
                                   {/* Push button for "unlucky" teams (tied but no prize) */}
-                                  {unluckyTeams.length > 0 && r.place === Math.min(...unluckyTeams.map(t => t.place)) && (
+                                  {unluckyTeams.length > 0 && (
                                     <Button
                                       onClick={() => {
                                         const unluckyTeamNames = unluckyTeams.map(
@@ -2287,25 +2276,40 @@ export default function ResultsMode({
                                     </Button>
                                   )}
 
-                                  {/* Individual push button for this specific place */}
-                                  <Button
-                                    onClick={() => {
-                                      sendToDisplay("results", {
-                                        place: placeStr,
-                                        teams: teamNames,
-                                        prize: prizeText,
-                                        isTied: false,
-                                      });
-                                    }}
-                                    style={{
-                                      fontSize: "0.7rem",
-                                      padding: "0.25rem 0.5rem",
-                                      whiteSpace: "nowrap",
-                                    }}
-                                    title={`Push ${placeStr} place: ${teamNames.join(", ")}`}
-                                  >
-                                    📺 {placeStr}
-                                  </Button>
+                                  {/* Individual push buttons for EACH place in the tie group */}
+                                  {uniquePlaces.map((place) => {
+                                    const teamsAtThisPlace = allTiedByScore.filter(
+                                      (t) => t.place === place
+                                    );
+                                    const placeStr = ordinal(place);
+                                    const teamNames = teamsAtThisPlace.map((t) => t.teamName);
+                                    const prizeText =
+                                      prizeCount > 0 && place <= prizeCount
+                                        ? prizes[place - 1] || ""
+                                        : "";
+
+                                    return (
+                                      <Button
+                                        key={place}
+                                        onClick={() => {
+                                          sendToDisplay("results", {
+                                            place: placeStr,
+                                            teams: teamNames,
+                                            prize: prizeText,
+                                            isTied: false,
+                                          });
+                                        }}
+                                        style={{
+                                          fontSize: "0.7rem",
+                                          padding: "0.25rem 0.5rem",
+                                          whiteSpace: "nowrap",
+                                        }}
+                                        title={`Push ${placeStr} place: ${teamNames.join(", ")}`}
+                                      >
+                                        📺 {placeStr}
+                                      </Button>
+                                    );
+                                  })}
                                 </div>
                               );
                             })()}
