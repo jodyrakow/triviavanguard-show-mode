@@ -347,37 +347,6 @@ export default function ShowMode({
     return result;
   }, [cachedState, showBundle, scoringMode]);
 
-  // Check if a round has any scoring data (to decide whether to show stats)
-  const roundHasScores = React.useMemo(() => {
-    if (!cachedState?.grid) return {};
-
-    const grid = cachedState.grid;
-    const result = {}; // { [roundId]: boolean }
-
-    const rounds = showBundle?.rounds || [];
-    for (const round of rounds) {
-      const roundId = String(round.round);
-      const roundQuestions = round.questions || [];
-
-      // Check if ANY question in this round has a score
-      let hasData = false;
-      for (const q of roundQuestions) {
-        // Check if any grid key for this question exists
-        for (const key in grid) {
-          if (key.endsWith(`-${q.id}`)) {
-            hasData = true;
-            break;
-          }
-        }
-        if (hasData) break;
-      }
-
-      result[roundId] = hasData;
-    }
-
-    return result;
-  }, [cachedState, showBundle]);
-
   const sortedGroupedEntries = React.useMemo(() => {
     const entries = Object.entries(groupedQuestions);
     const hasVisual = (cat) =>
