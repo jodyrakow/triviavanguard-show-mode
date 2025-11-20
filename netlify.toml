@@ -1,4 +1,7 @@
 [build]
-  # command = "npm run build"
+  command = "npm run build"
   publish = "build"
   functions = "netlify/functions"
+
+  [build.environment]
+SECRETS_SCAN_OMIT_KEYS = "REACT_APP_SUPABASE_ANON_KEY,REACT_APP_SUPABASE_URL"
