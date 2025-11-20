@@ -1701,6 +1701,7 @@ export default function App() {
           prizes={composedCachedState?.prizes ?? ""}
           setPrizes={(val) => patchShared({ prizes: String(val || "") })}
           questionEdits={questionEdits[selectedShowId] ?? {}}
+          sendToDisplay={sendToDisplay}
         />
       )}
 

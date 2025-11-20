@@ -35,6 +35,7 @@ export default function ResultsMode({
   prizes: prizesString = "", // NEW: prizes from shared state (newline-separated string)
   setPrizes: setPrizesString, // NEW: setter for shared prizes
   questionEdits = {}, // { [showQuestionId]: { question?, flavorText?, answer? } }
+  sendToDisplay, // Function to send content to display mode
 }) {
   const roundNumber = Number(selectedRoundId);
   const usingCumulative =
