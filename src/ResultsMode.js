@@ -1935,100 +1935,6 @@ export default function ResultsMode({
           Final standings
         </div>
 
-        {/* Display push buttons for each placing band */}
-        {sendToDisplay && standingsByPlace.length > 0 && (
-          <div
-            style={{
-              padding: `${tokens.spacing.sm} ${tokens.spacing.md}`,
-              borderBottom: `${tokens.borders.thin} ${colors.gray.borderLighter}`,
-              background: "rgba(220,106,36,0.05)",
-              fontFamily: tokens.font.body,
-            }}
-          >
-            <div
-              style={{
-                fontWeight: 700,
-                marginBottom: tokens.spacing.sm,
-                fontSize: "0.9rem",
-                color: theme.dark,
-              }}
-            >
-              📺 Push Results to Display:
-            </div>
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: "0.5rem",
-              }}
-            >
-              {standingsByPlace.map((group, idx) => {
-                const placeStr = ordinal(group.place);
-                const teamNames = group.teams.map((t) => t.teamName);
-                const prizeText =
-                  prizeCount > 0 && group.place <= prizeCount
-                    ? prizes[group.place - 1] || ""
-                    : "";
-
-                // Check if this group is in or overlaps prize band
-                const inPrizeBand = group.place <= prizeCount;
-                const isTiedInPrizeBand = group.isTied && inPrizeBand;
-
-                return (
-                  <div key={idx} style={{ display: "flex", gap: "0.25rem" }}>
-                    <Button
-                      onClick={() => {
-                        sendToDisplay("results", {
-                          place: placeStr,
-                          teams: teamNames,
-                          prize: prizeText,
-                          isTied: false,
-                        });
-                      }}
-                      style={{
-                        fontSize: "0.8rem",
-                        padding: "0.4rem 0.6rem",
-                        whiteSpace: "nowrap",
-                      }}
-                      title={`Push ${placeStr} place to display: ${teamNames.join(", ")}`}
-                    >
-                      {placeStr} ({teamNames.length})
-                    </Button>
-
-                    {/* Randomize button for tied bands in prize range */}
-                    {isTiedInPrizeBand && (
-                      <Button
-                        onClick={() => {
-                          // Randomize team order
-                          const shuffled = [...teamNames].sort(
-                            () => Math.random() - 0.5
-                          );
-                          sendToDisplay("results", {
-                            place: placeStr,
-                            teams: shuffled,
-                            prize: null, // Don't show prize when randomizing
-                            isTied: true,
-                          });
-                        }}
-                        style={{
-                          fontSize: "0.8rem",
-                          padding: "0.4rem 0.6rem",
-                          whiteSpace: "nowrap",
-                          background: theme.accent,
-                          color: "#fff",
-                        }}
-                        title={`Randomize team order and push to display (no placings shown)`}
-                      >
-                        🔀 Randomize
-                      </Button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
         {showTbColumn ? (
           <div
             style={{
@@ -2157,6 +2063,18 @@ export default function ResultsMode({
                       }}
                     >
                       Tiebreaker
+                    </th>
+                  )}
+                  {sendToDisplay && (
+                    <th
+                      style={{
+                        padding: tokens.spacing.sm,
+                        fontSize: "1.1rem",
+                        textAlign: "center",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      Display
                     </th>
                   )}
                   <th
@@ -2298,6 +2216,92 @@ export default function ResultsMode({
                                     minHeight: 18,
                                   }}
                                 />
+                              );
+                            })()}
+                          </td>
+                        )}
+
+                        {/* Display push buttons column */}
+                        {sendToDisplay && (
+                          <td
+                            style={{
+                              padding: tokens.spacing.sm,
+                              textAlign: "center",
+                              verticalAlign: "middle",
+                            }}
+                          >
+                            {!sameAsPrev && (() => {
+                              // This is the first row of this placing band
+                              const placeStr = ordinal(r.place);
+                              // Get all teams with the same place
+                              const teamsInPlace = arr.filter(
+                                (row) => row.place === r.place
+                              );
+                              const teamNames = teamsInPlace.map((t) => t.teamName);
+                              const prizeText =
+                                prizeCount > 0 && r.place <= prizeCount
+                                  ? prizes[r.place - 1] || ""
+                                  : "";
+                              const isTied = teamsInPlace.length > 1;
+                              const inPrizeBand = r.place <= prizeCount;
+                              const isTiedInPrizeBand = isTied && inPrizeBand;
+
+                              return (
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: "0.25rem",
+                                    alignItems: "center",
+                                  }}
+                                >
+                                  <Button
+                                    onClick={() => {
+                                      sendToDisplay("results", {
+                                        place: placeStr,
+                                        teams: teamNames,
+                                        prize: prizeText,
+                                        isTied: false,
+                                      });
+                                    }}
+                                    style={{
+                                      fontSize: "0.7rem",
+                                      padding: "0.25rem 0.5rem",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                    title={`Push ${placeStr} place to display: ${teamNames.join(", ")}`}
+                                  >
+                                    📺 Push
+                                  </Button>
+
+                                  {/* Randomize button for tied bands in prize range */}
+                                  {isTiedInPrizeBand && (
+                                    <Button
+                                      onClick={() => {
+                                        // Randomize team order
+                                        const shuffled = [...teamNames].sort(
+                                          () => Math.random() - 0.5
+                                        );
+                                        sendToDisplay("results", {
+                                          place: placeStr,
+                                          teams: shuffled,
+                                          prize: null,
+                                          isTied: true,
+                                        });
+                                      }}
+                                      style={{
+                                        fontSize: "0.7rem",
+                                        padding: "0.25rem 0.5rem",
+                                        whiteSpace: "nowrap",
+                                        background: theme.accent,
+                                        color: "#fff",
+                                      }}
+                                      title={`Randomize team order and push to display`}
+                                    >
+                                      🔀 Rand
+                                    </Button>
+                                  )}
+                                </div>
                               );
                             })()}
                           </td>
