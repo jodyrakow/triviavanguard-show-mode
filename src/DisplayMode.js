@@ -87,6 +87,9 @@ export default function DisplayMode() {
         {displayState.type === "standings" && (
           <StandingsDisplay content={displayState.content} />
         )}
+        {displayState.type === "results" && (
+          <ResultsDisplay content={displayState.content} fontSize={fontSize} />
+        )}
       </div>
 
       {/* Image overlay */}
@@ -465,6 +468,71 @@ function ImageOverlay({ images, currentIndex, onClose }) {
           >
             Next
           </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Results display for showing final placements
+function ResultsDisplay({ content, fontSize = 100 }) {
+  if (!content) return null;
+
+  const { place, teams, prize, isTied } = content;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "2rem",
+        padding: "2rem",
+      }}
+    >
+      {/* Place heading */}
+      <div
+        style={{
+          fontSize: `${2.5 * (fontSize / 100)}rem`,
+          fontFamily: tokens.font.display,
+          color: theme.accent,
+          textTransform: "uppercase",
+          letterSpacing: "0.05em",
+          fontWeight: 700,
+        }}
+      >
+        {isTied ? `TIED for ${place}` : place}
+      </div>
+
+      {/* Team names */}
+      <div
+        style={{
+          fontSize: `${1.8 * (fontSize / 100)}rem`,
+          fontFamily: tokens.font.body,
+          color: theme.dark,
+          lineHeight: 1.5,
+        }}
+      >
+        {teams.map((team, idx) => (
+          <div key={idx} style={{ marginBottom: "0.5rem" }}>
+            {team}
+          </div>
+        ))}
+      </div>
+
+      {/* Prize (if provided) */}
+      {prize && (
+        <div
+          style={{
+            fontSize: `${1.4 * (fontSize / 100)}rem`,
+            fontFamily: tokens.font.body,
+            color: theme.accent,
+            fontWeight: 600,
+            marginTop: "1rem",
+          }}
+        >
+          {prize}
         </div>
       )}
     </div>
