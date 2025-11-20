@@ -508,7 +508,7 @@ function ResultsDisplay({ content, fontSize = 100 }) {
       {/* Team names */}
       <div
         style={{
-          fontSize: `${4.8 * (fontSize / 100)}rem`,
+          fontSize: `${4 * (fontSize / 100)}rem`,
           fontFamily: tokens.font.body,
           color: theme.dark,
           lineHeight: 1.5,
@@ -525,7 +525,7 @@ function ResultsDisplay({ content, fontSize = 100 }) {
       {prize && (
         <div
           style={{
-            fontSize: `${5.25 * (fontSize / 100)}rem`,
+            fontSize: `${4 * (fontSize / 100)}rem`,
             fontFamily: tokens.font.body,
             color: theme.accent,
             fontWeight: 600,
