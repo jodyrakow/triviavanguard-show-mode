@@ -1152,6 +1152,18 @@ export default function ResultsMode({
             >
               A-
             </Button>
+            <span
+              style={{
+                fontSize: "0.9rem",
+                fontFamily: tokens.font.body,
+                color: theme.dark,
+                padding: "0 0.5rem",
+                minWidth: "4rem",
+                textAlign: "center",
+              }}
+            >
+              {displayFontSize}%
+            </span>
             <Button
               onClick={() => {
                 const newSize = Math.min(400, displayFontSize + 10);
