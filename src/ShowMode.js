@@ -285,7 +285,7 @@ export default function ShowMode({
     if (!cachedState?.teams || !cachedState?.grid) return {};
 
     const teams = cachedState.teams;
-    const grid = cachedState.grid; // Unified grid: { "teamId-questionId": {...} }
+    const grid = cachedState.grid; // Nested grid: { [teamId]: { [questionId]: {...} } }
 
     const teamNames = new Map(
       teams.map((t) => [t.showTeamId, t.teamName || "(Unnamed team)"])
@@ -305,8 +305,7 @@ export default function ShowMode({
         const activeTeams = new Set();
         for (const t of teams) {
           for (const q of roundQuestions) {
-            const gridKey = `${t.showTeamId}-${q.id}`;
-            if (grid[gridKey]) {
+            if (grid[t.showTeamId]?.[q.id]) {
               activeTeams.add(t.showTeamId);
               break; // Found at least one answer for this team
             }
@@ -324,8 +323,7 @@ export default function ShowMode({
         const correctTeams = [];
 
         for (const t of teams) {
-          const gridKey = `${t.showTeamId}-${showQuestionId}`;
-          const cell = grid[gridKey];
+          const cell = grid[t.showTeamId]?.[showQuestionId];
           if (cell?.isCorrect) {
             correctCount++;
             const nm = teamNames.get(t.showTeamId);
@@ -1619,22 +1617,21 @@ export default function ShowMode({
                         return (
                           <div
                             style={{
-                              marginLeft: "1.5rem",
+                              marginLeft: tokens.spacing.lg,
                               marginBottom: ".75rem",
                             }}
                           >
                             <span
                               style={{
                                 display: "inline-block",
-                                padding: "0.35rem 0.75rem",
-                                borderRadius: 6,
+                                padding: "0.2rem 0.75rem",
+                                borderRadius: tokens.radius.pill,
                                 background: theme.white,
                                 fontSize: "1.05rem",
                                 border: `${tokens.borders.medium} ${theme.accent}`,
                               }}
                             >
-                              {stats.correctCount} / {stats.totalTeams} teams
-                              correct
+                              {stats.correctCount} / {stats.totalTeams} teams correct
                             </span>
 
                             {(scoringMode === "pooled" ||
