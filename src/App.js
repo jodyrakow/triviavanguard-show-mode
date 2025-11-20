@@ -1681,6 +1681,7 @@ export default function App() {
           prizes={composedCachedState?.prizes ?? ""}
           editQuestionField={editQuestionField}
           refreshBundle={refreshBundle}
+          sendToDisplay={sendToDisplay}
         />
       )}
 

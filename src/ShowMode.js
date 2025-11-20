@@ -1150,7 +1150,7 @@ export default function ShowMode({
                           }}
                         >
                           🎵{" "}
-                          {(audioObj.filename || "").replace(/\.[^/.]+$/, "")}
+                          {showDetails && (audioObj.filename || "").replace(/\.[^/.]+$/, "")}
                         </div>
                       </div>
                     )
@@ -1573,7 +1573,7 @@ export default function ShowMode({
                                     }}
                                   >
                                     🎵{" "}
-                                    {(audioObj.filename || "").replace(
+                                    {showDetails && (audioObj.filename || "").replace(
                                       /\.[^/.]+$/,
                                       ""
                                     )}

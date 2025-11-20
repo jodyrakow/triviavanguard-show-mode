@@ -98,6 +98,7 @@ export default function AnswersMode({
   prizes = "", // NEW: prizes from shared state (newline-separated string)
   editQuestionField,
   refreshBundle,
+  sendToDisplay,
 }) {
   // Unified question editor modal state
   const [editingQuestion, setEditingQuestion] = React.useState(null);
@@ -963,6 +964,25 @@ export default function AnswersMode({
                         __html: marked.parseInline(q.answer || ""),
                       }}
                     />
+                    {sendToDisplay && (
+                      <Button
+                        onClick={() => {
+                          sendToDisplay("questionWithAnswer", {
+                            questionNumber: q.order,
+                            questionText: q.text || "",
+                            answer: q.answer || "",
+                          });
+                        }}
+                        style={{
+                          marginLeft: "1rem",
+                          fontSize: "0.9rem",
+                          padding: "0.25rem 0.5rem",
+                        }}
+                        title="Push question with answer to display"
+                      >
+                        Push answer to display
+                      </Button>
+                    )}
                   </div>
 
                   {/* Stats pill (X/Y correct, pooled share, SOLO) - skip for tiebreaker */}

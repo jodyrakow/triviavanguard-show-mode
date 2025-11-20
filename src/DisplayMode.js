@@ -75,6 +75,9 @@ export default function DisplayMode() {
         {displayState.type === "question" && (
           <QuestionDisplay content={displayState.content} fontSize={fontSize} />
         )}
+        {displayState.type === "questionWithAnswer" && (
+          <QuestionDisplay content={displayState.content} fontSize={fontSize} />
+        )}
         {displayState.type === "category" && (
           <CategoryDisplay content={displayState.content} fontSize={fontSize} />
         )}
@@ -163,6 +166,7 @@ function QuestionDisplay({ content, fontSize = 100 }) {
     questionText,
     categoryName,
     images = [],
+    answer,
   } = content || {};
 
   const scale = fontSize / 100;
@@ -273,6 +277,22 @@ function QuestionDisplay({ content, fontSize = 100 }) {
           }}
           dangerouslySetInnerHTML={{
             __html: marked.parseInline(questionText || ""),
+          }}
+        />
+      )}
+
+      {/* Answer (if provided) */}
+      {answer && (
+        <div
+          style={{
+            fontSize: `${2.5 * scale}rem`,
+            fontWeight: 600,
+            lineHeight: 1.4,
+            color: theme.accent,
+            marginTop: "2rem",
+          }}
+          dangerouslySetInnerHTML={{
+            __html: marked.parseInline(answer || ""),
           }}
         />
       )}
