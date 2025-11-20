@@ -1051,43 +1051,6 @@ export default function ResultsMode({
 
   const finalStandingsRef = useRef(null);
 
-  // --------- Group standings by place for display buttons ---------
-  const standingsByPlace = useMemo(() => {
-    const groups = [];
-    let currentPlace = null;
-    let currentGroup = [];
-
-    for (const row of standings) {
-      if (row.place !== currentPlace) {
-        // New place - save previous group if exists
-        if (currentGroup.length > 0) {
-          groups.push({
-            place: currentPlace,
-            teams: currentGroup,
-            isTied: currentGroup.length > 1,
-          });
-        }
-        // Start new group
-        currentPlace = row.place;
-        currentGroup = [row];
-      } else {
-        // Same place - add to current group
-        currentGroup.push(row);
-      }
-    }
-
-    // Don't forget the last group
-    if (currentGroup.length > 0) {
-      groups.push({
-        place: currentPlace,
-        teams: currentGroup,
-        isTied: currentGroup.length > 1,
-      });
-    }
-
-    return groups;
-  }, [standings]);
-
   return (
     <div style={{ fontFamily: tokens.font.body, color: theme.dark }}>
       {/* Header */}
