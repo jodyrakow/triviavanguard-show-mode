@@ -1629,6 +1629,7 @@ export default function ShowMode({
                                 background: theme.white,
                                 fontSize: "1.05rem",
                                 border: `${tokens.borders.medium} ${theme.accent}`,
+                                fontFamily: tokens.font.body,
                               }}
                             >
                               {stats.correctCount} / {stats.totalTeams} teams correct
