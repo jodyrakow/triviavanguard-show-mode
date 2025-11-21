@@ -170,6 +170,9 @@ function QuestionDisplay({ content, fontSize = 100 }) {
     categoryName,
     images = [],
     answer,
+    pointsPerTeam,
+    correctCount,
+    totalTeams,
   } = content || {};
 
   const scale = fontSize / 100;
@@ -286,18 +289,50 @@ function QuestionDisplay({ content, fontSize = 100 }) {
 
       {/* Answer (if provided) */}
       {answer && (
-        <div
-          style={{
-            fontSize: `${2.5 * scale}rem`,
-            fontWeight: 600,
-            lineHeight: 1.4,
-            color: theme.accent,
-            marginTop: "2rem",
-          }}
-          dangerouslySetInnerHTML={{
-            __html: marked.parseInline(answer || ""),
-          }}
-        />
+        <>
+          <div
+            style={{
+              fontSize: `${2.5 * scale}rem`,
+              fontWeight: 600,
+              lineHeight: 1.4,
+              color: theme.accent,
+              marginTop: "2rem",
+            }}
+            dangerouslySetInnerHTML={{
+              __html: marked.parseInline(answer || ""),
+            }}
+          />
+
+          {/* Stats for pooled scoring modes */}
+          {pointsPerTeam !== null && pointsPerTeam !== undefined && (
+            <div
+              style={{
+                marginTop: "2rem",
+                fontSize: `${1.5 * scale}rem`,
+                color: theme.dark,
+                fontFamily: tokens.font.body,
+              }}
+            >
+              {correctCount !== null && totalTeams !== null && (
+                <div style={{ marginBottom: "0.5rem" }}>
+                  {correctCount} / {totalTeams} teams correct
+                </div>
+              )}
+              <div>
+                <span
+                  style={{
+                    color: theme.accent,
+                    fontWeight: 700,
+                    fontSize: `${1.8 * scale}rem`,
+                  }}
+                >
+                  {pointsPerTeam}
+                </span>{" "}
+                points per team
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

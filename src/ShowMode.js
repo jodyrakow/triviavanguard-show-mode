@@ -1551,6 +1551,34 @@ export default function ShowMode({
                         </div>
                       )}
 
+                      {/* Calculate stats once for use in answer button and stats pill */}
+                      {(() => {
+                        const m = /^(\d+)/.exec(String(categoryId));
+                        const roundNum = m ? Number(m[1]) : 0;
+                        const qStats =
+                          statsByRoundAndQuestion[roundNum]?.[
+                            q["Show Question ID"]
+                          ];
+
+                        // Calculate points for pooled scoring modes
+                        const qPointsPerTeam =
+                          qStats &&
+                          (scoringMode === "pooled" || scoringMode === "pooled-adaptive") &&
+                          qStats.correctCount > 0
+                            ? scoringMode === "pooled-adaptive"
+                              ? Math.round(
+                                  (Number(poolContribution) * qStats.activeTeamCount) /
+                                    qStats.correctCount
+                                )
+                              : Math.round(Number(poolPerQuestion) / qStats.correctCount)
+                            : null;
+
+                        // Store these in a way the button can access them
+                        q._calculatedStats = qStats;
+                        q._calculatedPoints = qPointsPerTeam;
+                        return null;
+                      })()}
+
                       {/* ANSWER */}
                       {showDetails && (
                         <p
@@ -1601,13 +1629,16 @@ export default function ShowMode({
                           {sendToDisplay && (
                             <Button
                               onClick={() => {
-                                // Push question with answer
+                                // Push question with answer and stats
                                 sendToDisplay("questionWithAnswer", {
                                   questionNumber: q["Question order"],
                                   questionText: q["Question text"] || "",
                                   categoryName: categoryName,
                                   images: [],
                                   answer: q["Answer"] || "",
+                                  pointsPerTeam: q._calculatedPoints,
+                                  correctCount: q._calculatedStats?.correctCount || null,
+                                  totalTeams: q._calculatedStats?.totalTeams || null,
                                 });
                               }}
                               style={{
@@ -1626,14 +1657,11 @@ export default function ShowMode({
 
                       {/* STATS PILL (teams correct, points, SOLO) */}
                       {(() => {
+                        // Use pre-calculated stats from above
                         const isTiebreaker =
                           (q["Question type"] || "") === "Tiebreaker";
-                        const m = /^(\d+)/.exec(String(categoryId));
-                        const roundNum = m ? Number(m[1]) : 0;
-                        const stats =
-                          statsByRoundAndQuestion[roundNum]?.[
-                            q["Show Question ID"]
-                          ];
+                        const stats = q._calculatedStats;
+                        const pointsPerTeam = q._calculatedPoints;
 
                         if (!stats || isTiebreaker) return null;
 
@@ -1658,9 +1686,7 @@ export default function ShowMode({
                               {stats.correctCount} / {stats.totalTeams} teams correct
                             </span>
 
-                            {(scoringMode === "pooled" ||
-                              scoringMode === "pooled-adaptive") &&
-                              stats.correctCount > 0 && (
+                            {pointsPerTeam !== null && (
                                 <span
                                   style={{
                                     marginLeft: ".6rem",
@@ -1673,16 +1699,7 @@ export default function ShowMode({
                                       fontWeight: 700,
                                     }}
                                   >
-                                    {scoringMode === "pooled-adaptive"
-                                      ? Math.round(
-                                          (Number(poolContribution) *
-                                            stats.activeTeamCount) /
-                                            stats.correctCount
-                                        )
-                                      : Math.round(
-                                          Number(poolPerQuestion) /
-                                            stats.correctCount
-                                        )}
+                                    {pointsPerTeam}
                                   </span>{" "}
                                   points per team
                                 </span>
