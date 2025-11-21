@@ -120,6 +120,35 @@ export async function handler(event) {
       });
     }
 
+    // Sort matches by relevance
+    const qLower = q.toLowerCase();
+    matches.sort((a, b) => {
+      const aName = (a.teamName || "").toLowerCase();
+      const bName = (b.teamName || "").toLowerCase();
+
+      // Exact match comes first
+      if (aName === qLower && bName !== qLower) return -1;
+      if (bName === qLower && aName !== qLower) return 1;
+
+      // Starts with query
+      const aStarts = aName.startsWith(qLower);
+      const bStarts = bName.startsWith(qLower);
+      if (aStarts && !bStarts) return -1;
+      if (bStarts && !aStarts) return 1;
+
+      // Starts with query after "the "
+      const aStartsAfterThe = aName.startsWith("the ") && aName.substring(4).startsWith(qLower);
+      const bStartsAfterThe = bName.startsWith("the ") && bName.substring(4).startsWith(qLower);
+      if (aStartsAfterThe && !bStartsAfterThe) return -1;
+      if (bStartsAfterThe && !aStartsAfterThe) return 1;
+
+      // Otherwise, alphabetical
+      return aName.localeCompare(bName);
+    });
+
+    // Limit to 3 results
+    const limitedMatches = matches.slice(0, 3);
+
     // 6) Respond
     return {
       statusCode: 200,
@@ -127,7 +156,7 @@ export async function handler(event) {
         "content-type": "application/json",
         "access-control-allow-origin": "*",
       },
-      body: JSON.stringify({ matches }),
+      body: JSON.stringify({ matches: limitedMatches }),
     };
   } catch (err) {
     return {
