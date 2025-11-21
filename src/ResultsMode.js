@@ -1097,7 +1097,7 @@ export default function ResultsMode({
               const newWindow = window.open(
                 window.location.origin + "?display",
                 "displayMode",
-                "width=1920,height=1080"
+                "width=1920,height=1080,location=no,toolbar=no,menubar=no,status=no"
               );
               if (newWindow) {
                 newWindow.focus();
