@@ -309,7 +309,7 @@ function QuestionDisplay({ content, fontSize = 100 }) {
             <div
               style={{
                 marginTop: "2rem",
-                fontSize: `${2 * scale}rem`,
+                fontSize: `${2.5 * scale}rem`,
                 color: theme.dark,
                 fontFamily: tokens.font.body,
               }}
@@ -329,7 +329,7 @@ function QuestionDisplay({ content, fontSize = 100 }) {
                     style={{
                       color: theme.accent,
                       fontWeight: 700,
-                      fontSize: `${2 * scale}rem`,
+                      fontSize: `${2.5 * scale}rem`,
                     }}
                   >
                     {pointsPerTeam}
