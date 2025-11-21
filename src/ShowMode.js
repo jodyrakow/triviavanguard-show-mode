@@ -1560,7 +1560,7 @@ export default function ShowMode({
                             q["Show Question ID"]
                           ];
 
-                        // Calculate points for pooled scoring modes
+                        // Calculate points for pooled scoring modes (not pub)
                         const qPointsPerTeam =
                           qStats &&
                           (scoringMode === "pooled" || scoringMode === "pooled-adaptive") &&
@@ -1574,8 +1574,9 @@ export default function ShowMode({
                             : null;
 
                         // Store these in a way the button can access them
+                        // Stats are available for pub, pooled, and pooled-adaptive
                         q._calculatedStats = qStats;
-                        q._calculatedPoints = qPointsPerTeam;
+                        q._calculatedPoints = qPointsPerTeam; // Only set for pooled modes
                         return null;
                       })()}
 

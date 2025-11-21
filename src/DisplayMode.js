@@ -303,8 +303,8 @@ function QuestionDisplay({ content, fontSize = 100 }) {
             }}
           />
 
-          {/* Stats for pooled scoring modes */}
-          {pointsPerTeam !== null && pointsPerTeam !== undefined && (
+          {/* Stats for all scoring modes */}
+          {(correctCount !== null && totalTeams !== null) || pointsPerTeam !== null && (
             <div
               style={{
                 marginTop: "2rem",
@@ -314,22 +314,24 @@ function QuestionDisplay({ content, fontSize = 100 }) {
               }}
             >
               {correctCount !== null && totalTeams !== null && (
-                <div style={{ marginBottom: "0.5rem" }}>
+                <div style={{ marginBottom: pointsPerTeam !== null ? "0.5rem" : "0" }}>
                   {correctCount} / {totalTeams} teams correct
                 </div>
               )}
-              <div>
-                <span
-                  style={{
-                    color: theme.accent,
-                    fontWeight: 700,
-                    fontSize: `${1.8 * scale}rem`,
-                  }}
-                >
-                  {pointsPerTeam}
-                </span>{" "}
-                points per team
-              </div>
+              {pointsPerTeam !== null && pointsPerTeam !== undefined && (
+                <div>
+                  <span
+                    style={{
+                      color: theme.accent,
+                      fontWeight: 700,
+                      fontSize: `${1.8 * scale}rem`,
+                    }}
+                  >
+                    {pointsPerTeam}
+                  </span>{" "}
+                  points per team
+                </div>
+              )}
             </div>
           )}
         </>
