@@ -304,7 +304,7 @@ function QuestionDisplay({ content, fontSize = 100 }) {
           />
 
           {/* Stats for all scoring modes */}
-          {(correctCount !== null && totalTeams !== null) || pointsPerTeam !== null && (
+          {((correctCount !== null && totalTeams !== null) || pointsPerTeam !== null) && (
             <div
               style={{
                 marginTop: "2rem",
