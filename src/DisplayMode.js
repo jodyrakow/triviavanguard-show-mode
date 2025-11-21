@@ -304,17 +304,22 @@ function QuestionDisplay({ content, fontSize = 100 }) {
           />
 
           {/* Stats for all scoring modes */}
-          {((correctCount !== null && totalTeams !== null) || pointsPerTeam !== null) && (
+          {((correctCount !== null && totalTeams !== null) ||
+            pointsPerTeam !== null) && (
             <div
               style={{
                 marginTop: "2rem",
-                fontSize: `${1.5 * scale}rem`,
+                fontSize: `${2 * scale}rem`,
                 color: theme.dark,
                 fontFamily: tokens.font.body,
               }}
             >
               {correctCount !== null && totalTeams !== null && (
-                <div style={{ marginBottom: pointsPerTeam !== null ? "0.5rem" : "0" }}>
+                <div
+                  style={{
+                    marginBottom: pointsPerTeam !== null ? "0.5rem" : "0",
+                  }}
+                >
                   {correctCount} / {totalTeams} teams correct
                 </div>
               )}
@@ -324,7 +329,7 @@ function QuestionDisplay({ content, fontSize = 100 }) {
                     style={{
                       color: theme.accent,
                       fontWeight: 700,
-                      fontSize: `${1.8 * scale}rem`,
+                      fontSize: `${2 * scale}rem`,
                     }}
                   >
                     {pointsPerTeam}
